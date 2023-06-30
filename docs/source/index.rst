@@ -14,7 +14,7 @@ Features
 
   - neural implicit representation
 
-  - deformation fields (neural fields, control-ponits, skeleton)
+  - deformation fields (neural fields, control-points, skeleton)
 
   - compositional scene
 
@@ -37,5 +37,5 @@ Features
 .. note::
 
   This is an alpha release and the APIs are subject to change as we continuously improve and refine it. 
-  We encourage users to provid feedback and report bugs via `github issues <https://github.com/gengshan-y/lab4d/issues/new/choose>`_. 
+  We encourage users to provide feedback and report bugs via `github issues <https://github.com/lab4d-org/lab4d/issues/new/choose>`_. 
   Thank you for your support. 

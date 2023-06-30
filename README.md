@@ -5,10 +5,13 @@
 </p>
 
 # Lab4D
-**[[Docs & Tutorials](https://gengshan-y.github.io/lab4d/)]**
+**[[Docs & Tutorials](https://lab4d-org.github.io/lab4d/)]**
+
+*This is an alpha release and the APIs are subject to change. Please provide feedback and report bugs via github issues. Thank you for your support.*
 
 ## TODOs
-- [ ] feedforward inference models
+- [ ] more data and checkpoints
+- [ ] feedforward models
 - [ ] web viewer
 - [ ] evaluation and benchmarks
 - [ ] multi-view reconstruction

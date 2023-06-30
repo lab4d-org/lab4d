@@ -20,7 +20,7 @@ Set up the environment
 
 Clone the repository and create a conda environment with the required packages::
 
-    git clone git@github.com:gengshan-y/lab4d.git --recursive
+    git clone git@github.com:lab4d-org/lab4d.git --recursive
 
     cd lab4d
 
