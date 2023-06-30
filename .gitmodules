@@ -1,0 +1,14 @@
+[submodule "preprocess/third_party/MinVIS"]
+	path = preprocess/third_party/MinVIS
+	url = https://github.com/gengshan-y/MinVIS
+
+[submodule "preprocess/third_party/detectron2"]
+	path = preprocess/third_party/detectron2
+	url = https://github.com/facebookresearch/detectron2
+    ignore = dirty
+[submodule "preprocess/third_party/Track-Anything"]
+	path = preprocess/third_party/Track-Anything
+	url = https://github.com/gengshan-y/Track-Anything
+[submodule "docs/pytorch_sphinx_theme"]
+	path = docs/pytorch_sphinx_theme
+	url = https://github.com/gengshan-y/pytorch_sphinx_theme

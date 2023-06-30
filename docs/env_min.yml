@@ -1,0 +1,23 @@
+name: lab4d
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - pip
+  - ninja
+  - pytorch
+  - torchvision
+  - cpuonly
+  - matplotlib
+  - absl-py 
+  - tensorboard 
+  - trimesh 
+  - scikit-image
+  - opencv 
+  - einops 
+  - scikit-learn 
+  - imageio=2.14.1 
+  - imageio-ffmpeg
+  - pip:
+    - pysdf
+    - sphinx==6.2.1

@@ -1,0 +1,37 @@
+name: lab4d
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip
+  - pytorch
+  - torchvision
+  - cudatoolkit-dev=11.7
+  - gcc_linux-64=11
+  - gxx_linux-64=11
+  - matplotlib
+  - ninja
+  - absl-py 
+  - tensorboard 
+  - trimesh 
+  - scikit-image
+  - opencv 
+  - einops 
+  - numba 
+  - gdown 
+  - scikit-learn 
+  - psutil 
+  - av 
+  - plotly
+  - imageio
+  - imageio-ffmpeg
+  - pip:
+    - pycuda
+    - pysdf
+    - gradio==3.28.3
+    - timm==0.6.7
+    - detectron2 @ git+https://github.com/facebookresearch/detectron2.git
+    - segment_anything @ git+https://github.com/facebookresearch/segment-anything.git
+    - openmim

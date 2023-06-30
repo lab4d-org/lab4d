@@ -1,0 +1,95 @@
+# Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
+import torch
+
+
+def frameid_reindex(fid, frame_offset):
+    """Given absolute frame ids [0, ..., N], compute the video id and relative
+    frame id of each frame.
+
+    Args:
+        fid: (nframes,) Absolute frame ids
+          e.g. [0, 1, 2, 3, 100, 101, 102, 103, 200, 201, 202, 203]
+        frame_offset: (nvideos + 1,) Offset of each video
+          e.g., [0, 100, 200, 300]
+    Returns:
+        vid: (nframes,) Maps idx to video id
+        tid: (nframes,) Maps idx to relative frame id
+    """
+    vid = torch.zeros_like(fid)
+    tid = torch.zeros_like(fid).float()
+    max_ts = (frame_offset[1:] - frame_offset[:-1]).max()
+    for i in range(frame_offset.shape[0] - 1):
+        len_sub = frame_offset[i + 1] - frame_offset[i]
+        assign = torch.logical_and(fid >= frame_offset[i], fid < frame_offset[i + 1])
+        vid[assign] = i
+        tid_sub = fid[assign].float() - frame_offset[i]
+        tid[assign] = (tid_sub - len_sub / 2) / max_ts * 2  # [-1, 1]
+    return vid, tid
+
+
+def remove_ddp_prefix(state_dict):
+    """Remove distributed data parallel prefix from model checkpoint
+
+    Args:
+        state_dict (Dict): Model checkpoint
+    Returns:
+        new_state_dict (Dict): New model checkpoint
+    """
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if key.startswith("module."):
+            new_key = key[7:]  # Remove 'module.' prefix
+        else:
+            new_key = key
+        new_state_dict[new_key] = value
+    return new_state_dict
+
+
+def remove_state_startwith(state_dict, prefix):
+    """Remove model parameters that start with a prefix
+
+    Args:
+        state_dict (Dict): Model checkpoint
+        prefix (str): Prefix to filter
+    Returns:
+        new_state_dict (Dict): New model checkpoint
+    """
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if key.startswith(prefix):
+            continue
+        else:
+            new_state_dict[key] = value
+    return new_state_dict
+
+
+def remove_state_with(state_dict, string):
+    """Remove model parameters that contain a string
+
+    Args:
+        state_dict (Dict): Model checkpoint
+        string (str): String to filter
+    Returns:
+        new_state_dict (Dict): New model checkpoint
+    """
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if string in key:
+            continue
+        else:
+            new_state_dict[key] = value
+    return new_state_dict
+
+
+def compress_state_with(state_dict, string):
+    """Initialize model parameters with the mean of the instance embedding if
+    the parameter name contains a string
+    
+    Args:
+        state_dict (Dict): Model checkpoint, modified in place
+        string (str): String to filter
+    """
+    # init with the mean of inst_embedding
+    for key, value in state_dict.items():
+        if string in key:
+            state_dict[key] = value.mean(dim=0, keepdim=True)

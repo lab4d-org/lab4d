@@ -1,0 +1,19 @@
+{
+    "files.watcherExclude": {
+        "**/*.npy": true,
+        "**/*.jpg": true,
+        "**/*.mp4": true,
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/node_modules/*/**": true,
+        "**/*.log": true,
+        "database/processed/**": true,
+        "logdir/**": true,
+        "tmp/**": true,
+    },
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "python.formatting.provider": "none",
+    "liveServer.settings.root": "docs/build/"
+}

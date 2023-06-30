@@ -1,0 +1,17 @@
+projects
+viewer
+run.sh
+run-long.sh
+/database/processed
+/database/configs
+/database/raw
+/logdir
+/tmp
+
+lab4d.egg-info
+__pycache__/
+*.pth
+
+preprocess/third_party/vcnplus/vcn_rob.pth
+preprocess/third_party/viewpoint/human.pth
+preprocess/third_party/viewpoint/quad.pth

@@ -1,0 +1,61 @@
+name: Build Sphinx docs and Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive  # Ensures submodules are checked out
+
+      - name: Update Submodules
+        run: |
+          cd ./docs
+          git submodule update --init --recursive
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          python-version: 3.9
+          mamba-version: "*"
+          channels: conda-forge,defaults
+          channel-priority: true
+          activate-environment: lab4d
+          environment-file: docs/env_min.yml
+
+      - name: Build Docs
+        shell: bash -l {0}
+        run: |
+          conda activate lab4d
+          cd ./docs
+          sphinx-apidoc -o source/api_docs ../lab4d/ -f --templatedir template/
+          python source/obj2glb.py
+          make html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          # Upload the pages
+          path: './docs/build/html'
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
