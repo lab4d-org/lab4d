@@ -21,14 +21,18 @@ class TrainModelConfig:
         "reg_visibility_wt", 1e-3, "weight for visibility regularization"
     )
     flags.DEFINE_float("reg_eikonal_wt", 1e-3, "weight for eikonal regularization")
-    flags.DEFINE_float("reg_deform_cyc_wt", 0.1, "weight for deform cyc regularization")
+    flags.DEFINE_float(
+        "reg_deform_cyc_wt", 0.01, "weight for deform cyc regularization"
+    )
     flags.DEFINE_float("reg_delta_skin_wt", 1e-3, "weight for delta skinning reg")
     flags.DEFINE_float(
         "reg_gauss_skin_wt", 1e-3, "weight for gauss skinning consistency"
     )
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
     flags.DEFINE_float("reg_skel_prior_wt", 0.1, "weight for skeleton regularization")
-    flags.DEFINE_float("reg_gauss_mask_wt", 0.1, "weight for gauss mask regularization")
+    flags.DEFINE_float(
+        "reg_gauss_mask_wt", 0.01, "weight for gauss mask regularization"
+    )
     flags.DEFINE_float("reg_soft_deform_wt", 10.0, "weight for soft deformation reg")
     flags.DEFINE_float("reg_flexible_bone_wt", 0.1, "weight for flexible bone reg")
 
@@ -63,6 +67,11 @@ class TrainOptConfig:
     # flags.DEFINE_integer("num_sample_pixels", 4096, "number of pixel samples per image")
     flags.DEFINE_boolean(
         "freeze_bone_len", False, "do not change bone length of skeleton"
+    )
+    flags.DEFINE_boolean(
+        "reset_steps",
+        True,
+        "reset steps of loss scheduling, set to False if resuming training",
     )
 
     # efficiency-related

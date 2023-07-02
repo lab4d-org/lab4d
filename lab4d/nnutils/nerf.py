@@ -296,7 +296,9 @@ class NeRF(nn.Module):
             self.proxy_geometry = mesh
 
     @torch.no_grad()
-    def extract_canonical_mesh(self, grid_size=64, level=0.0, inst_id=None):
+    def extract_canonical_mesh(
+        self, grid_size=64, level=0.0, inst_id=None, use_visibility=True
+    ):
         """Extract canonical mesh using marching cubes
 
         Args:
@@ -304,6 +306,8 @@ class NeRF(nn.Module):
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
             inst_id: (M,) Instance id. If None, extract for the average instance
+            use_visibility (bool): If True, use visibility mlp to mask out invisible
+              region.
         Returns:
             mesh (Trimesh): Extracted mesh
         """
@@ -313,7 +317,7 @@ class NeRF(nn.Module):
         mesh = marching_cubes(
             sdf_func,
             self.aabb,
-            visibility_func=self.vis_mlp,
+            visibility_func=self.vis_mlp if use_visibility else None,
             grid_size=grid_size,
             level=level,
         )

@@ -172,7 +172,7 @@ Run::
 Visualization during training
 ---------------------------------------
 - We use tensorboard to monitor losses and visualize intermediate renderings. Tensorboard logs are saved at `logdir/$logname`. To use tensorboard in VS Code, hold `shift+cmd+p` and select launch tensorboard.
-- Camera transformations and a low-res proxy geometry are saved at `logdir/$logname/...proxy.obj`
+- Camera transformations and a low-res proxy geometry are saved at `logdir/$logname/...proxy.obj`. We show the final proxy geometry and cameras below:
 
 .. raw:: html
 
@@ -187,6 +187,18 @@ Visualization during training
   <div style="display: flex; justify-content: center;">
       <model-viewer autoplay ar shadow-intensity="1"  src="/lab4d/_static/meshes/car-turnaround-2-proxy.glb" auto-rotate camera-controls>
       </model-viewer>
+  </div>
+
+- To render a video of the proxy geometry and cameras over training iterations, run::
+
+    python scripts/render_intermediate.py --testdir logdir/$logname/
+
+.. raw:: html
+
+  <div style="display: flex; justify-content: center;">
+    <video width="50%" src="/lab4d/_static/media/car-turnaround-2-proxy.mp4" controls autoplay muted loop>
+      Your browser does not support the video tag.
+    </video>
   </div>
 
 We provide the a checkpoint trained with `--num_batches 120` (equivalent to 24k iterations). Download and unzip to `logdir/car-turnaround-2-fg-rigid-b120` by running::

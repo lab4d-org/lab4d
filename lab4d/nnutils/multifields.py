@@ -80,7 +80,7 @@ class MultiFields(nn.Module):
                 num_freq_dir=-1,
                 appr_channels=32,
                 num_inst=self.num_inst,
-                init_scale=0.15,
+                init_scale=0.2,
             )
             # no directional encoding
         elif category == "bg":
@@ -141,7 +141,9 @@ class MultiFields(nn.Module):
             field.update_near_far(beta=0)
 
     @torch.no_grad()
-    def extract_canonical_meshes(self, grid_size=64, level=0.0, inst_id=None):
+    def extract_canonical_meshes(
+        self, grid_size=64, level=0.0, inst_id=None, use_visibility=True
+    ):
         """Extract canonical mesh using marching cubes for all child fields
 
         Args:
@@ -149,13 +151,18 @@ class MultiFields(nn.Module):
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
             inst_id: (M,) Instance id. If None, extract for the average instance
+            use_visibility (bool): If True, use visibility mlp to mask out invisible
+              region.
         Returns:
             meshes (Dict): Maps field types ("fg or bg") to extracted meshes
         """
         meshes = {}
         for category, field in self.field_params.items():
             mesh = field.extract_canonical_mesh(
-                grid_size=grid_size, level=level, inst_id=inst_id
+                grid_size=grid_size,
+                level=level,
+                inst_id=inst_id,
+                use_visibility=use_visibility,
             )
             meshes[category] = mesh
         return meshes

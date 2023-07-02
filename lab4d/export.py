@@ -135,7 +135,10 @@ def save_motion_params(meshes_rest, motion_tuples, save_dir):
 def extract_motion_params(model, opts, data_info):
     # get rest mesh
     meshes_rest = model.fields.extract_canonical_meshes(
-        grid_size=opts["grid_size"], level=opts["level"], inst_id=opts["inst_id"]
+        grid_size=opts["grid_size"],
+        level=opts["level"],
+        inst_id=opts["inst_id"],
+        use_visibility=False,
     )
 
     # get length of the seq
