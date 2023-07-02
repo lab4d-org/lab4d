@@ -1,4 +1,4 @@
-Reconstruct a category from videos
+4. Reconstruct a category from videos
 =======================================
 
 In this tutorial, we build a shape and pose model of a category using ~48 videos of different human, similar to the setup of `RAC <https://gengshan-y.github.io/rac-www/>`_.
@@ -12,7 +12,7 @@ In this tutorial, we build a shape and pose model of a category using ~48 videos
   </div>
 
 Get pre-processed data
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------
 
 First, download pre-processeed data (20G)::
 
@@ -43,6 +43,8 @@ To train the dynamic neural fields ::
   bash scripts/train.sh lab4d/train.py 0,1,2,3,4,5,6 --seqname human-48 --logname skel-soft --fg_motion comp_skel-human_dense --nosingle_inst --num_batches 120
 
 .. note::
+
+  The training takes around 2 hours 50 minutes on 7 3090 GPUs. You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
 
   In this setup, we follow RAC and `HumanNeRF <https://grail.cs.washington.edu/projects/humannerf/>`_ 
   to use a hybrid deformation model. The hybrid model contains both a skeleton and soft deformation fields
@@ -83,6 +85,9 @@ The camera transformations are sub-sampled to 200 frames to speed up the visuali
 
 Rendering after training
 ----------------------------
+After training, we can check the reconstruction quality by rendering the reference view and novel views. 
+Pre-trained checkpoints are provided `here </lab4d/data_models.html#checkpoints>`_.
+
 To render reference view of a video (e.g., video 0), run::
 
   # reference view
@@ -140,7 +145,7 @@ To export meshes and motion parameters of video 0, run::
   </style>
 
   <div style="display: flex; justify-content: center;">
-      <model-viewer autoplay ar shadow-intensity="1"  src="/lab4d/_static/meshes/human-48-0-mesh.glb" auto-rotate camera-controls>
+      <model-viewer autoplay ar shadow-intensity="1"  src="/lab4d/_static/meshes/human-48-0-mesh-0000.glb" auto-rotate camera-controls>
       </model-viewer>
   </div>
 

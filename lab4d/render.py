@@ -101,7 +101,7 @@ def construct_batch_from_opts(opts, model, data_info):
         # bg_to_cam
         obj_size = (aabb["fg"][1, :] - aabb["fg"][0, :]).max()
         cam_traj = get_rotating_cam(
-            len(frameid_sub), distance=obj_size * 2, max_angle=max_angle
+            len(frameid_sub), distance=obj_size * 2.5, max_angle=max_angle
         )
         cam_elev = get_object_to_camera_matrix(elev, [1, 0, 0], 0)[None]
         cam_traj = cam_traj @ cam_elev

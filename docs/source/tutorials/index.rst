@@ -34,9 +34,9 @@ Content
 
    arbitrary_video
    single_video_cat
-   preprocessing
    multi_video_cat
    category_model
+   preprocessing
 
 .. Indices and tables
 .. ==================

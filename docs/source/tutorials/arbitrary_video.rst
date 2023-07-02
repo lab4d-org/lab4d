@@ -1,4 +1,4 @@
-Reconstruct an arbitrary instance
+1. Reconstruct an arbitrary instance
 ========================================
 
 In the first tutorial, we show how to reconstruct an arbitrary instance from a single video, 
@@ -162,7 +162,7 @@ Run::
 
 .. note::
   The optimization takes around 14 minutes on a 3090. 
-  You may find the list of flags at `lab4d/engine/config.py`.
+  You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
 
   By default we use 20 batches (each batch contains 200 iterations), 
   which leads to a good reconstruction quality and is used for developement purpose.
@@ -189,24 +189,12 @@ Visualization during training
       </model-viewer>
   </div>
 
-- To render a video of the proxy geometry and cameras over training iterations, run::
-
-    python scripts/render_intermediate.py --testdir logdir/$logname/
-
-.. raw:: html
-
-  <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/car-turnaround-2-proxy.mp4" controls autoplay muted loop>
-      Your browser does not support the video tag.
-    </video>
-  </div>
-
-We provide the a checkpoint trained with `--num_batches 120` (equivalent to 24k iterations). Download and unzip to `logdir/car-turnaround-2-fg-rigid-b120` by running::
-
-  bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/tyutfhzhm4h3gpxq3lser/log-car-turnaround-2-fg-rigid-b120.zip?dl=0&rlkey=uic2ea0hm0nts30tnyac1dt82"
 
 Rendering after training
 ---------------------------------------
+After training, we can check the reconstruction quality by rendering the reference view and novel views. 
+Pre-trained checkpoints are provided `here </lab4d/data_models.html#checkpoints>`_.
+
 To render the reference view, run::
 
   # reference view
@@ -258,17 +246,24 @@ To render novel views, run::
   Rendering the above video at 256x256 takes ~40s on a 3090 (~0.4s/frame).
   The default rendering resolution is set to 128x128 for fast rendering.
 
+To render a video of the proxy geometry and cameras over training iterations, run::
+
+  python scripts/render_intermediate.py --testdir logdir/$logname/
+
+.. raw:: html
+
+  <div style="display: flex; justify-content: center;">
+    <video width="50%" src="/lab4d/_static/media/car-turnaround-2-proxy.mp4" controls autoplay muted loop>
+      Your browser does not support the video tag.
+    </video>
+  </div>
+
 Exporting meshes and motion parameters after training
 -----------------------------------------------------------
 
 To export meshes and motion parameters, run::
 
-    python lab4d/export.py --flagfile=logdir/$logname/opts.log --load_suffix latest --level 0.005
-
-.. note:: 
-
-  The `--level`` parameter is the contour value that marching cubes use to search for isosurfaces.
-  The default value 0.0 should work in most cases. In this example, we use 0.005 to obtain a more complete surface.
+    python lab4d/export.py --flagfile=logdir/$logname/opts.log --load_suffix latest
 
 .. raw:: html
 

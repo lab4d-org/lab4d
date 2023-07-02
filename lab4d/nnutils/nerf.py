@@ -465,12 +465,13 @@ class NeRF(nn.Module):
         return gradients
 
     @torch.no_grad()
-    def get_valid_idx(self, xyz, vis_score):
+    def get_valid_idx(self, xyz, xyz_t=None, vis_score=None):
         """Return a mask of valid points by thresholding visibility score
 
         Args:
             xyz: (M,N,D,3) Points in object canonical space to query
-            vis_score: (M,N,D,1) Predicted visibility score
+            xyz_t: (M,N,D,3) Points in object time t space to query
+            vis_score: (M,N,D,1) Predicted visibility score, not used
         Returns:
             valid_idx: (M,N,D) Visibility mask, bool
         """
@@ -481,6 +482,12 @@ class NeRF(nn.Module):
 
         # valid_idx = inside_aabb & (vis_score[..., 0] > -5)
         valid_idx = inside_aabb
+
+        if xyz_t is not None:
+            # for time t points, we set a loose aabb to account for deformation
+            aabb = extend_aabb(self.aabb, factor=0.5)
+            inside_aabb = ((xyz_t > aabb[:1]) & (xyz_t < aabb[1:])).all(-1)
+            valid_idx = valid_idx & inside_aabb
 
         # temporally disable visibility mask
         if self.category == "bg":
@@ -591,7 +598,7 @@ class NeRF(nn.Module):
         if self.training:
             valid_idx = None
         else:
-            valid_idx = self.get_valid_idx(xyz, vis_score)
+            valid_idx = self.get_valid_idx(xyz, xyz_t, vis_score)
 
         # NeRF
         feat_dict = self.query_nerf(xyz, dir, frame_id, inst_id, valid_idx=valid_idx)

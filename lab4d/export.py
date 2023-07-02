@@ -35,7 +35,9 @@ class ExportMeshFlags:
     flags.DEFINE_integer("inst_id", 0, "video/instance id")
     flags.DEFINE_integer("grid_size", 128, "grid size of marching cubes")
     flags.DEFINE_integer("num_frames", -1, "number of frames to render")
-    flags.DEFINE_float("level", 0.0, "level of marching cubes")
+    flags.DEFINE_float(
+        "level", 0.0, "contour value of marching cubes use to search for isosurfaces"
+    )
 
 
 class MotionParamsExpl(NamedTuple):
@@ -98,7 +100,27 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
             mesh_t=mesh_t,
         )
         motion_tuples[frame_id] = motion_expl
-    return motion_tuples
+
+    # # modify rest mesh based on instance morphological changes on bones
+    # # idendity transformation of cameras
+    # field2cam_rot_idn = torch.zeros_like(field2cam[0])
+    # field2cam_rot_idn[..., 0] = 1.0
+    # field2cam_idn = (field2cam_rot_idn, torch.zeros_like(field2cam[1]))
+    # # bone stretching from rest to instance id
+    # samples_dict["t_articulation"] = field.warp.articulation.get_mean_vals(
+    #     inst_id=inst_id
+    # )
+    # xyz_i = field.forward_warp(
+    #     xyz[None, None],
+    #     field2cam_idn,
+    #     None,
+    #     inst_id,
+    #     samples_dict=samples_dict,
+    # )
+    # xyz_i = xyz_i[0, 0]
+    # mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces)
+
+    return mesh_rest, motion_tuples
 
 
 def save_motion_params(meshes_rest, motion_tuples, save_dir):
@@ -151,7 +173,7 @@ def extract_motion_params(model, opts, data_info):
     # get deformation
     motion_tuples = {}
     for cate, field in model.fields.field_params.items():
-        motion_tuples[cate] = extract_deformation(
+        meshes_rest[cate], motion_tuples[cate] = extract_deformation(
             field, meshes_rest[cate], opts["inst_id"], render_length
         )
     return meshes_rest, motion_tuples
