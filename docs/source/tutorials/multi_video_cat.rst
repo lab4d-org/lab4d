@@ -29,13 +29,13 @@ Training
 To train the dynamic neural fields::
 
   # Args: training script, gpu id, input args
-  bash scripts/train.sh lab4d/train.py 0,1 --seqname cat-pikachu --logname fg-bob --fg_motion bob --reg_gauss_mask_wt 0.1
+  bash scripts/train.sh lab4d/train.py 0,1 --seqname cat-pikachu --logname fg-bob --fg_motion bob --reg_gauss_skin_wt 0.01
 
 
 .. note::
 
   In this setup, we follow BANMo to use neural blend skinning with 25 bones (`--fg_motion bob`). 
-  We also use a larger weight on the gaussian bone rendering loss (`--reg_gauss_mask_wt 0.1`) to encourage the bones to lie within the object surface.
+  We also use a larger weight for the gaussian bone regularization (`--reg_gauss_skin_wt 0.01`) to encourage the bones to be inside the object.
 
 .. note::
 
