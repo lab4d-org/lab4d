@@ -320,8 +320,9 @@ class Trainer:
         checkpoint = self.load_checkpoint(
             self.opts["load_path"], self.model, optimizer=self.optimizer
         )
-        self.current_steps = checkpoint["current_steps"]
-        self.current_batch = checkpoint["current_batch"]
+        if not self.opts["reset_steps"]:
+            self.current_steps = checkpoint["current_steps"]
+            self.current_batch = checkpoint["current_batch"]
 
         # reset near_far
         self.model.fields.reset_geometry_aux()

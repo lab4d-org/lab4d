@@ -455,7 +455,8 @@ class ComposedWarp(SkinningWarp):
         Returns:
             out: (M,N,D,3) Warped xyz coordinates
         """
-        if not backward:
+        # if forward, and has frame_id
+        if not backward and frame_id is not None:
             xyz = self.post_warp.forward(
                 xyz, frame_id, inst_id, backward=False, samples_dict=samples_dict
             )
@@ -469,7 +470,7 @@ class ComposedWarp(SkinningWarp):
             return_aux=True,
         )
 
-        if backward:
+        if backward and frame_id is not None:
             out = self.post_warp.forward(
                 out, frame_id, inst_id, backward=True, samples_dict=samples_dict
             )

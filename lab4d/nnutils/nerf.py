@@ -296,7 +296,9 @@ class NeRF(nn.Module):
             self.proxy_geometry = mesh
 
     @torch.no_grad()
-    def extract_canonical_mesh(self, grid_size=64, level=0.0, inst_id=None):
+    def extract_canonical_mesh(
+        self, grid_size=64, level=0.0, inst_id=None, use_visibility=True
+    ):
         """Extract canonical mesh using marching cubes
 
         Args:
@@ -304,6 +306,8 @@ class NeRF(nn.Module):
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
             inst_id: (M,) Instance id. If None, extract for the average instance
+            use_visibility (bool): If True, use visibility mlp to mask out invisible
+              region.
         Returns:
             mesh (Trimesh): Extracted mesh
         """
@@ -313,7 +317,7 @@ class NeRF(nn.Module):
         mesh = marching_cubes(
             sdf_func,
             self.aabb,
-            visibility_func=self.vis_mlp,
+            visibility_func=self.vis_mlp if use_visibility else None,
             grid_size=grid_size,
             level=level,
         )
@@ -461,12 +465,13 @@ class NeRF(nn.Module):
         return gradients
 
     @torch.no_grad()
-    def get_valid_idx(self, xyz, vis_score):
+    def get_valid_idx(self, xyz, xyz_t=None, vis_score=None):
         """Return a mask of valid points by thresholding visibility score
 
         Args:
             xyz: (M,N,D,3) Points in object canonical space to query
-            vis_score: (M,N,D,1) Predicted visibility score
+            xyz_t: (M,N,D,3) Points in object time t space to query
+            vis_score: (M,N,D,1) Predicted visibility score, not used
         Returns:
             valid_idx: (M,N,D) Visibility mask, bool
         """
@@ -477,6 +482,12 @@ class NeRF(nn.Module):
 
         # valid_idx = inside_aabb & (vis_score[..., 0] > -5)
         valid_idx = inside_aabb
+
+        if xyz_t is not None:
+            # for time t points, we set a loose aabb to account for deformation
+            aabb = extend_aabb(self.aabb, factor=0.5)
+            inside_aabb = ((xyz_t > aabb[:1]) & (xyz_t < aabb[1:])).all(-1)
+            valid_idx = valid_idx & inside_aabb
 
         # temporally disable visibility mask
         if self.category == "bg":
@@ -587,7 +598,7 @@ class NeRF(nn.Module):
         if self.training:
             valid_idx = None
         else:
-            valid_idx = self.get_valid_idx(xyz, vis_score)
+            valid_idx = self.get_valid_idx(xyz, xyz_t, vis_score)
 
         # NeRF
         feat_dict = self.query_nerf(xyz, dir, frame_id, inst_id, valid_idx=valid_idx)

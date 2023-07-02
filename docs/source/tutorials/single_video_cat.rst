@@ -1,7 +1,7 @@
-Reconstruct a cat from a single video
+2. Reconstruct a cat from a single video
 ==========================================
 
-Previously, we've reconstructed a rigid body (a racecar). In this example, we show how to reconstruct a deformable object (a cat!).
+Previously, we've reconstructed a rigid body (a car). In this example, we show how to reconstruct a deformable object (a cat!).
 
 .. raw:: html
 
@@ -40,7 +40,7 @@ You may choose `fg_motion` from one of the following motion fields:
 
 .. note::
 
-  The optimization uses 13G GPU memory and takes around 21 minutes on a 3090 GPU. You may find the list of flags at lab4d/engine/config.py.
+  The optimization uses 13G GPU memory and takes around 21 minutes on a 3090 GPU. You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
   To get higher quality, train for more iterations by adding `--num_batches 120`. 
 
   To run on a machine with less GPU memory, you may reduce the `--minibatch_size`.
@@ -75,6 +75,9 @@ Here we show the final bone locations (1st), camera transformations and geometry
 
 Rendering after training
 ----------------------------
+After training, we can check the reconstruction quality by rendering the reference view and novel views. 
+Pre-trained checkpoints are provided `here </lab4d/data_models.html#checkpoints>`_.
+
 To render reference views of the input video, run::
 
   # reference view
@@ -100,8 +103,12 @@ To render reference views of the input video, run::
 To render novel views, run::
 
   # turntable views, --viewpoint rot-elevation-angles
-  python lab4d/render.py --flagfile=logdir/$logname/opts.log --load_suffix latest --viewpoint rot-0-360 --render_res 256
+  python lab4d/render.py --flagfile=logdir/$logname/opts.log --load_suffix latest --viewpoint rot-0-360 --render_res 256 --freeze_id 50
 
+
+.. note::
+  
+    The `freeze_id` is set to 50 to freeze the time at the 50-th frame while rotating the camera around the object.
 
 .. raw:: html
 
@@ -146,22 +153,24 @@ Run the following to load the pre-trained foreground field and train the compose
 
     # Args: training script, gpu id, input args
     bash scripts/train.sh lab4d/train.py 0 --seqname cat-pikachu-0 --logname comp-comp-s2 --field_type comp --fg_motion comp_skel-quad_dense --data_prefix full --num_batches 120 --load_path logdir/cat-pikachu-0-fg-skel/ckpt_latest.pth
-
-.. note::
-  
-    The optimization of 120 batches (24k minibatches/iterations) takes around 3.5 hours on a 3090 GPU. 
     
+.. note::
+
     The `file_type` is changed `comp` to compose the background field with the foreground field during 
     differentiable rendering.
 
     The `fg_motion` is changed to `comp_skel-quad_dense` to use the composed warping field (with skeleton-based deformation and soft deformation) for the foreground object.
 
-    We load the pretrained foreground model `logdir/cat-pikachu-0-fg-skel/ckpt_latest.pth` to initialize the optimization.
-
     To reconstruct the background, the `data_prefix` is changed to `full` to load the full frames instead of frames cropped around the object.
 
+.. note::
 
-To render videos from bird's eye view::
+    We load the pretrained foreground model `logdir/cat-pikachu-0-fg-skel/ckpt_latest.pth` to initialize the optimization.
+  
+    The optimization of 120 batches (24k minibatches/iterations) takes around 3.5 hours on a 3090 GPU. 
+
+
+To render videos from the bird's eye view::
 
   # bird's eye view, elevation angle=20 degree
   python lab4d/render.py --flagfile=logdir/cat-pikachu-0-comp-comp-s2/opts.log --load_suffix latest --render_res 256 --viewpoint bev-20

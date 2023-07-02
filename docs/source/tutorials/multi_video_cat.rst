@@ -1,11 +1,11 @@
-Reconstruct a cat from multiple videos
-=======================================
+3. Reconstruct a cat from multiple videos
+==========================================
 
 In the previous tutorial, we reconstructed a cat with a single video. 
 In this example, we improve the reconstruction by feeding more videos of the same cat to the pipeline, similar to the setup of `BANMo <https://banmo-www.github.io/>`_.
 
 Get pre-processed data
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------
 
 First, download pre-processeed data::
 
@@ -29,22 +29,26 @@ Training
 To train the dynamic neural fields::
 
   # Args: training script, gpu id, input args
-  bash scripts/train.sh lab4d/train.py 0,1 --seqname cat-pikachu --logname fg-bob --fg_motion bob
+  bash scripts/train.sh lab4d/train.py 0,1 --seqname cat-pikachu --logname fg-bob --fg_motion bob --reg_gauss_skin_wt 0.01
 
 
 .. note::
 
-  The training takes around 20 minutes on a 3090 GPU. The rendering results in this page assumes 120 batches, which takes 2 hours.
-  You may find the list of flags at `lab4d/engine/config.py`.
+  In this setup, we follow BANMo to use neural blend skinning with 25 bones (`--fg_motion bob`). 
+  We also use a larger weight for the gaussian bone regularization (`--reg_gauss_skin_wt 0.01`) to encourage the bones to be inside the object.
 
-  In this setup, we follow BANMo to use neural blend skinning with 25 bones (`--fg_motion bob`).
+.. note::
 
-  Typically, we need to use a larger number of ray samples per-batch given more video frames to optimize.
+  Since there are more video frames than the previous example, we want to set a larger number of ray samples per-batch.
   This can be achieved by specifying a larger per-gpu batch size (e.g., `--minibatch_size 224`) 
   or using more gpus.
 
   The number of rays per-batch is computed as `number of gpus` x `minibatch_size`.
 
+.. note::
+  The training takes around 20 minutes on two 3090 GPUs.
+  You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
+  The rendering results in this page assumes 120 batches.
 
 Visualization during training
 ---------------------------------
@@ -76,6 +80,9 @@ The camera transformations are sub-sampled to 200 frames to speed up the visuali
 
 Rendering after training
 ----------------------------
+After training, we can check the reconstruction quality by rendering the reference view and novel views. 
+Pre-trained checkpoints are provided `here </lab4d/data_models.html#checkpoints>`_.
+
 To render reference view of a video (e.g., video 8), run::
 
   # reference view

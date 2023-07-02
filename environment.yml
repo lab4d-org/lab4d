@@ -27,6 +27,8 @@ dependencies:
   - plotly
   - imageio
   - imageio-ffmpeg
+  - tqdm
+  - pyrender
   - pip:
     - pycuda
     - pysdf
