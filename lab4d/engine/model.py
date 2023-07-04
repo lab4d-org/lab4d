@@ -108,27 +108,15 @@ class dvr_model(nn.Module):
         self.fields.set_alpha(alpha)
 
         # beta_prob: steps(0->2k, 1->0.2), range (0.2,1)
-        beta_prob = 1 - current_steps / 2500.0
-        beta_prob = np.clip(beta_prob, 0.2, 1.0)
+        anchor_x = (0, 2000)
+        anchor_y = (1.0, 0.2)
+        type = "linear"
+        beta_prob = interp_wt(anchor_x, anchor_y, current_steps, type=type)
         self.fields.set_beta_prob(beta_prob)
 
         # camera prior wt: steps(0->800, 1->0), range (0,1)
         loss_name = "reg_cam_prior_wt"
         anchor_x = (0, 800)
-        anchor_y = (1, 0)
-        type = "linear"
-        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
-
-        # skel prior wt: steps(0->4000, 1->0), range (0,1)
-        loss_name = "reg_skel_prior_wt"
-        anchor_x = (0, 4000)
-        anchor_y = (1, 0.1)
-        type = "log"
-        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
-
-        # gauss mask wt: steps(0->4000, 1->0), range (0,1)
-        loss_name = "reg_gauss_mask_wt"
-        anchor_x = (0, 4000)
         anchor_y = (1, 0)
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
@@ -505,7 +493,6 @@ class dvr_model(nn.Module):
         loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
-        loss_dict["reg_flexible_bone"] = self.fields.flexible_bone_loss()
 
     @staticmethod
     def mask_losses(loss_dict, batch, config):

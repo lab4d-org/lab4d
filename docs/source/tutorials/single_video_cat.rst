@@ -18,7 +18,7 @@ First, download and extract pre-processeed data::
 
   bash scripts/download_unzip.sh "https://www.dropbox.com/s/mb7zgk73oomix4s/cat-pikachu-0.zip"
 
-To use customized videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
+To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
 
 Training
 ^^^^^^^^^^^
@@ -121,6 +121,17 @@ To render novel views, run::
     </video>
   </div>
 
+To render a video of the proxy geometry and cameras over training iterations, run::
+
+  python scripts/render_intermediate.py --testdir logdir/$logname/
+
+.. raw:: html
+
+  <div style="display: flex; justify-content: center;">
+    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0-proxy.mp4" controls autoplay muted loop>
+      Your browser does not support the video tag.
+    </video>
+  </div>
 
 Exporting meshes and motion parameters after training
 --------------------------------------------------------

@@ -18,7 +18,7 @@ class TrainModelConfig:
 
     # weights of regularization terms
     flags.DEFINE_float(
-        "reg_visibility_wt", 1e-3, "weight for visibility regularization"
+        "reg_visibility_wt", 5e-4, "weight for visibility regularization"
     )
     flags.DEFINE_float("reg_eikonal_wt", 1e-3, "weight for eikonal regularization")
     flags.DEFINE_float(
@@ -34,7 +34,6 @@ class TrainModelConfig:
         "reg_gauss_mask_wt", 0.01, "weight for gauss mask regularization"
     )
     flags.DEFINE_float("reg_soft_deform_wt", 10.0, "weight for soft deformation reg")
-    flags.DEFINE_float("reg_flexible_bone_wt", 0.1, "weight for flexible bone reg")
 
     # model
     flags.DEFINE_string("field_type", "fg", "{bg, fg, comp}")

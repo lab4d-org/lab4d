@@ -373,12 +373,6 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             activation,
             nn.Linear(W // 2, self.num_se3 * 3),
         )
-        self.trans = nn.Sequential(
-            nn.Linear(W, W // 2),
-            activation,
-            nn.Linear(W // 2, 3 * num_se3),
-            ScaleLayer(0.1),
-        )
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
@@ -462,17 +456,6 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             )
         else:
             local_rest_joints = override_local_rest_joints
-
-        if override_so3 is None:
-            # flexible bones
-            # at training time, translate the relative joint location
-            trans = self.trans(t_feat).reshape(*t_embed.shape[:-1], self.num_se3, 3)
-            shape = trans.shape
-            local_rest_joints = local_rest_joints.view(
-                (shape[0],) + (1,) * (len(shape) - 3) + (-1, 3)
-            )
-            local_rest_joints = local_rest_joints.expand(*shape)
-            local_rest_joints = local_rest_joints + trans
 
         # run forward kinematics
         out = fk_se3(local_rest_joints, so3, self.edges)
@@ -613,21 +596,4 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
         # loss = (bones_gt - bones_pred).norm(2, -1).mean()
         # loss = loss * 0.2
-        return loss
-
-    def flexible_bone_loss(self):
-        """Minimize flexible bone translation so that the bone length stays constant
-        over time.
-
-        Returns:
-            loss: (0,) Flexible bone loss
-        """
-        device = self.parameters().__next__().device
-        frame_id = torch.tensor(range(self.time_embedding.num_frames), device=device)
-
-        # minimize flexible bone translation
-        t_embed = self.time_embedding(frame_id)
-        t_feat = super(ArticulationSkelMLP, self).forward(t_embed)
-        trans = self.trans(t_feat)
-        loss = trans.norm(2, -1).mean()
         return loss

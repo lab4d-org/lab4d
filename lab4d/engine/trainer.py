@@ -190,15 +190,13 @@ class Trainer:
         )
         # initial_lr = lr/div_factor
         # min_lr = initial_lr/final_div_factor
-        # div_factor = 25
-        # final_div_factor = 1.0 / 5
         if is_resumed:
             div_factor = 1.0
             final_div_factor = 5.0
             pct_start = 0.0  # cannot be 0
         else:
             div_factor = 25.0
-            final_div_factor = 1.0 / 5.0
+            final_div_factor = 1.0
             pct_start = 2.0 / opts["num_batches"]  # use 2 epochs to warm up
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
@@ -595,10 +593,10 @@ class Trainer:
             if p.requires_grad:
                 param_list.append(p)
 
-        grad_before = torch.nn.utils.clip_grad_norm_(param_list, thresh)
-        if grad_before > thresh:
+        grad_norm = torch.nn.utils.clip_grad_norm_(param_list, thresh)
+        if grad_norm > thresh:
             if get_local_rank() == 0:
-                print(f"grad before: {grad_before:.4f}")
+                print("large grad: %.2f, resume from cached weights" % grad_norm)
             # clear gradients
             self.optimizer.zero_grad()
             # load cached model from two batches ago

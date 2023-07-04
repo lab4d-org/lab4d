@@ -12,7 +12,7 @@ First, download pre-processeed data::
   bash scripts/download_unzip.sh "https://www.dropbox.com/s/3w0vhh05olzwwn4/cat-pikachu.zip"
 
 
-To use customized videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
+To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
 
 .. note::
 

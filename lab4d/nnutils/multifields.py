@@ -240,28 +240,6 @@ class MultiFields(nn.Module):
             loss = torch.tensor(0.0, device=self.parameters().__next__().device)
         return loss
 
-    def flexible_bone_loss(self):
-        """Compute average flexible bone loss over all child fields.
-        Minimize flexible bone translation so that the bone length stays constant
-        over time.
-
-        Returns:
-            loss: (0,) Flexible bone loss
-        """
-        loss = []
-        for field in self.field_params.values():
-            if (
-                isinstance(field, Deformable)
-                and isinstance(field.warp, SkinningWarp)
-                and isinstance(field.warp.articulation, ArticulationSkelMLP)
-            ):
-                loss.append(field.warp.articulation.flexible_bone_loss())
-        if len(loss) > 0:
-            loss = torch.stack(loss, 0).mean()
-        else:
-            loss = torch.tensor(0.0, device=self.parameters().__next__().device)
-        return loss
-
     def cam_prior_loss(self):
         """Compute mean camera prior loss over all child fields.
         Encourage camera transforms over time to match external priors.

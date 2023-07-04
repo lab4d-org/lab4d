@@ -314,10 +314,11 @@ class NeRF(nn.Module):
         if inst_id is not None:
             inst_id = torch.tensor([inst_id], device=next(self.parameters()).device)
         sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id, get_density=False)
+        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id)
         mesh = marching_cubes(
             sdf_func,
             self.aabb,
-            visibility_func=self.vis_mlp if use_visibility else None,
+            visibility_func=vis_func if use_visibility else None,
             grid_size=grid_size,
             level=level,
         )
@@ -485,7 +486,7 @@ class NeRF(nn.Module):
 
         if xyz_t is not None:
             # for time t points, we set a loose aabb to account for deformation
-            aabb = extend_aabb(self.aabb, factor=0.5)
+            aabb = extend_aabb(self.aabb, factor=1.0)
             inside_aabb = ((xyz_t > aabb[:1]) & (xyz_t < aabb[1:])).all(-1)
             valid_idx = valid_idx & inside_aabb
 

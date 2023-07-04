@@ -22,7 +22,7 @@ The tutorials introduce a complete workflow of Lab4D. We'll use the method and d
 
 Each of the tutorial can be executed in a couple of ways:
 
-- **Customized videos**: This option allows you to train a model on your own videos.
+- **Custom videos**: This option allows you to train a model on your own videos.
 - **Preprocessed data**: This option skips the preprocessing step and train models on the `preprocessed data </lab4d/data_models.html>`_ we provide.
 - **Render-only**: This option skips model training and allows you to render the `pre-trained model weights </lab4d/data_models.html>`_ we provide.
 

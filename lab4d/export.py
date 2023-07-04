@@ -101,24 +101,24 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
         )
         motion_tuples[frame_id] = motion_expl
 
-    # # modify rest mesh based on instance morphological changes on bones
-    # # idendity transformation of cameras
-    # field2cam_rot_idn = torch.zeros_like(field2cam[0])
-    # field2cam_rot_idn[..., 0] = 1.0
-    # field2cam_idn = (field2cam_rot_idn, torch.zeros_like(field2cam[1]))
-    # # bone stretching from rest to instance id
-    # samples_dict["t_articulation"] = field.warp.articulation.get_mean_vals(
-    #     inst_id=inst_id
-    # )
-    # xyz_i = field.forward_warp(
-    #     xyz[None, None],
-    #     field2cam_idn,
-    #     None,
-    #     inst_id,
-    #     samples_dict=samples_dict,
-    # )
-    # xyz_i = xyz_i[0, 0]
-    # mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces)
+    # modify rest mesh based on instance morphological changes on bones
+    # idendity transformation of cameras
+    field2cam_rot_idn = torch.zeros_like(field2cam[0])
+    field2cam_rot_idn[..., 0] = 1.0
+    field2cam_idn = (field2cam_rot_idn, torch.zeros_like(field2cam[1]))
+    # bone stretching from rest to instance id
+    samples_dict["t_articulation"] = field.warp.articulation.get_mean_vals(
+        inst_id=inst_id
+    )
+    xyz_i = field.forward_warp(
+        xyz[None, None],
+        field2cam_idn,
+        None,
+        inst_id,
+        samples_dict=samples_dict,
+    )
+    xyz_i = xyz_i[0, 0]
+    mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces)
 
     return mesh_rest, motion_tuples
 

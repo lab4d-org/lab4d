@@ -6,7 +6,7 @@
 Welcome to Lab4D's documentation!
 =================================
 
-**Lab4D** is a pipeline for dynamic 3D reconstruction (aka 4D capture) from monocular videos. 
+**Lab4D** is a framework for 4D reconstruction from monocular videos. 
 
 Features
 -------------------------------

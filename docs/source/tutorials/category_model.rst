@@ -25,7 +25,7 @@ First, download pre-processeed data (20G)::
     # Args: video name, quadruped category, on gpu 0-6
     python scripts/run_preprocess.py human-48 human "0,1,2,3,4,5,6"
 
-  To use customized videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
+  To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
 
 .. note::
 
@@ -145,7 +145,7 @@ To export meshes and motion parameters of video 0, run::
   </style>
 
   <div style="display: flex; justify-content: center;">
-      <model-viewer autoplay ar shadow-intensity="1"  src="/lab4d/_static/meshes/human-48-0-mesh-0000.glb" auto-rotate camera-controls>
+      <model-viewer autoplay ar shadow-intensity="1"  src="/lab4d/_static/meshes/human-48-0-mesh.glb" auto-rotate camera-controls>
       </model-viewer>
   </div>
 

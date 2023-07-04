@@ -97,7 +97,7 @@ Checkpoints
           Your browser does not support the video tag.
         </video>
         </div>
-  * - `cat-pikachu-0-fg-skel-b120 <https://www.dropbox.com/scl/fi/3g03jso6803ck4irg4ha2/log-car-turnaround-2-fg-rigid-b120.zip?rlkey=9ear4wux3noato7lhkfdclw3a&dl=0>`_
+  * - `cat-pikachu-0-fg-skel-b120 <https://www.dropbox.com/scl/fi/el4mlo3x0o50ktcgmsvhl/log-cat-pikachu-0-fg-skel-b120.zip?rlkey=lwc9gis8whn3gyfo3a0ct86uv&dl=0>`_
     - `Tutorial 2 </lab4d/tutorials/single_video_cat.html>`_
     - 120 x 1 (130 minuntes)
     - .. raw:: html

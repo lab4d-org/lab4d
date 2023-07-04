@@ -24,7 +24,7 @@ To download preprocessed data, run::
 
 This will download and unzip the preprocessed data to `database/processed/$type-of-processed-data/Full-Resolution/car-turnaround-2-0000/`.
 
-To use customized videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
+To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
 
 .. note:: 
 

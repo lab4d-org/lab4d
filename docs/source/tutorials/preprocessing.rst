@@ -1,7 +1,7 @@
-5. Pre-process customized videos
+5. Pre-process custom videos
 ========================================
 
-In this tutorial, we show how to preprocess customized videos that can be Later used for training, taking `car-turnaround-2` as an example. 
+In this tutorial, we show how to preprocess custom videos that can be Later used for training, taking `car-turnaround-2` as an example. 
 To preprocess a custommized video (or a folder of videos), run::
 
   # Args: folder name, category from {human, quad, other}, on gpu 0
