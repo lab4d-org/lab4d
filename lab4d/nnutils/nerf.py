@@ -19,6 +19,7 @@ from lab4d.utils.geom_utils import (
     get_near_far,
     marching_cubes,
     pinhole_projection,
+    check_inside_aabb,
 )
 from lab4d.utils.loss_utils import align_vectors
 from lab4d.utils.quat_transform import (
@@ -26,6 +27,7 @@ from lab4d.utils.quat_transform import (
     quaternion_translation_inverse,
     quaternion_translation_mul,
     quaternion_translation_to_se3,
+    dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
 from lab4d.utils.torch_utils import frameid_reindex
@@ -297,7 +299,12 @@ class NeRF(nn.Module):
 
     @torch.no_grad()
     def extract_canonical_mesh(
-        self, grid_size=64, level=0.0, inst_id=None, use_visibility=True
+        self,
+        grid_size=64,
+        level=0.0,
+        inst_id=None,
+        use_visibility=True,
+        use_extend_aabb=True,
     ):
         """Extract canonical mesh using marching cubes
 
@@ -308,16 +315,22 @@ class NeRF(nn.Module):
             inst_id: (M,) Instance id. If None, extract for the average instance
             use_visibility (bool): If True, use visibility mlp to mask out invisible
               region.
+            use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
+              Used at training time.
         Returns:
             mesh (Trimesh): Extracted mesh
         """
         if inst_id is not None:
             inst_id = torch.tensor([inst_id], device=next(self.parameters()).device)
         sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id, get_density=False)
-        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id)
+        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > 0
+        if use_extend_aabb:
+            aabb = extend_aabb(self.aabb, factor=0.5)
+        else:
+            aabb = self.aabb
         mesh = marching_cubes(
             sdf_func,
-            self.aabb,
+            aabb,
             visibility_func=vis_func if use_visibility else None,
             grid_size=grid_size,
             level=level,
@@ -374,7 +387,7 @@ class NeRF(nn.Module):
         )
         return pts
 
-    def visibility_decay_loss(self, nsample=2048):
+    def visibility_decay_loss(self, nsample=512):
         """Encourage visibility to be low at random points within the aabb. The
         effect is that invisible / occluded points are assigned -inf visibility
 
@@ -466,7 +479,7 @@ class NeRF(nn.Module):
         return gradients
 
     @torch.no_grad()
-    def get_valid_idx(self, xyz, xyz_t=None, vis_score=None):
+    def get_valid_idx(self, xyz, xyz_t=None, vis_score=None, samples_dict={}):
         """Return a mask of valid points by thresholding visibility score
 
         Args:
@@ -479,15 +492,19 @@ class NeRF(nn.Module):
         # check whether the point is inside the aabb
         aabb = extend_aabb(self.aabb)
         # (M,N,D), whether the point is inside the aabb
-        inside_aabb = ((xyz > aabb[:1]) & (xyz < aabb[1:])).all(-1)
+        inside_aabb = check_inside_aabb(xyz, aabb)
 
         # valid_idx = inside_aabb & (vis_score[..., 0] > -5)
         valid_idx = inside_aabb
 
-        if xyz_t is not None:
-            # for time t points, we set a loose aabb to account for deformation
-            aabb = extend_aabb(self.aabb, factor=1.0)
-            inside_aabb = ((xyz_t > aabb[:1]) & (xyz_t < aabb[1:])).all(-1)
+        if xyz_t is not None and "t_articulation" in samples_dict.keys():
+            # for time t points, we set aabb based on articulation
+            t_bones = dual_quaternion_to_quaternion_translation(
+                samples_dict["t_articulation"]
+            )[1][0]
+            t_aabb = torch.stack([t_bones.min(0)[0], t_bones.max(0)[0]], 0)
+            t_aabb = extend_aabb(t_aabb, factor=1.0)
+            inside_aabb = check_inside_aabb(xyz_t, t_aabb)
             valid_idx = valid_idx & inside_aabb
 
         # temporally disable visibility mask
@@ -588,9 +605,12 @@ class NeRF(nn.Module):
             )  # (M, N, D, x)
 
         # backward warping
-        xyz, dir, xyz_t = self.backward_warp(
+        backwarp_dict = self.backward_warp(
             xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict=samples_dict
         )
+        xyz = backwarp_dict["xyz"]
+        dir = backwarp_dict["dir"]
+        xyz_t = backwarp_dict["xyz_t"]
 
         # visibility
         vis_score = self.vis_mlp(xyz, inst_id=inst_id)  # (M, N, D, 1)
@@ -599,7 +619,7 @@ class NeRF(nn.Module):
         if self.training:
             valid_idx = None
         else:
-            valid_idx = self.get_valid_idx(xyz, xyz_t, vis_score)
+            valid_idx = self.get_valid_idx(xyz, xyz_t, vis_score, samples_dict)
 
         # NeRF
         feat_dict = self.query_nerf(xyz, dir, frame_id, inst_id, valid_idx=valid_idx)
@@ -624,7 +644,13 @@ class NeRF(nn.Module):
         cyc_dict = self.cycle_loss(
             xyz, xyz_t, frame_id, inst_id, samples_dict=samples_dict
         )
-        feat_dict.update(cyc_dict)
+        for k in cyc_dict.keys():
+            if k in backwarp_dict.keys():
+                # 'skin_entropy', 'delta_skin'
+                feat_dict[k] = (cyc_dict[k] + backwarp_dict[k]) / 2
+            else:
+                # 'cyc_dist'
+                feat_dict[k] = cyc_dict[k]
 
         # jacobian
         jacob_dict = self.compute_jacobian(xyz, inst_id, field2cam)
@@ -662,9 +688,9 @@ class NeRF(nn.Module):
         )  # (M, N, D, x)
 
         # backward warping
-        xyz, _, _ = self.backward_warp(
+        xyz = self.backward_warp(
             xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict=samples_dict
-        )
+        )["xyz"]
 
         # get pdf
         density = self.forward(
@@ -833,7 +859,9 @@ class NeRF(nn.Module):
                 as canonical space for static fields
         """
         xyz, dir = self.cam_to_field(xyz_cam, dir_cam, field2cam)
-        return xyz, dir, xyz
+
+        backwarp_dict = {"xyz": xyz, "dir": dir, "xyz_t": xyz}
+        return backwarp_dict
 
     def forward_warp(self, xyz, field2cam, frame_id, inst_id, samples_dict={}):
         """Warp points from object canonical space to camera space
@@ -867,7 +895,12 @@ class NeRF(nn.Module):
         """
         cyc_dist = torch.zeros_like(xyz[..., :1])
         delta_skin = torch.zeros_like(xyz[..., :1])
-        cyc_dict = {"cyc_dist": cyc_dist, "delta_skin": delta_skin}
+        skin_entropy = torch.zeros_like(xyz[..., :1])
+        cyc_dict = {
+            "cyc_dist": cyc_dist,
+            "delta_skin": delta_skin,
+            "skin_entropy": skin_entropy,
+        }
         return cyc_dict
 
     @staticmethod

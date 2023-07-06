@@ -24,7 +24,12 @@ sys.path.insert(
 )
 
 # Allow auto-generated docs from Google format docstrings
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.napoleon", "sphinx.ext.intersphinx"]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.intersphinx",
+    "sphinx_copybutton",
+]
 
 # other pakcages
 intersphinx_mapping = {

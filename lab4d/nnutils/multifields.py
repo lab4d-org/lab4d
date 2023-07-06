@@ -142,7 +142,12 @@ class MultiFields(nn.Module):
 
     @torch.no_grad()
     def extract_canonical_meshes(
-        self, grid_size=64, level=0.0, inst_id=None, use_visibility=True
+        self,
+        grid_size=64,
+        level=0.0,
+        inst_id=None,
+        use_visibility=True,
+        use_extend_aabb=True,
     ):
         """Extract canonical mesh using marching cubes for all child fields
 
@@ -153,6 +158,8 @@ class MultiFields(nn.Module):
             inst_id: (M,) Instance id. If None, extract for the average instance
             use_visibility (bool): If True, use visibility mlp to mask out invisible
               region.
+            use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
+              Used at training time.
         Returns:
             meshes (Dict): Maps field types ("fg or bg") to extracted meshes
         """
@@ -163,6 +170,7 @@ class MultiFields(nn.Module):
                 level=level,
                 inst_id=inst_id,
                 use_visibility=use_visibility,
+                use_extend_aabb=use_extend_aabb,
             )
             meshes[category] = mesh
         return meshes

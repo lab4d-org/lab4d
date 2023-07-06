@@ -111,8 +111,8 @@ To render reference view of a video (e.g., video 0), run::
 
 To render novel views, run::
 
-  # turntable views, --viewpoint rot-elevation-angles
-  python lab4d/render.py --flagfile=logdir/$logname/opts.log --load_suffix latest  --inst_id 0 --viewpoint rot-0-360 --render_res 256
+  # turntable views, --viewpoint rot-elevation-angles --freeze_id frame-id-to-freeze
+  python lab4d/render.py --flagfile=logdir/$logname/opts.log --load_suffix latest  --inst_id 0 --viewpoint rot-0-360 --render_res 256  --freeze_id 50
 
 
 .. raw:: html

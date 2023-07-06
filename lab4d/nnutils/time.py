@@ -69,7 +69,7 @@ class TimeMLP(BaseMLP):
         t_feat = super().forward(t_embed)
         return t_feat
 
-    def mlp_init(self, loss_fn=None):
+    def mlp_init(self, loss_fn=None, termination_loss=0.0001):
         """Initialize the time embedding MLP to match external priors.
         `self.init_vals` is defined by the child class, and could be
         (nframes, 4, 4) camera poses or (nframes, 4) camera intrinsics
@@ -88,7 +88,7 @@ class TimeMLP(BaseMLP):
             if i % 100 == 0:
                 print(f"iter: {i}, loss: {loss.item():.4f}")
             i += 1
-            if loss < 0.0001:
+            if loss < termination_loss:
                 break
 
     def compute_distance_to_prior(self):
