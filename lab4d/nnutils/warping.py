@@ -9,9 +9,10 @@ from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
 from lab4d.nnutils.pose import ArticulationFlatMLP, ArticulationSkelMLP
 from lab4d.nnutils.skinning import SkinningField
 from lab4d.third_party.nvp import NVP
-from lab4d.utils.geom_utils import dual_quaternion_skinning, marching_cubes
+from lab4d.utils.geom_utils import dual_quaternion_skinning, marching_cubes, extend_aabb
 from lab4d.utils.quat_transform import dual_quaternion_inverse, dual_quaternion_mul
 from lab4d.utils.transforms import get_xyz_bone_distance, get_bone_coords
+from lab4d.utils.loss_utils import entropy_loss, cross_entropy_skin_loss
 
 
 def create_warp(fg_motion, data_info):
@@ -319,11 +320,13 @@ class SkinningWarp(IdentityWarp):
 
         # skinning weights
         skin, delta_skin = self.skinning_model(xyz, articulation, frame_id, inst_id)
+        skin_prob = skin.softmax(-1)
 
         # left-multiply per-point se3
-        out = dual_quaternion_skinning(se3, xyz, skin)
+        out = dual_quaternion_skinning(se3, xyz, skin_prob)
 
         warp_dict = {}
+        warp_dict["skin_entropy"] = cross_entropy_skin_loss(skin)[..., None]
         if delta_skin is not None:
             # (M, N, D, 1)
             warp_dict["delta_skin"] = delta_skin.pow(2).mean(-1, keepdims=True)

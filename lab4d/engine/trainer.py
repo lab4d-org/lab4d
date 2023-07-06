@@ -595,12 +595,12 @@ class Trainer:
 
         grad_norm = torch.nn.utils.clip_grad_norm_(param_list, thresh)
         if grad_norm > thresh:
-            if get_local_rank() == 0:
-                print("large grad: %.2f, resume from cached weights" % grad_norm)
             # clear gradients
             self.optimizer.zero_grad()
             # load cached model from two batches ago
             if self.model_cache[0] is not None:
+                if get_local_rank() == 0:
+                    print("large grad: %.2f, resume from cached weights" % grad_norm)
                 self.model.load_state_dict(self.model_cache[0])
                 self.optimizer.load_state_dict(self.optimizer_cache[0])
                 self.scheduler.load_state_dict(self.scheduler_cache[0])

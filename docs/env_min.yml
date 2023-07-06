@@ -21,3 +21,4 @@ dependencies:
   - pip:
     - pysdf
     - sphinx==6.2.1
+    - sphinx-copybutton

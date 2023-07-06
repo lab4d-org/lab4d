@@ -21,10 +21,11 @@ class VisField(nn.Module):
         skips (List(int)): List of layers to add skip connections at
         activation (Function): Activation function to use (e.g. nn.ReLU())
     """
+
     def __init__(
         self,
         num_inst,
-        D=5,
+        D=2,
         W=64,
         num_freq_xyz=10,
         inst_channels=32,

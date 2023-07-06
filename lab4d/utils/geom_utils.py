@@ -453,7 +453,6 @@ def marching_cubes(
         mesh (Trimesh): Output mesh
     """
     # sample grid
-    aabb = extend_aabb(aabb, factor=0.5)
     grid = sample_grid(aabb, grid_size)
 
     # evaluate sdf
@@ -463,7 +462,6 @@ def marching_cubes(
     # evaluate visibility: # ignore the points that are not sampled during optimization
     if visibility_func is not None:
         vis = eval_func_chunk(visibility_func, grid, chunk_size=chunk_size)
-        vis = vis > 0
         vis = vis.cpu().numpy().reshape(grid_size, grid_size, grid_size)
     else:
         vis = np.ones_like(sdf).astype(bool)
@@ -486,3 +484,17 @@ def marching_cubes(
 
     mesh = trimesh.Trimesh(verts, faces)
     return mesh
+
+
+def check_inside_aabb(xyz, aabb):
+    """Return a mask of whether the input poins are inside the aabb
+
+    Args:
+        xyz: (N,3) Points in object canonical space to query
+        aabb: (2,3) axis-aligned bounding box
+    Returns:
+        inside_aabb: (N) Inside mask, bool
+    """
+    # check whether the point is inside the aabb
+    inside_aabb = ((xyz > aabb[:1]) & (xyz < aabb[1:])).all(-1)
+    return inside_aabb

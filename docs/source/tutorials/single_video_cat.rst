@@ -102,7 +102,7 @@ To render reference views of the input video, run::
 
 To render novel views, run::
 
-  # turntable views, --viewpoint rot-elevation-angles
+  # turntable views, --viewpoint rot-elevation-angles --freeze_id frame-id-to-freeze
   python lab4d/render.py --flagfile=logdir/$logname/opts.log --load_suffix latest --viewpoint rot-0-360 --render_res 256 --freeze_id 50
 
 

@@ -76,6 +76,9 @@ def render_pixel(field_dict, deltas):
     if "eikonal" in field_dict:
         rendered["eikonal"] = field_dict["eikonal"].mean(dim=(-1, -2))  # (M, N)
 
+    if "delta_skin" in field_dict:
+        rendered["delta_skin"] = field_dict["delta_skin"].mean(dim=(-1, -2))
+
     # part of binary cross entropy: -label * log(sigmoid(vis)), where label is transmit
     transmit = transmit[..., None].detach()
     # sharpness = 20  # 0.6->0.88
@@ -166,7 +169,7 @@ def integrate(field_dict, weights):
         "xyz_reproj",
         "gauss_density",
     ]
-    key_freeze = ["cyc_dist", "xyz_cam", "delta_skin"]
+    key_freeze = ["cyc_dist", "xyz_cam", "skin_entropy"]
 
     rendered = {}
     rendered["mask"] = torch.sum(weights, -1, keepdim=True)

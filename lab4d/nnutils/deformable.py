@@ -137,11 +137,19 @@ class Deformable(FeatureNeRF):
             xyz_t: (M,N,D,3) Points along rays in object time-t space.
         """
         xyz_t, dir = self.cam_to_field(xyz_cam, dir_cam, field2cam)
-        xyz = self.warp(
-            xyz_t, frame_id, inst_id, backward=True, samples_dict=samples_dict
+        xyz, warp_dict = self.warp(
+            xyz_t,
+            frame_id,
+            inst_id,
+            backward=True,
+            samples_dict=samples_dict,
+            return_aux=True,
         )
+
         # TODO: apply se3 to dir
-        return xyz, dir, xyz_t
+        backwarp_dict = {"xyz": xyz, "dir": dir, "xyz_t": xyz_t}
+        backwarp_dict.update(warp_dict)
+        return backwarp_dict
 
     def forward_warp(self, xyz, field2cam, frame_id, inst_id, samples_dict={}):
         """Warp points from object canonical space to camera space. This
@@ -237,7 +245,7 @@ class Deformable(FeatureNeRF):
             loss: (0,) Soft deformation loss
         """
         device = next(self.parameters()).device
-        pts = self.sample_points_aabb(nsample, extend_factor=0.5)
+        pts = self.sample_points_aabb(nsample, extend_factor=1.0)
         frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
         inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
         dist2 = self.warp.compute_post_warp_dist2(pts[:, None, None], frame_id, inst_id)

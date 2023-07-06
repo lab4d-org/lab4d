@@ -86,7 +86,7 @@ class SkinningField(nn.Module):
 
         self.symm_idx = symm_idx
 
-    def forward(self, xyz, bone2obj, frame_id, inst_id, normalize=True):
+    def forward(self, xyz, bone2obj, frame_id, inst_id):
         """Compute Gaussian skinning weights, modulated with time and
         instance dependent delta skinning weights
 
@@ -98,7 +98,7 @@ class SkinningField(nn.Module):
             inst_id: (M,) Instance id. If None, compute for the mean instance
         Returns:
             skin: (M,N,D,B) Skinning weights from each point to each bone
-                (sums to 1 over bone dimension B)
+                (unnormalized)
         """
         # gaussian weights (-inf, 0),  (M, N, D, K, 3)
         xyz_bone = self.get_gauss_bone_coords(xyz, bone2obj)
@@ -115,14 +115,12 @@ class SkinningField(nn.Module):
             t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
             xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
             delta = self.delta_field(xyzt_embed, inst_id)
-            delta = F.relu(delta)
+            delta = F.relu(delta) * 0.1
             skin = -(dist2 + delta)
         else:
             skin = -dist2
             delta = None
 
-        if normalize:
-            skin = skin.softmax(-1)
         return skin, delta
 
     def get_gauss_bone_coords(self, xyz, bone2obj):

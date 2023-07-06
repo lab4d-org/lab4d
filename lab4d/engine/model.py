@@ -489,6 +489,7 @@ class dvr_model(nn.Module):
         if "fg" in aux_dict.keys():
             loss_dict["reg_deform_cyc"] = aux_dict["fg"]["cyc_dist"]
             loss_dict["reg_delta_skin"] = aux_dict["fg"]["delta_skin"]
+            loss_dict["reg_skin_entropy"] = aux_dict["fg"]["skin_entropy"]
         loss_dict["reg_soft_deform"] = self.fields.soft_deform_loss()
         loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()

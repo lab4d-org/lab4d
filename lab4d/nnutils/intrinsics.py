@@ -70,7 +70,7 @@ class IntrinsicsMLP(TimeMLP):
         frame_offset = self.get_frame_offset()
         self.base_logfocal.data = intrinsics[frame_offset[:-1], :2].log()
         self.base_ppoint.data = intrinsics[frame_offset[:-1], 2:]
-        super().mlp_init()
+        super().mlp_init(termination_loss=1.0)
 
     def forward(self, t_embed):
         """
