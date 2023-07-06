@@ -387,7 +387,6 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
         seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
         seqnames.append(seqname)
 
-  
     annots, annot_ids = load_annotations(config, 0, use_minvis)
 
     track = FigureTracker(annots, annot_ids, mesh_path, seqnames, use_minvis)
