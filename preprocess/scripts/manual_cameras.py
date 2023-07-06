@@ -340,20 +340,21 @@ def switch_video(track, config):
         track.annots, track.annot_ids = load_annotations(
             config, track.vid, track.use_minvis
         )
+        track.curr_frame = track.annot_ids[0]
         new_fig = update_fig_annot(track.fig, track.annots, 0)
         track.fig = new_fig
         if track.vid == len(track.seqnames) - 1:
             return (
                 gr.Button.update(visible=False),
                 track.fig,
-                0,
+                gr.Slider.update(value=0, maximum=track.annots.shape[0]-1),
                 str(track.annot_ids[0]),
             )
         else:
             return (
                 gr.Button.update(visible=True),
                 track.fig,
-                0,
+                gr.Slider.update(value=0, maximum=track.annots.shape[0]-1),
                 str(track.annot_ids[0]),
             )
 
@@ -386,6 +387,7 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
         seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
         seqnames.append(seqname)
 
+  
     annots, annot_ids = load_annotations(config, 0, use_minvis)
 
     track = FigureTracker(annots, annot_ids, mesh_path, seqnames, use_minvis)
@@ -409,13 +411,13 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
                 frame = gr.Slider(
                     0,
                     track.numFrames(),
-                    label="Filtered Frame Index",
+                    label="Frame Index",
                     value=0,
                     interactive=True,
                     step=1,
                 )
                 frame_text = gr.Textbox(
-                    value=str(track.annot_ids[0]), label="Raw Frame Index"
+                    value=str(track.annot_ids[0]), label="Frame Index"
                 )
 
                 rx.release(partial(update_rotx, track), [rx], [meshMap])
