@@ -95,10 +95,10 @@ To render reference view of a video (e.g., video 8), run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-8_ref.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-8_ref.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-8_ref-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-8_ref-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -113,10 +113,10 @@ To render novel views, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-8_turntable-120.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-8_turntable-120.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-8_turntable-120-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-8_turntable-120-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>

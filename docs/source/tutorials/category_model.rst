@@ -6,7 +6,7 @@ In this tutorial, we build a shape and pose model of a category using ~48 videos
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-   <video width="50%" src="/lab4d/_static/media/human-48.mp4" controls autoplay muted>
+   <video width="50%" src="/lab4d/_static/media_resized/human-48.mp4" controls autoplay muted>
      Your browser does not support the video tag.
    </video>
   </div>
@@ -100,10 +100,10 @@ To render reference view of a video (e.g., video 0), run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/human-48-0_ref.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/human-48-0_ref.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/human-48-0_ref-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/human-48-0_ref-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -118,10 +118,10 @@ To render novel views, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/human-48-0_turntable-120.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/human-48-0_turntable-120.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/human-48-0_turntable-120-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/human-48-0_turntable-120-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -163,10 +163,10 @@ To render the re-animated video, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/human-48-reanimate-8.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/human-48-reanimate-8.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/human-48-reanimate-8-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/human-48-reanimate-8-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>

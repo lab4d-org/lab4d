@@ -6,7 +6,7 @@ Previously, we've reconstructed a rigid body (a car). In this example, we show h
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-   <video width="100%" src="/lab4d/_static/media/cat-pikachu-0.mp4" controls autoplay muted>
+   <video width="100%" src="/lab4d/_static/media_resized/cat-pikachu-0.mp4" controls autoplay muted>
      Your browser does not support the video tag.
    </video>
   </div>
@@ -91,10 +91,10 @@ To render reference views of the input video, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0_ref.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0_ref.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0_ref-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0_ref-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -113,10 +113,10 @@ To render novel views, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0_turntable.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0_turntable.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0_turntable-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0_turntable-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -128,7 +128,7 @@ To render a video of the proxy geometry and cameras over training iterations, ru
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0-proxy.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0-proxy.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -189,10 +189,10 @@ To render videos from the bird's eye view::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0-comp_bev.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0-comp_bev.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/cat-pikachu-0-comp_bev-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0-comp_bev-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>

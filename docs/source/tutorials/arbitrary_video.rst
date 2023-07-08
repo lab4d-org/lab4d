@@ -7,7 +7,7 @@ taking `car-turnaround-2` as an example.
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-   <video width="100%" src="/lab4d/_static/media/car-turnaround-2.mp4" controls autoplay muted>
+   <video width="100%" src="/lab4d/_static/media_resized/car-turnaround-2.mp4" controls autoplay muted>
      Your browser does not support the video tag.
    </video>
   </div>
@@ -85,7 +85,7 @@ Visualization of instance segmentation and tracking can be found at `Annotations
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="100%" src="/lab4d/_static/media/car-turnaround-2-anno.mp4" controls autoplay muted>
+    <video width="100%" src="/lab4d/_static/media_resized/car-turnaround-2-anno.mp4" controls autoplay muted>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -203,10 +203,10 @@ To render the reference view, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/car-turnaround_ref.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/car-turnaround_ref.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="50%" src="/lab4d/_static/media/car-turnaround_ref-xyz.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/car-turnaround_ref-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -226,16 +226,16 @@ To render novel views, run::
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="25%" src="/lab4d/_static/media/car-turnaround_turntable-120.mp4" controls autoplay muted loop>
+    <video width="25%" src="/lab4d/_static/media_resized/car-turnaround_turntable-120.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="25%" src="/lab4d/_static/media/car-turnaround_turntable-120-xyz.mp4" controls autoplay muted loop>
+    <video width="25%" src="/lab4d/_static/media_resized/car-turnaround_turntable-120-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="25%" src="/lab4d/_static/media/car-turnaround_bev-120.mp4" controls autoplay muted loop>
+    <video width="25%" src="/lab4d/_static/media_resized/car-turnaround_bev-120.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
-    <video width="25%" src="/lab4d/_static/media/car-turnaround_bev-120-xyz.mp4" controls autoplay muted loop>
+    <video width="25%" src="/lab4d/_static/media_resized/car-turnaround_bev-120-xyz.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>
@@ -253,7 +253,7 @@ To render a video of the proxy geometry and cameras over training iterations, ru
 .. raw:: html
 
   <div style="display: flex; justify-content: center;">
-    <video width="50%" src="/lab4d/_static/media/car-turnaround-2-proxy.mp4" controls autoplay muted loop>
+    <video width="50%" src="/lab4d/_static/media_resized/car-turnaround-2-proxy.mp4" controls autoplay muted loop>
       Your browser does not support the video tag.
     </video>
   </div>

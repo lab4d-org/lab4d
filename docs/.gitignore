@@ -1,3 +1,4 @@
 /build
 /source/api_docs/lab4d*
 /source/_static/meshes/*.glb
+/source/_static/media/*

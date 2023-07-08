@@ -483,6 +483,10 @@ def marching_cubes(
     verts = verts * (aabb[1:] - aabb[:1]) + aabb[:1]
 
     mesh = trimesh.Trimesh(verts, faces)
+    # # keep the largest connected component
+    # mesh = [i for i in mesh.split(only_watertight=False)]
+    # mesh = sorted(mesh, key=lambda x: x.vertices.shape[0])
+    # mesh = mesh[-1]
     return mesh
 
 
