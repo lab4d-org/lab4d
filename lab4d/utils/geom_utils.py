@@ -438,6 +438,7 @@ def marching_cubes(
     grid_size=64,
     level=0,
     chunk_size=64**3,
+    apply_connected_component=False,
 ):
     """Extract a mesh from a signed-distance function using marching cubes.
     For the multi-instance case, we use the mean shape/visibility
@@ -449,6 +450,8 @@ def marching_cubes(
         grid_size (int): Marching cubes resolution
         level (float): Contour value to search for isosurfaces on the signed
             distance function
+        chunk_size (int): Chunk size to evaluate the sdf function
+        apply_connected_component (bool): Whether to apply connected component
     Returns:
         mesh (Trimesh): Output mesh
     """
@@ -483,10 +486,11 @@ def marching_cubes(
     verts = verts * (aabb[1:] - aabb[:1]) + aabb[:1]
 
     mesh = trimesh.Trimesh(verts, faces)
-    # # keep the largest connected component
-    # mesh = [i for i in mesh.split(only_watertight=False)]
-    # mesh = sorted(mesh, key=lambda x: x.vertices.shape[0])
-    # mesh = mesh[-1]
+    if apply_connected_component:
+        # keep the largest connected component
+        mesh = [i for i in mesh.split(only_watertight=False)]
+        mesh = sorted(mesh, key=lambda x: x.vertices.shape[0])
+        mesh = mesh[-1]
     return mesh
 
 

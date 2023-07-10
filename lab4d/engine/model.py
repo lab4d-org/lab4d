@@ -470,9 +470,13 @@ class dvr_model(nn.Module):
 
         # visibility: supervise on fg and bg separately
         vis_loss = []
-        for aux_cate_dict in aux_dict.values():
+        # for aux_cate_dict in aux_dict.values():
+        for cate, aux_cate_dict in aux_dict.items():
+            if cate == "bg":
+                # use smaller weight for bg
+                aux_cate_dict["vis"] *= 0.01
             vis_loss.append(aux_cate_dict["vis"])
-        vis_loss = torch.stack(vis_loss, 0).mean(0)
+        vis_loss = torch.stack(vis_loss, 0).sum(0)
         loss_dict["vis"] = vis_loss
 
         # weighting

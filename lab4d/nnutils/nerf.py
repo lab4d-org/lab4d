@@ -334,6 +334,7 @@ class NeRF(nn.Module):
             visibility_func=vis_func if use_visibility else None,
             grid_size=grid_size,
             level=level,
+            apply_connected_component=True if self.category == "fg" else False,
         )
         return mesh
 

@@ -69,7 +69,6 @@ def render_pixel(field_dict, deltas):
     rendered = {}
 
     weights, transmit = compute_weights(field_dict["density"], deltas)
-    update_inst_mask(field_dict, weights)
     rendered = integrate(field_dict, weights)
 
     # auxiliary outputs
@@ -79,6 +78,7 @@ def render_pixel(field_dict, deltas):
     if "delta_skin" in field_dict:
         rendered["delta_skin"] = field_dict["delta_skin"].mean(dim=(-1, -2))
 
+    # visibility loss
     # part of binary cross entropy: -label * log(sigmoid(vis)), where label is transmit
     transmit = transmit[..., None].detach()
     # sharpness = 20  # 0.6->0.88
@@ -88,6 +88,8 @@ def render_pixel(field_dict, deltas):
     # normalize by the number of visible points
     vis_loss = vis_loss / is_visible.mean().detach()
     rendered["vis"] = vis_loss
+
+    # mask for gaussian density
     if "gauss_density" in field_dict:
         gauss_weights, _ = compute_weights(field_dict["gauss_density"], deltas)
         rendered["gauss_mask"] = torch.sum(gauss_weights, -1, keepdim=True)
@@ -124,35 +126,8 @@ def compute_weights(density, deltas):
     return weights, transmit
 
 
-def update_inst_mask(field_dict, weights):
-    """Update a field_dict in-place with an instance density mask
-
-    Args:
-        field_dict (Dict): Neural field outputs. Keys:
-            "density_{fg,bg}" (M,N,D,1). This function modifies it in place to
-            add "mask_{fg,bg}" (M,N,D,1)
-        weights: (M,N,D) Contribution of each point to the output rendering
-    """
-    density_dict = defaultdict(list)
-    del_keys = []
-    for k, v in field_dict.items():
-        if "density_" in k:
-            density_dict[k] = v
-            del_keys.append(k)
-
-    # delete density keys
-    for k in del_keys:
-        del field_dict[k]
-
-    # compute instance portion
-    density_sum = torch.cat(list(density_dict.values()), dim=-1).sum(-1) + 1e-6
-    for k, v in density_dict.items():
-        prob = v / density_sum[..., None]
-        field_dict[k.replace("density", "mask")] = prob
-
-
 def integrate(field_dict, weights):
-    """Integrate neural field outputs over rays
+    """Integrate neural field outputs over rays render = \sum_i w_i^n * value_i
 
     Args:
         field_dict (Dict): Neural field outputs with arbitrary keys (M,N,D,x)
@@ -180,20 +155,32 @@ def integrate(field_dict, weights):
             continue
         elif k in key_freeze:
             wt = w_normalized.detach()
-        elif "mask_" in k:
-            wt = weights  # mask does not need to be normalized
         else:
             wt = w_normalized
         rendered[k] = torch.sum(wt.unsqueeze(-1) * field_dict[k], -2)
 
+    # remove too close points from flow rendering
     if "flow" in field_dict:
         w_flow = weights * field_dict["flow"][..., 2]
         w_flow = w_flow / (torch.sum(w_flow, -1, keepdim=True) + 1e-6)
         rendered["flow"] = torch.sum(
             w_flow.unsqueeze(-1) * field_dict["flow"][..., :2], -2
         )
+    # normlaize normal
     if "normal" in field_dict:
         rendered["normal"] = F.normalize(rendered["normal"], 2, -1)
+
+    # normalize density over all components
+    density_sum = []
+    key_list = []
+    for k in rendered:
+        if "density_" in k:
+            density_sum.append(rendered[k])
+            key_list.append(k)
+    density_sum = torch.cat(density_sum, dim=-1).sum(-1, keepdims=True) + 1e-6
+    for k in key_list:
+        rendered[k.replace("density_", "mask_")] = rendered[k] / density_sum
+        del rendered[k]
     return rendered
 
 
