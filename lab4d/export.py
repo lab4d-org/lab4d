@@ -79,9 +79,21 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
                 so3 = field.warp.articulation.get_vals(frame_id_torch, return_so3=True)
             else:
                 so3 = None
+
+            # bones
+            mesh_bones_t = field.warp.skinning_model.draw_gaussian(
+                (
+                    samples_dict["t_articulation"][0][0],
+                    samples_dict["t_articulation"][1][0],
+                ),
+                field.warp.articulation.edges,
+            )
+            se3_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])[0]
+            mesh_bones_t.apply_transform(se3_mat.cpu().numpy())
         else:
             t_articulation = None
             so3 = None
+            mesh_bones_t = None
 
         xyz_t = field.forward_warp(
             xyz[None, None],
@@ -92,17 +104,6 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
         )
         xyz_t = xyz_t[0, 0]
         mesh_t = trimesh.Trimesh(vertices=xyz_t.cpu().numpy(), faces=mesh_rest.faces)
-
-        # bones
-        mesh_bones_t = field.warp.skinning_model.draw_gaussian(
-            (
-                samples_dict["t_articulation"][0][0],
-                samples_dict["t_articulation"][1][0],
-            ),
-            field.warp.articulation.edges,
-        )
-        se3_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])[0]
-        mesh_bones_t.apply_transform(se3_mat.cpu().numpy())
 
         field2cam[1][:] /= field.logscale.exp()  # to world scale
         motion_expl = MotionParamsExpl(
@@ -144,9 +145,10 @@ def save_motion_params(meshes_rest, motion_tuples, save_dir):
         for frame_id, motion_expl in motion_tuples[cate].items():
             # save mesh
             motion_expl.mesh_t.export("%s/%s-%05d.obj" % (save_dir, cate, frame_id))
-            motion_expl.bone_t.export(
-                "%s/%s-%05d-bone.obj" % (save_dir, cate, frame_id)
-            )
+            if motion_expl.bone_t is not None:
+                motion_expl.bone_t.export(
+                    "%s/%s-%05d-bone.obj" % (save_dir, cate, frame_id)
+                )
 
             # save motion params
             field2cam = quaternion_translation_to_se3(

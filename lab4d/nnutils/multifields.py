@@ -210,7 +210,7 @@ class MultiFields(nn.Module):
         loss = []
         for field in self.field_params.values():
             loss.append(field.visibility_decay_loss())
-        loss = torch.stack(loss, 0).mean()
+        loss = torch.stack(loss, 0).sum(0).mean()
         return loss
 
     def gauss_skin_consistency_loss(self):
@@ -258,7 +258,7 @@ class MultiFields(nn.Module):
         loss = []
         for field in self.field_params.values():
             loss.append(field.cam_prior_loss())
-        loss = torch.stack(loss, 0).mean()
+        loss = torch.stack(loss, 0).sum(0).mean()
         return loss
 
     def skel_prior_loss(self):
