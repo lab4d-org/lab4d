@@ -28,7 +28,6 @@ dependencies:
   - imageio
   - imageio-ffmpeg
   - tqdm
-  - pyrender
   - pip:
     - pycuda
     - pysdf
@@ -37,3 +36,4 @@ dependencies:
     - detectron2 @ git+https://github.com/facebookresearch/detectron2.git
     - segment_anything @ git+https://github.com/facebookresearch/segment-anything.git
     - openmim
+    - pyrender
