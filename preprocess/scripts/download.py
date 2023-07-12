@@ -29,7 +29,7 @@ def download_seq(seqname):
 
         # Download the video
         print(f"Downloading from URL: {url}")
-        tmp_zip = "tmp.zip"
+        tmp_zip = "tmp-%s.zip" % seqname
         subprocess.run(
             ["wget", url, "-O", tmp_zip],
             stdout=subprocess.DEVNULL,

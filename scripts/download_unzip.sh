@@ -2,7 +2,7 @@
 url=$1
 rootdir=$PWD
 
-# download the dataset
-wget $url -O tmp.zip
-unzip tmp.zip
-rm tmp.zip
+filename=tmp-`date +"%Y-%m-%d-%H-%M-%S"`.zip
+wget $url -O $filename
+unzip $filename
+rm $filename
