@@ -126,8 +126,21 @@ def init_fig(annots, mesh_path):
 
     annot_height, annot_width, _ = annots[0].shape
     fig.update_layout(
-        scene_aspectmode="cube", width=2 * annot_width, height=2 * annot_height, dragmode=False, hovermode=False, clickmode="none",
-        modebar_remove=["pan","tableRotation","zoom","toimage","resetcameradefault","resetcameralastsave","orbitrotation"]
+        scene_aspectmode="cube",
+        width=2 * annot_width,
+        height=2 * annot_height,
+        dragmode=False,
+        hovermode=False,
+        clickmode="none",
+        modebar_remove=[
+            "pan",
+            "tableRotation",
+            "zoom",
+            "toimage",
+            "resetcameradefault",
+            "resetcameralastsave",
+            "orbitrotation",
+        ],
     )
     # fig.update_yaxes(scaleanchor="x", scaleratio=1)
     # fig.update_zaxes(scaleanchor="x", scaleratio=1)
