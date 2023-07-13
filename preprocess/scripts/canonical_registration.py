@@ -120,7 +120,8 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1):
 
     # canonical registration (smoothes the camera poses)
     print("num cams annotated: %d" % len(cams_canonical.keys()))
-    draw_cams(np.stack(cams_canonical.values(), 0)).export(
+    frames = np.asarray(imglist)[list(cams_canonical.keys())]
+    draw_cams(np.stack(cams_canonical.values(), 0), frame_list=frames).export(
         "%s/cameras-%02d-canonical-prealign.obj" % (save_path, component_id)
     )
     registration = CanonicalRegistration(cams_canonical, cams_view1)
@@ -154,7 +155,7 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1):
         cams_pred[it, :2, 3] = xytrn
 
     np.save("%s/%02d-canonical.npy" % (save_path, component_id), cams_pred)
-    draw_cams(cams_pred).export(
+    draw_cams(cams_pred, frame_list=imglist).export(
         "%s/cameras-%02d-canonical.obj" % (save_path, component_id)
     )
     print("canonical registration (crop_size: %d) done: %s" % (crop_size, seqname))

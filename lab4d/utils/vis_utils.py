@@ -13,6 +13,7 @@ sys.path.insert(
 )
 
 from flowutils.flowlib import flow_to_image
+from lab4d.utils.frame_mesh import gen_frame_mesh
 
 
 def img2color(tag, img, pca_fn=None):
@@ -65,7 +66,7 @@ def mesh_cat(mesh_a, mesh_b):
     return mesh
 
 
-def draw_cams(all_cam, color="cool", axis=True, color_list=None):
+def draw_cams(all_cam, color="cool", axis=True, color_list=None, frame_list=None):
     """Draw cameras as meshes
 
     Args:
@@ -73,6 +74,7 @@ def draw_cams(all_cam, color="cool", axis=True, color_list=None):
         color (str): Matplotlib colormap to use
         axis (bool): If True, draw camera xyz axes
         color_list (np.array or None): List of colors to draw cameras with
+        frame_list: (np.array or None): List of frames corresponding to the cameras
     Returns:
         mesh_cam (Trimesh): Mesh of cameras
     """
@@ -107,6 +109,12 @@ def draw_cams(all_cam, color="cool", axis=True, color_list=None):
 
         cam.vertices = cam.vertices.dot(cam_rot.T) + cam_tran
         cam_list.append(cam)
+
+        if not frame_list is None:
+            image_mesh = gen_frame_mesh(frame_list[j], radius)
+            image_mesh.vertices = image_mesh.vertices.dot(cam_rot.T) + cam_tran
+            cam_list.append(image_mesh)
+
     mesh_cam = trimesh.util.concatenate(cam_list)
     return mesh_cam
 
