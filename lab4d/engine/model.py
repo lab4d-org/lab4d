@@ -438,16 +438,26 @@ class dvr_model(nn.Module):
         rendered = results["rendered"]
         aux_dict = results["aux_dict"]
         # reconstruction loss
+        # get rendered fg mask
+        if config["field_type"] == "fg":
+            rendered_fg_mask = rendered["mask"]
+        elif config["field_type"] == "comp":
+            rendered_fg_mask = rendered["mask_fg"]
+        elif config["field_type"] == "bg":
+            rendered_fg_mask = None
+        else:
+            raise ("field_type %s not supported" % config["field_type"])
+        # get fg mask balance factor
         mask_balance_wt = dvr_model.get_mask_balance_wt(batch["mask"], batch["vis2d"])
         if config["field_type"] == "bg":
             loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
         elif config["field_type"] == "fg":
-            loss_dict["mask"] = (rendered["mask"] - batch["mask"].float()).pow(2)
+            loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] *= mask_balance_wt
         elif config["field_type"] == "comp":
-            loss_dict["mask"] = (rendered["mask_fg"] - batch["mask"].float()).pow(2)
+            loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] *= mask_balance_wt
-            loss_dict["mask"] = loss_dict["mask"] + (rendered["mask"] - 1).pow(2)
+            loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
         else:
             raise ("field_type %s not supported" % config["field_type"])
 
@@ -458,9 +468,6 @@ class dvr_model(nn.Module):
             loss_dict["feat_reproj"] = (
                 aux_dict["fg"]["xy_reproj"] - batch["hxy"][..., :2]
             ).norm(2, -1, keepdim=True)
-            # mask out bg pixels
-            loss_dict["feat_reproj"] = loss_dict["feat_reproj"] * batch["mask"].float()
-            loss_dict["feature"] = loss_dict["feature"] * batch["mask"].float()
 
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
         loss_dict["depth"] = (
@@ -482,10 +489,10 @@ class dvr_model(nn.Module):
         # weighting
         loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
 
-        # self-consistency
+        # consistency between rendered mask and gauss mask
         if "gauss_mask" in rendered.keys():
             loss_dict["reg_gauss_mask"] = (
-                aux_dict["fg"]["gauss_mask"] - rendered["mask_fg"].detach()
+                aux_dict["fg"]["gauss_mask"] - rendered_fg_mask.detach()
             ).pow(2)
 
     def compute_reg_loss(self, loss_dict, results):
@@ -518,8 +525,9 @@ class dvr_model(nn.Module):
         """Apply segmentation mask on dense losses
 
         Args:
-            loss_dict (Dict): Dense losses. Keys: "mask" (M,N,1), "rgb" (M,N,3),
-                "depth" (M,N,1), "flow" (M,N,1), and "vis" (M,N,1). Modified in
+            loss_dict (Dict): Dense losses. Keys: "mask" (M,N,1), "rgb" (M,N,3), 
+                "depth" (M,N,1), "flow" (M,N,1), "vis" (M,N,1), "feature" (M,N,1), 
+                "feat_reproj" (M,N,1), and "reg_gauss_mask" (M,N,1). Modified in
                 place to multiply loss_dict["mask"] with the other losses
             batch (Dict): Batch of dataloader samples. Keys: "rgb" (M,2,N,3),
                 "mask" (M,2,N,1), "depth" (M,2,N,1), "feature" (M,2,N,16),
@@ -528,20 +536,31 @@ class dvr_model(nn.Module):
                 "hxy" (M,2,N,3)
             config (Dict): Command-line options
         """
+        # ignore the masking steping
+        keys_ignore_masking = ["reg_gauss_mask"]
+        # always mask-out non-visible (out-of-frame) pixels
+        keys_apply_vis2d = ["mask"]
+        # always mask-out non-object pixels
+        keys_apply_fgmask = ["feature", "feat_reproj"]
+
+        # otherwise mask-out pixels based on the following rules
         vis2d = batch["vis2d"].float()
+        maskfg = batch["mask"].float()
         if config["field_type"] == "bg":
-            mask = (1 - batch["mask"].float()) * vis2d
+            mask = (1 - maskfg) * vis2d
         elif config["field_type"] == "fg":
-            mask = batch["mask"].float() * vis2d
+            mask = maskfg * vis2d
         elif config["field_type"] == "comp":
             mask = vis2d
         else:
             raise ("field_type %s not supported" % config["field_type"])
 
         for k, v in loss_dict.items():
-            if k == "mask":
+            if k in keys_apply_vis2d:
                 loss_dict[k] = v * vis2d
-            elif k == "reg_gauss_mask":
+            elif k in keys_apply_fgmask:
+                loss_dict[k] = v * maskfg
+            elif k in keys_ignore_masking:
                 continue
             else:
                 loss_dict[k] = v * mask

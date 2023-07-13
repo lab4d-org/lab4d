@@ -253,7 +253,7 @@ def image_convert(fig):
 
 
 def update_rot(track):
-    track.R = track.Rx @ track.Ry @ track.Rz
+    track.R = track.Rz @ track.Ry @ track.Rx
     new_v = track.v_adj @ track.R.T
 
     track.fig.data[0].x = new_v[:, 0]
@@ -347,14 +347,14 @@ def switch_video(track, config):
             return (
                 gr.Button.update(visible=False),
                 track.fig,
-                gr.Slider.update(value=0, maximum=track.annots.shape[0]-1),
+                gr.Slider.update(value=0, maximum=track.annots.shape[0] - 1),
                 str(track.annot_ids[0]),
             )
         else:
             return (
                 gr.Button.update(visible=True),
                 track.fig,
-                gr.Slider.update(value=0, maximum=track.annots.shape[0]-1),
+                gr.Slider.update(value=0, maximum=track.annots.shape[0] - 1),
                 str(track.annot_ids[0]),
             )
 
@@ -400,13 +400,13 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
                 demo.load(partial(load_fig, track), [], meshMap)
 
             with gr.Column():
-                rx = gr.Slider(0, 360, label="Roll (Degree)", value=0, interactive=True)
+                rx = gr.Slider(
+                    0, 360, label="Elevation (Degree)", value=0, interactive=True
+                )
                 ry = gr.Slider(
                     0, 360, label="Azimuth (Degree)", value=0, interactive=True
                 )
-                rz = gr.Slider(
-                    0, 360, label="Elevation (Degree)", value=0, interactive=True
-                )
+                rz = gr.Slider(0, 360, label="Roll (Degree)", value=0, interactive=True)
                 frame = gr.Slider(
                     0,
                     track.numFrames(),

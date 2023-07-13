@@ -449,7 +449,7 @@ class Trainer:
         """
         ref_dict = defaultdict(list)
         batch_aggr = defaultdict(list)
-        ref_keys = ["rgb", "mask", "depth", "feature"]
+        ref_keys = ["rgb", "mask", "depth", "feature", "vis2d"]
         batch_keys = ["dataid", "frameid_sub", "crop2raw"]
         for fid in fids:
             batch = dataset[fid]
@@ -512,7 +512,7 @@ class Trainer:
 
         Args:
             rendered_seq (Dict): Dict of volume-rendered outputs. Keys:
-                "mask" (M,H,W,1), "vis" (M,H,W,1), "depth" (M,H,W,1),
+                "mask" (M,H,W,1), "vis2d" (M,H,W,1), "depth" (M,H,W,1),
                 "flow" (M,H,W,2), "feature" (M,H,W,16), "normal" (M,H,W,3), and
                 "eikonal" (M,H,W,1)
         """

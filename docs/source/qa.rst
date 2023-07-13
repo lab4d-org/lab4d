@@ -9,6 +9,12 @@ Installation
   
   - Fix: Remove packages of the base environment that causes the conflict.
 
+Data pre-processing
+---------------------------
+- My gradio app got stuck at the loading screen.
+
+  - Potential fix: kill the running vscode processes, and re-run the preprocessing code.
+
 Model training
 ---------------------------
 
