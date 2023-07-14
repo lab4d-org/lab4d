@@ -200,7 +200,7 @@ class FigureTracker:
         return len(self.frame_paths)
 
     def update_frame_paths(self):
-        img_path = self.config.get("data_%d" % self.vidid, "img_path") + "*.jpg"
+        img_path = self.config.get("data_%d" % self.vid, "img_path") + "*.jpg"
         self.frame_paths = sorted(glob.glob(img_path))
 
 
