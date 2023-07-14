@@ -91,8 +91,10 @@ For training feed-forward video/image shape and pose estimators, cite:
 </details>
 
 For the human-48 dataset cite:
+
 <details>
 
+```
 @incollection{vlasic2008articulated,
   title={Articulated mesh animation from multi-view silhouettes},
   author={Vlasic, Daniel and Baran, Ilya and Matusik, Wojciech and Popovi{\'c}, Jovan},
@@ -117,4 +119,5 @@ For the human-48 dataset cite:
   pages={724--732},
   year={2016}
 }
+```
 </details>
