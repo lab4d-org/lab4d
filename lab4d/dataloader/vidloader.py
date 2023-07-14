@@ -99,14 +99,10 @@ class VidDataset(Dataset):
             .replace("00000.jpg", "01-canonical.npy")
         )  # fg
 
-        # TODO save crop2raw to a single file
         # TODO load cams directly
         # TODO do not need to return crop2raw from data loader
-        crop2rawlist = []
-        for path in reflist:
-            path = path.replace("JPEGImages", "Annotations").replace(".jpg", ".txt")
-            path = str(Path(path).parent) + "/%s-%s" % (prefix, Path(path).name)
-            crop2rawlist.append(path)
+        crop2raw_path = mask_path.replace(".npy", "-crop2raw.npy")
+        is_detected_path = mask_path.replace(".npy", "-is_detected.npy")
 
         return {
             "ref": reflist,
@@ -118,7 +114,8 @@ class VidDataset(Dataset):
             "flowbw": flowbw_path,
             "depth": depth_path,
             "feature": feature_path,
-            "crop2raw": crop2rawlist,
+            "crop2raw": crop2raw_path,
+            "is_detected": is_detected_path,
         }
 
     def load_data_list(self, dict_list):
@@ -131,7 +128,8 @@ class VidDataset(Dataset):
                 a list of annotations
         """
         # load crop2raw
-        self.crop2raw_list = [np.loadtxt(path) for path in dict_list["crop2raw"]]
+        self.crop2raw = np.load(dict_list["crop2raw"])
+        self.is_detected = np.load(dict_list["is_detected"])
 
         # load all .npy files using mmap
         # The number of open files is bounded by `ulimit -S -n` and `ulimit -H -n`,
@@ -232,7 +230,7 @@ class VidDataset(Dataset):
                 "flow", "vis2d", "crop2raw", "dataid", "frameid_sub", "hxy"
         """
         rgb = self.read_rgb(im0idx, rand_xy=rand_xy)
-        mask, vis2d, crop2raw = self.read_mask(im0idx, rand_xy=rand_xy)
+        mask, vis2d, crop2raw, is_detected = self.read_mask(im0idx, rand_xy=rand_xy)
         depth = self.read_depth(im0idx, rand_xy=rand_xy)
         flow = self.read_flow(im0idx, delta, rand_xy=rand_xy)
         feature = self.read_feature(im0idx, rand_xy=rand_xy)
@@ -253,6 +251,7 @@ class VidDataset(Dataset):
         data_dict["flow_uct"] = flow[..., 2:]
         data_dict["vis2d"] = vis2d
         data_dict["crop2raw"] = crop2raw
+        data_dict["is_detected"] = is_detected
         data_dict["dataid"] = self.dataid
         data_dict["frameid_sub"] = im0idx  # frameid in each video
         data_dict["hxy"] = hp_crop
@@ -297,8 +296,9 @@ class VidDataset(Dataset):
         vis2d = mask[..., 1:]
         mask = mask[..., :1]
 
-        crop2raw = self.crop2raw_list[im0idx]
-        return mask, vis2d, crop2raw
+        crop2raw = self.crop2raw[im0idx]
+        is_detected = self.is_detected[im0idx]
+        return mask, vis2d, crop2raw, is_detected
 
     def read_depth(self, im0idx, rand_xy=None):
         """Read depth map for a single frame

@@ -223,7 +223,7 @@ def minmax_normalize(data):
     Returns:
         normalized_data: (...,) Normalized data
     """
-    normalized_data = (data - data.min()) / (data.max() - data.min())
+    normalized_data = (data - data.min()) / (data.max() - data.min() + 1e-6)
     return normalized_data
 
 

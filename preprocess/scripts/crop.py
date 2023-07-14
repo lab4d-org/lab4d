@@ -28,6 +28,8 @@ def extract_crop(seqname, crop_size, use_full):
     rgb_list = []
     mask_list = []
     depth_list = []
+    crop2raw_list = []
+    is_detected_list = []
 
     imglist = sorted(
         glob.glob("database/processed/JPEGImages/Full-Resolution/%s/*.jpg" % seqname)
@@ -38,8 +40,6 @@ def extract_crop(seqname, crop_size, use_full):
                 continue
             if im0idx + delta >= len(imglist):
                 continue
-            frameid0 = int(imglist[im0idx].split("/")[-1].split(".")[0])
-            frameid1 = int(imglist[im0idx + delta].split("/")[-1].split(".")[0])
             # print("%s %d %d" % (seqname, frameid0, frameid1))
             data_dict0 = read_raw(imglist[im0idx], delta, crop_size, use_full)
             data_dict1 = read_raw(imglist[im0idx + delta], -delta, crop_size, use_full)
@@ -50,21 +50,15 @@ def extract_crop(seqname, crop_size, use_full):
                 rgb_list.append(data_dict0["img"])
                 mask_list.append(data_dict0["mask"])
                 depth_list.append(data_dict0["depth"])
-                np.savetxt(
-                    "database/processed/Annotations/Full-Resolution/%s/%s-%05d.txt"
-                    % (seqname, save_prefix, frameid0),
-                    data_dict0["crop2raw"],
-                )
+                crop2raw_list.append(data_dict0["crop2raw"])
+                is_detected_list.append(data_dict0["is_detected"])
 
                 if im0idx == len(imglist) - 2:
                     rgb_list.append(data_dict1["img"])
                     mask_list.append(data_dict1["mask"])
                     depth_list.append(data_dict1["depth"])
-                    np.savetxt(
-                        "database/processed/Annotations/Full-Resolution/%s/%s-%05d.txt"
-                        % (seqname, save_prefix, frameid1),
-                        data_dict1["crop2raw"],
-                    )
+                    crop2raw_list.append(data_dict1["crop2raw"])
+                    is_detected_list.append(data_dict1["is_detected"])
 
             flowfw_list[delta].append(data_dict0["flow"])
             flowbw_list[delta].append(data_dict1["flow"])
@@ -99,6 +93,19 @@ def extract_crop(seqname, crop_size, use_full):
         "database/processed/Depth/Full-Resolution/%s/%s.npy" % (seqname, save_prefix),
         np.stack(depth_list, 0),
     )
+
+    np.save(
+        "database/processed/Annotations/Full-Resolution/%s/%s-crop2raw.npy"
+        % (seqname, save_prefix),
+        np.stack(crop2raw_list, 0),
+    )
+
+    np.save(
+        "database/processed/Annotations/Full-Resolution/%s/%s-is_detected.npy"
+        % (seqname, save_prefix),
+        np.stack(is_detected_list, 0),
+    )
+
     print("crop (size: %d, full: %d) done: %s" % (crop_size, use_full, seqname))
 
 
