@@ -4,7 +4,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn as nn
-import trimesh
+from tqdm import tqdm
 
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsMLP
@@ -181,7 +181,7 @@ class dvr_model(nn.Module):
 
         rendered = defaultdict(list)
         # split batch
-        for i in range(0, len(batch["frameid"]) // div_factor):
+        for i in tqdm(range(0, len(batch["frameid"]) // div_factor)):
             batch_sub = {}
             for k, v in batch.items():
                 if isinstance(v, dict):
@@ -544,11 +544,11 @@ class dvr_model(nn.Module):
         # ignore the masking step
         keys_ignore_masking = ["reg_gauss_mask"]
         # always mask-out non-visible (out-of-frame) pixels
-        keys_allpix = ["mask", "vis"]
+        keys_allpix = ["mask"]
         # always mask-out non-object pixels
         keys_fg = ["feature", "feat_reproj"]
         # field type specific keys
-        keys_type_specific = ["rgb", "depth", "flow"]
+        keys_type_specific = ["rgb", "depth", "flow", "vis"]
 
         # type-specific masking rules
         vis2d = batch["vis2d"].float()
