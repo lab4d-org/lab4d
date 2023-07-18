@@ -136,7 +136,7 @@ class VidDataset(Dataset):
         # both of which could be easily exceeded by many videos.
         self.mmap_list = {}
         for k, path in dict_list.items():
-            if k in ("ref", "cambg", "camfg", "crop2raw"):
+            if k in ("ref", "cambg", "camfg", "crop2raw", "is_detected"):
                 continue
 
             if k in ("flowfw", "flowbw"):

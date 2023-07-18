@@ -5,6 +5,7 @@ import os
 import sys
 
 import numpy as np
+from tqdm import tqdm
 
 sys.path.insert(
     0,
@@ -34,7 +35,7 @@ def extract_crop(seqname, crop_size, use_full):
     imglist = sorted(
         glob.glob("database/processed/JPEGImages/Full-Resolution/%s/*.jpg" % seqname)
     )
-    for im0idx in range(len(imglist)):
+    for im0idx in tqdm(range(len(imglist))):
         for delta in delta_list:
             if im0idx % delta != 0:
                 continue

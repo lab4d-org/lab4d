@@ -276,6 +276,7 @@ class ArticulationFlatMLP(ArticulationBaseMLP):
             nn.Linear(W, W // 2),
             activation,
             nn.Linear(W // 2, 3 * num_se3),
+            ScaleLayer(0.1),
         )
         self.so3 = nn.Sequential(
             nn.Linear(W, W // 2),
