@@ -22,7 +22,7 @@ Pre-processed data and checkpoints
     - Mask / viewpoint annotation
     - Link to tutorial
     - Video / visualization
-  * - `car-turnaround-2 <https://www.dropbox.com/s/cv90orj961fibxt/car-turnaround-2-0000.zip?dl=0>`__ (x1)
+  * - `car-turnaround-2 <https://www.dropbox.com/scl/fi/5wfbc692qhpejhyo8u9r0/car-turnaround-2.zip?rlkey=riq060i3wm5raynxryf8g2hcw&dl=0>`__ (x1)
     - `link <https://www.dropbox.com/scl/fi/3g03jso6803ck4irg4ha2/log-car-turnaround-2-fg-rigid-b120.zip?rlkey=9ear4wux3noato7lhkfdclw3a&dl=0>`__
     - interactive
     - `Tutorial 1 </lab4d/tutorials/arbitrary_video.html>`__

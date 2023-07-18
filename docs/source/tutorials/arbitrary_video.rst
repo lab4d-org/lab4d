@@ -20,7 +20,7 @@ Download preprocessed data
 
 To download preprocessed data, run::
 
-  bash scripts/download_unzip.sh "https://www.dropbox.com/s/cv90orj961fibxt/car-turnaround-2-0000.zip"
+  bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/5wfbc692qhpejhyo8u9r0/car-turnaround-2.zip?rlkey=riq060i3wm5raynxryf8g2hcw&dl=0"
 
 This will download and unzip the preprocessed data to `database/processed/$type-of-processed-data/Full-Resolution/car-turnaround-2-0000/`.
 
