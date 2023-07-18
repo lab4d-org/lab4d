@@ -25,7 +25,7 @@ def read_mask_img(img_path, crop_size, use_full, use_minvis):
     mask_img = cv2.imread(mask_img_path)[..., ::-1] / 255.0
     shape = mask_img.shape
     mask_path = mask_img_path.replace(".jpg", ".npy")
-    mask, _ = read_mask(mask_path, shape)
+    mask, _, _ = read_mask(mask_path, shape)
 
     if use_minvis:
         img = cv2.imread(img_path)[..., ::-1] / 255.0

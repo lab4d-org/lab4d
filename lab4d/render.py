@@ -176,7 +176,9 @@ def render(opts, construct_batch_func):
     opts["logroot"] = sys.argv[1].split("=")[1].rsplit("/", 2)[0]
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     batch, raw_size = construct_batch_func(opts, model, data_info)
-    save_dir = make_save_dir(opts, sub_dir="renderings_%04d" % (opts["inst_id"]))
+    save_dir = make_save_dir(
+        opts, sub_dir="renderings_%s_%04d" % (opts["viewpoint"], opts["inst_id"])
+    )
 
     # render
     with torch_profile(save_dir, "profile", enabled=opts["profile"]):

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Data Browser</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            color: #333;
+            padding: 10px;
+        }
+
+        h1,
+        h2 {
+            color: #1a73e8;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-gap: 20px;
+            list-style: none;
+            padding: 0;
+        }
+
+        .grid-item {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #fff;
+            border-radius: 5px;
+            padding: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+        }
+
+        .grid-item video,
+        .grid-item img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 5px;
+        }
+
+        form {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        input[type="submit"] {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #1a73e8;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        input[type="submit"]:hover {
+            background-color: #165bbd;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Data Browser</h1>
+    <form method="POST">
+        <label for="path">Input Glob Pattern:</label><br>
+        (e.g.,
+        database/processed/Annotations/Full-Resolution/cat*/vis.mp4)
+        <input type="text" id="path" name="path"><br>
+        <input type="submit" value="Submit">
+    </form>
+    <h2>Matched Files</h2>
+    <ul class="grid-container">
+        {% for file in files %}
+        <li class="grid-item">
+            {% if file.endswith('.mp4') %}
+            <video controls>
+                <source src="{{ url_for('get_logdir_file', filename=file) }}" type="video/mp4">
+            </video>
+            {% elif file.endswith('.jpg') %}
+            <img src="{{ url_for('get_database_file', filename=file) }}" alt="Image">
+            {% else %}
+            <p>{{ file }}</p>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            var lazyImages = [].slice.call(document.querySelectorAll("img.lazy"));
+            var lazyVideos = [].slice.call(document.querySelectorAll("video.lazy"));
+
+            if ("IntersectionObserver" in window) {
+                let lazyImageObserver = new IntersectionObserver(function (entries, observer) {
+                    entries.forEach(function (entry) {
+                        if (entry.isIntersecting) {
+                            let lazyElement = entry.target;
+                            if (lazyElement.tagName === "IMG") {
+                                lazyElement.src = lazyElement.dataset.src;
+                            } else if (lazyElement.tagName === "VIDEO") {
+                                var source = lazyElement.querySelector('source');
+                                source.src = source.dataset.src;
+                            }
+                            lazyElement.classList.remove("lazy");
+                            lazyElement.classList.add("lazy-loaded");
+                            lazyImageObserver.unobserve(lazyElement);
+                        }
+                    });
+                });
+
+                lazyImages.forEach(function (lazyImage) {
+                    lazyImageObserver.observe(lazyImage);
+                });
+
+                lazyVideos.forEach(function (lazyVideo) {
+                    lazyImageObserver.observe(lazyVideo);
+                });
+            } else {
+                // Possibly fall back to a more compatible method here
+            }
+        });
+    </script>
+
+</body>
+
+</html>

@@ -4,7 +4,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn as nn
-import trimesh
+from tqdm import tqdm
 
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsMLP
@@ -56,8 +56,8 @@ class dvr_model(nn.Module):
             batch (Dict): Batch of dataloader samples. Keys: "rgb" (M,2,N,3),
                 "mask" (M,2,N,1), "depth" (M,2,N,1), "feature" (M,2,N,16),
                 "flow" (M,2,N,2), "flow_uct" (M,2,N,1), "vis2d" (M,2,N,1),
-                "crop2raw" (M,2,4), "dataid" (M,2), "frameid_sub" (M,2), and
-                "hxy" (M,2,N,3)
+                "crop2raw" (M,2,4), "dataid" (M,2), "frameid_sub" (M,2),
+                "hxy" (M,2,N,3), and "is_detected" (M,2)
         Returns:
             loss_dict (Dict): Computed losses. Keys: "mask" (M,N,1),
                 "rgb" (M,N,3), "depth" (M,N,1), "flow" (M,N,1), "vis" (M,N,1),
@@ -181,7 +181,7 @@ class dvr_model(nn.Module):
 
         rendered = defaultdict(list)
         # split batch
-        for i in range(0, len(batch["frameid"]) // div_factor):
+        for i in tqdm(range(0, len(batch["frameid"]) // div_factor)):
             batch_sub = {}
             for k, v in batch.items():
                 if isinstance(v, dict):
@@ -399,17 +399,20 @@ class dvr_model(nn.Module):
         return loss_dict
 
     @staticmethod
-    def get_mask_balance_wt(mask, vis2d):
+    def get_mask_balance_wt(mask, vis2d, is_detected):
         """Balance contribution of positive and negative pixels in mask.
 
         Args:
             mask: (M,N,1) Object segmentation mask
             vis2d: (M,N,1) Whether each pixel is visible in the video frame
+            is_detected: (M,) Whether there is segmentation mask in the frame
         Returns:
             mask_balance_wt: (M,N,1) Balanced mask
         """
+        # all the positive labels
         mask = mask.float()
-        vis2d = vis2d.float()
+        # all the labels
+        vis2d = vis2d.float() * is_detected.float()[:, None, None]
         if mask.sum() > 0 and (1 - mask).sum() > 0:
             pos_wt = vis2d.sum() / mask[vis2d > 0].sum()
             neg_wt = vis2d.sum() / (1 - mask[vis2d > 0]).sum()
@@ -448,7 +451,9 @@ class dvr_model(nn.Module):
         else:
             raise ("field_type %s not supported" % config["field_type"])
         # get fg mask balance factor
-        mask_balance_wt = dvr_model.get_mask_balance_wt(batch["mask"], batch["vis2d"])
+        mask_balance_wt = dvr_model.get_mask_balance_wt(
+            batch["mask"], batch["vis2d"], batch["is_detected"]
+        )
         if config["field_type"] == "bg":
             loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
         elif config["field_type"] == "fg":
@@ -525,8 +530,8 @@ class dvr_model(nn.Module):
         """Apply segmentation mask on dense losses
 
         Args:
-            loss_dict (Dict): Dense losses. Keys: "mask" (M,N,1), "rgb" (M,N,3), 
-                "depth" (M,N,1), "flow" (M,N,1), "vis" (M,N,1), "feature" (M,N,1), 
+            loss_dict (Dict): Dense losses. Keys: "mask" (M,N,1), "rgb" (M,N,3),
+                "depth" (M,N,1), "flow" (M,N,1), "vis" (M,N,1), "feature" (M,N,1),
                 "feat_reproj" (M,N,1), and "reg_gauss_mask" (M,N,1). Modified in
                 place to multiply loss_dict["mask"] with the other losses
             batch (Dict): Batch of dataloader samples. Keys: "rgb" (M,2,N,3),
@@ -536,14 +541,16 @@ class dvr_model(nn.Module):
                 "hxy" (M,2,N,3)
             config (Dict): Command-line options
         """
-        # ignore the masking steping
+        # ignore the masking step
         keys_ignore_masking = ["reg_gauss_mask"]
         # always mask-out non-visible (out-of-frame) pixels
-        keys_apply_vis2d = ["mask"]
+        keys_allpix = ["mask"]
         # always mask-out non-object pixels
-        keys_apply_fgmask = ["feature", "feat_reproj"]
+        keys_fg = ["feature", "feat_reproj"]
+        # field type specific keys
+        keys_type_specific = ["rgb", "depth", "flow", "vis"]
 
-        # otherwise mask-out pixels based on the following rules
+        # type-specific masking rules
         vis2d = batch["vis2d"].float()
         maskfg = batch["mask"].float()
         if config["field_type"] == "bg":
@@ -555,15 +562,24 @@ class dvr_model(nn.Module):
         else:
             raise ("field_type %s not supported" % config["field_type"])
 
+        # apply mask
         for k, v in loss_dict.items():
-            if k in keys_apply_vis2d:
-                loss_dict[k] = v * vis2d
-            elif k in keys_apply_fgmask:
-                loss_dict[k] = v * maskfg
-            elif k in keys_ignore_masking:
+            if k in keys_ignore_masking:
                 continue
-            else:
+            elif k in keys_allpix:
+                loss_dict[k] = v * vis2d
+            elif k in keys_fg:
+                loss_dict[k] = v * maskfg
+            elif k in keys_type_specific:
                 loss_dict[k] = v * mask
+            else:
+                raise ("loss %s not defined" % k)
+
+        # mask out the following losses if obj is not detected
+        keys_mask_not_detected = ["mask", "feature", "feat_reproj"]
+        for k, v in loss_dict.items():
+            if k in keys_mask_not_detected:
+                loss_dict[k] = v * batch["is_detected"].float()[:, None, None]
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):

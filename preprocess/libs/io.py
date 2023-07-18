@@ -75,15 +75,13 @@ def read_mask(mask_path, shape):
         mask = cv2.resize(mask, shape[:2][::-1], interpolation=cv2.INTER_NEAREST)
     mask = np.expand_dims(mask, -1)
 
-    # set to invisible if detection failed
     if mask.min() < 0:
-        vis2d = np.zeros_like(mask)
+        is_detected = False
     else:
-        vis2d = np.ones_like(mask)
-
+        is_detected = True
     mask = (mask > 0).astype(int)
-    vis2d = vis2d.astype(int)
-    return mask, vis2d
+    vis2d = np.ones_like(mask).astype(int)
+    return mask, vis2d, is_detected
 
 
 @record_function("read_flow")
@@ -116,8 +114,8 @@ def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
     img = cv2.imread(img_path)[..., ::-1] / 255.0
     shape = img.shape
     mask_path = img_path.replace("JPEGImages", "Annotations").replace(".jpg", ".npy")
-    mask, vis2d = read_mask(mask_path, shape)
-    if vis2d.max() == 0:  # force using full if there is no detection
+    mask, vis2d, is_detected = read_mask(mask_path, shape)
+    if not is_detected:  # force using full if there is no detection
         use_full = True
     crop2raw = compute_crop_params(mask, crop_size=crop_size, use_full=use_full)
     depth_path = img_path.replace("JPEGImages", "Depth").replace(".jpg", ".npy")
@@ -162,6 +160,7 @@ def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
     data_dict["crop2raw"] = crop2raw
     data_dict["hxy"] = hp_crop
     data_dict["hp_raw"] = hp_raw
+    data_dict["is_detected"] = is_detected
     return data_dict
 
 
@@ -172,7 +171,7 @@ def get_bbox(img_path, component_id):
     img = cv2.imread(img_path)[..., ::-1] / 255.0
     shape = img.shape
     mask_path = img_path.replace("JPEGImages", "Annotations").replace(".jpg", ".npy")
-    mask, _ = read_mask(mask_path, shape)
+    mask, _, _ = read_mask(mask_path, shape)
     mask = mask == component_id
     if mask.max() == 0:
         return None

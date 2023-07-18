@@ -299,9 +299,9 @@ def load_small_files(data_path_dict):
         data_info (Dict): Dataset metadata
     """
     data_info = {}
-    data_info["crop2raw"] = np.stack(
-        [np.loadtxt(path) for path in data_path_dict["crop2raw"]], 0
-    )  # N,4
+    # data_info["crop2raw"] = np.concatenate(
+    #     [np.load(path).astype(np.float32) for path in data_path_dict["crop2raw"]], 0
+    # )  # N,4
 
     rtmat_bg = np.concatenate(
         [np.load(path).astype(np.float32) for path in data_path_dict["cambg"]], 0
