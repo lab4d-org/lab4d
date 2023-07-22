@@ -14,9 +14,11 @@ from lab4d.utils.quat_transform import quaternion_translation_to_se3
 class CanonicalRegistration(nn.Module):
     def __init__(self, cams_canonical_dict, cams_view1):
         # annoated canonical cameras
-        self.annotated_idx = np.stack(cams_canonical_dict.keys())
+        self.annotated_idx = np.stack(list(cams_canonical_dict.keys()))
         cams_canonical = np.eye(4)[None].repeat(len(cams_view1), axis=0)
-        cams_canonical[self.annotated_idx] = np.stack(cams_canonical_dict.values(), 0)
+        cams_canonical[self.annotated_idx] = np.stack(
+            list(cams_canonical_dict.values()), 0
+        )
         cams_canonical = cams_canonical.astype(np.float32)
         cams_view1 = np.array(cams_view1).astype(np.float32)
         super(CanonicalRegistration, self).__init__()
