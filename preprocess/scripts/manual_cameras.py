@@ -77,8 +77,9 @@ def adjust_bounds(fig, v_adj):
     return fig
 
 
-def get_annotation(annotations, index):
-    return Image.fromarray(np.uint8(annotations[index] * 255))
+def get_annotation(track, index):
+    annot = load_annotation(track.frame_paths[index], track.use_minvis)
+    return Image.fromarray(np.uint8(annot * 255))
 
 
 def gen_fig_img(source):
@@ -98,7 +99,7 @@ def gen_fig_img(source):
     )
 
 
-def init_fig(annots, mesh_path):
+def init_fig(track, mesh_path):
     mesh = trimesh.load_mesh(mesh_path)
     v = mesh.vertices
     f = mesh.faces
@@ -120,13 +121,29 @@ def init_fig(annots, mesh_path):
         ]
     )
 
-    fig.add_layout_image(gen_fig_img(get_annotation(annots, 0)))
+    annot = get_annotation(track, 0)
+
+    fig.add_layout_image(gen_fig_img(annot))
 
     fig = adjust_bounds(fig, v_adj)
 
-    annot_height, annot_width, _ = annots[0].shape
+    annot_width, annot_height = annot.size
     fig.update_layout(
-        scene_aspectmode="cube", width=2 * annot_width, height=2 * annot_height
+        scene_aspectmode="cube",
+        width=2 * annot_width,
+        height=2 * annot_height,
+        dragmode=False,
+        hovermode=False,
+        clickmode="none",
+        modebar_remove=[
+            "pan",
+            "tableRotation",
+            "zoom",
+            "toimage",
+            "resetcameradefault",
+            "resetcameralastsave",
+            "orbitrotation",
+        ],
     )
     # fig.update_yaxes(scaleanchor="x", scaleratio=1)
     # fig.update_zaxes(scaleanchor="x", scaleratio=1)
@@ -159,24 +176,32 @@ def debug_format(R):
 
 
 class FigureTracker:
-    def __init__(self, annots, annot_ids, mesh_path, seqnames, use_minvis):
-        self.fig, self.v_adj = init_fig(annots, mesh_path)
-        self.curr_frame = annot_ids[0]
+    def __init__(self, mesh_path, seqnames, use_minvis, config):
         self.se3_dict = {}
         self.terminated = False
-        self.annots = annots
-        self.annot_ids = annot_ids
+        self.config = config
         self.vid = 0
         self.seqnames = seqnames
         self.use_minvis = use_minvis
+
+        self.frame_paths = []
+        self.update_frame_paths()
+        self.annot_ids = np.arange(self.numFrames())
+        self.curr_frame = 0
 
         self.R = np.eye(3)
         self.Rx = np.eye(3)
         self.Ry = np.eye(3)
         self.Rz = np.eye(3)
 
+        self.fig, self.v_adj = init_fig(self, mesh_path)
+
     def numFrames(self):
-        return self.annots.shape[0] - 1
+        return len(self.frame_paths)
+
+    def update_frame_paths(self):
+        img_path = self.config.get("data_%d" % self.vid, "img_path") + "*.jpg"
+        self.frame_paths = sorted(glob.glob(img_path))
 
 
 def exit_gradio(track, demo):
@@ -209,20 +234,11 @@ def terminate(track):
     )
 
 
-def load_annotations(config, vidid, use_minvis):
+def load_annotation(frame_path, use_minvis):
     crop_size = 256
-    img_path = config.get("data_%d" % vidid, "img_path") + "*.jpg"
-    imglist = sorted(glob.glob(img_path))
-    masks = np.zeros((len(imglist) - 1, crop_size, crop_size, 3))
-    frameids = np.zeros((len(imglist) - 1))
-    for im0idx in range(len(imglist) - 1):
-        use_full = False
-        mask_img = read_mask_img(imglist[im0idx], crop_size, use_full, use_minvis)
-        masks[im0idx] = mask_img
-        # frameids[im0idx] = int(imglist[im0idx].split("/")[-1].split(".")[0])
-        frameids[im0idx] = im0idx
-    frameids = frameids.astype(int)
-    return masks, frameids
+    use_full = False
+    mask_img = read_mask_img(frame_path, crop_size, use_full, use_minvis)
+    return mask_img
 
 
 def trig(degree):
@@ -318,43 +334,42 @@ def caminfo_to_rotation(track):
     return track.fig
 
 
-def update_fig_annot(fig, annots, index):
-    new_annot = get_annotation(annots, index)
+def update_fig_annot(fig, track, index):
+    new_annot = get_annotation(track, index)
     fig.update_layout_images(gen_fig_img(new_annot))
     return fig
 
 
 def annot_slider_update(track, index):
     annot_id = track.annot_ids[index]
-    new_fig = update_fig_annot(track.fig, track.annots, index)
+    new_fig = update_fig_annot(track.fig, track, index)
     track.curr_frame = annot_id
     return load_fig(track), str(annot_id)
 
 
-def switch_video(track, config):
+def switch_video(track):
     track.vid += 1
     track.se3_dict = {}
     if track.vid >= len(track.seqnames):
         return (gr.Button.update(visible=False), None, 0, "0")
     else:
-        track.annots, track.annot_ids = load_annotations(
-            config, track.vid, track.use_minvis
-        )
+        track.update_frame_paths()
+        track.annot_ids = np.arange(len(track.frame_paths))
         track.curr_frame = track.annot_ids[0]
-        new_fig = update_fig_annot(track.fig, track.annots, 0)
+        new_fig = update_fig_annot(track.fig, track, 0)
         track.fig = new_fig
         if track.vid == len(track.seqnames) - 1:
             return (
                 gr.Button.update(visible=False),
                 track.fig,
-                gr.Slider.update(value=0, maximum=track.annots.shape[0] - 1),
+                gr.Slider.update(value=0, maximum=track.numFrames() - 1),
                 str(track.annot_ids[0]),
             )
         else:
             return (
                 gr.Button.update(visible=True),
                 track.fig,
-                gr.Slider.update(value=0, maximum=track.annots.shape[0] - 1),
+                gr.Slider.update(value=0, maximum=track.numFrames() - 1),
                 str(track.annot_ids[0]),
             )
 
@@ -365,7 +380,7 @@ def next_frame(track, index):
         new_index = 0
     annot_id = track.annot_ids[new_index]
     track.curr_frame = annot_id
-    new_fig = update_fig_annot(track.fig, track.annots, new_index)
+    new_fig = update_fig_annot(track.fig, track, new_index)
     return load_fig(track), new_index, str(annot_id)
 
 
@@ -375,7 +390,7 @@ def prev_frame(track, index):
         new_index = len(track.annot_ids) - 1
     annot_id = track.annot_ids[new_index]
     track.curr_frame = annot_id
-    new_fig = update_fig_annot(track.fig, track.annots, new_index)
+    new_fig = update_fig_annot(track.fig, track, new_index)
     return load_fig(track), new_index, str(annot_id)
 
 
@@ -387,9 +402,7 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
         seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
         seqnames.append(seqname)
 
-    annots, annot_ids = load_annotations(config, 0, use_minvis)
-
-    track = FigureTracker(annots, annot_ids, mesh_path, seqnames, use_minvis)
+    track = FigureTracker(mesh_path, seqnames, use_minvis, config)
 
     with gr.Blocks() as demo:
         with gr.Row():
@@ -449,7 +462,7 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
             lastVid = track.vid == len(track.seqnames) - 1
             nextVid = gr.Button(value="Next Video", visible=not lastVid)
             nextVid.click(
-                partial(switch_video, track, config),
+                partial(switch_video, track),
                 [],
                 [nextVid, meshMap, frame, frame_text],
             )

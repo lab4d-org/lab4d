@@ -1,7 +1,8 @@
-# Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
+# Copyright (c) 2023 Gengshan Yang, Alex Lyons, Carnegie Mellon University.
 import os
 import sys
 
+import cv2
 import numpy as np
 import torch
 import trimesh
@@ -65,7 +66,7 @@ def mesh_cat(mesh_a, mesh_b):
     return mesh
 
 
-def draw_cams(all_cam, color="cool", axis=True, color_list=None):
+def draw_cams(all_cam, color="cool", axis=True, color_list=None, rgbpath_list=None):
     """Draw cameras as meshes
 
     Args:
@@ -73,6 +74,7 @@ def draw_cams(all_cam, color="cool", axis=True, color_list=None):
         color (str): Matplotlib colormap to use
         axis (bool): If True, draw camera xyz axes
         color_list (np.array or None): List of colors to draw cameras with
+        rgbpath_list: (List(str) or None): List of image path corresponding to the cameras
     Returns:
         mesh_cam (Trimesh): Mesh of cameras
     """
@@ -107,6 +109,12 @@ def draw_cams(all_cam, color="cool", axis=True, color_list=None):
 
         cam.vertices = cam.vertices.dot(cam_rot.T) + cam_tran
         cam_list.append(cam)
+
+        if rgbpath_list is not None:
+            image_mesh = image_to_mesh(rgbpath_list[j], radius)
+            image_mesh.vertices = image_mesh.vertices.dot(cam_rot.T) + cam_tran
+            cam_list.append(image_mesh)
+
     mesh_cam = trimesh.util.concatenate(cam_list)
     return mesh_cam
 
@@ -313,3 +321,60 @@ def get_colormap(num_colors=-1, repeat=1):
         colors = np.tile(colors[:, None], (1, repeat, 1))
         colors = np.reshape(colors, (-1, 3))
     return colors
+
+
+def image_to_mesh(image_path, z_displacement=0.04, mesh_scale=0.005, mesh_res=5e3):
+    """Convert image to mesh
+
+    Args:
+        img_path (str): Path to image
+        z_displacement (float): Z displacement of mesh
+        mesh_scale (float): Scale of mesh
+        max_res (int): Maximum resolution of mesh
+    Returns:
+        mesh (Trimesh): Mesh
+    """
+    image = cv2.imread(image_path)[:, :, ::-1]
+    inp_h, inp_w, _ = image.shape
+    res_fac = np.sqrt(mesh_res / (inp_h * inp_w))
+    height = int(np.ceil(inp_h * res_fac))
+    width = int(np.ceil(inp_w * res_fac))
+    image = cv2.resize(image, (width, height))
+
+    numPixels = (width + 1) * (height + 1)
+
+    points = np.stack(
+        (
+            np.tile(np.arange(width + 1), height + 1),
+            np.repeat(np.arange(height + 1), width + 1),
+            np.zeros(numPixels),
+        )
+    ).T
+    points = points.astype(int)
+
+    indices = np.setdiff1d(
+        np.arange((width + 1) * height),
+        np.arange(width, (width + 1) * height, width + 1),
+    )
+    # upper left triangle
+    ult = np.stack((indices + width + 1, indices + 1, indices))
+    # lower right triangle
+    lrt = np.stack((indices + width + 1, indices + width + 2, indices + 1))
+
+    faces = np.zeros((len(indices) * 2, 3)).astype(int)
+    faces[0::2] = ult.T
+    faces[1::2] = lrt.T
+
+    points = points.astype(float)
+    points[:, 0:2] -= np.mean(points[:, 0:2], axis=0, keepdims=True)
+    points[:, 0:2] *= mesh_scale
+    points[:, 2] = -z_displacement * np.ones(numPixels)
+
+    pixels = np.stack(
+        (np.tile(np.arange(width), height), np.repeat(np.arange(height), width))
+    ).T
+    pixels = pixels.astype(int)
+    colors = np.repeat(image[pixels[:, 1], pixels[:, 0]], 2, axis=0) / 255
+
+    mesh = trimesh.Trimesh(vertices=points, faces=faces, face_colors=colors)
+    return mesh
