@@ -205,7 +205,7 @@ class Deformable(FeatureNeRF):
         Returns:
             loss: (0,) Skinning consistency loss
         """
-        pts = self.sample_points_aabb(nsample, extend_factor=0.25)
+        pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.25)
 
         # match the gauss density to the reconstructed density
         density_gauss = self.warp.get_gauss_density(pts)  # (N,1)
@@ -244,10 +244,7 @@ class Deformable(FeatureNeRF):
         Returns:
             loss: (0,) Soft deformation loss
         """
-        device = next(self.parameters()).device
-        pts = self.sample_points_aabb(nsample, extend_factor=1.0)
-        frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
-        inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+        pts, frame_id, inst_id = self.sample_points_aabb(nsample, extend_factor=1.0)
         dist2 = self.warp.compute_post_warp_dist2(pts[:, None, None], frame_id, inst_id)
         return dist2.mean()
 

@@ -1,8 +1,11 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from functorch import vmap, combine_state_for_ensemble
 
 from lab4d.nnutils.embedding import InstEmbedding
+from lab4d.nnutils.transformer import Transformer
 
 
 class ScaleLayer(nn.Module):
@@ -155,3 +158,159 @@ class CondMLP(BaseMLP):
             return inst_channels
         else:
             return 0
+
+
+class CondTransformerMLP(BaseMLP):
+    """A MLP that accepts both input `x` and condition `c`
+
+    Args:
+        num_inst (int): Number of distinct object instances. If --nosingle_inst
+            is passed, this is equal to the number of videos, as we assume each
+            video captures a different instance. Otherwise, we assume all videos
+            capture the same instance and set this to 1.
+        D (int): Number of linear layers for density (sigma) encoder
+        W (int): Number of hidden units in each MLP layer
+        in_channels (int): Number of channels in input `x`
+        inst_channels (int): Number of channels in condition `c`
+        out_channels (int): Number of output channels
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+        final_act (bool): If True, apply the activation function to the output
+    """
+
+    def __init__(
+        self,
+        num_inst,
+        D=8,
+        W=256,
+        in_channels=63,
+        inst_channels=32,
+        out_channels=3,
+        skips=[4],
+        activation=nn.ReLU(True),
+        final_act=False,
+    ):
+        inst_channels = 768
+        super().__init__(
+            D=D,
+            W=W,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            skips=skips,
+            activation=activation,
+            final_act=final_act,
+        )
+        self.inst_embedding = InstEmbedding(num_inst, inst_channels)
+
+        self.transformer = Transformer(
+            in_channels,
+            depth=1,
+            heads=12,
+            dim_head=inst_channels // 12,
+            mlp_dim=inst_channels * 2,
+            selfatt=False,
+            kv_dim=inst_channels,
+        )
+
+    def forward(self, feat, inst_id):
+        """
+        Args:
+            feat: (M, ..., self.in_channels)
+            inst_id: (M,) Instance id, or None to use the average instance
+        Returns:
+            out: (M, ..., self.out_channels)
+        """
+        if inst_id is None:
+            if self.inst_embedding.out_channels > 0:
+                inst_code = self.inst_embedding.get_mean_embedding()
+                inst_code = inst_code.expand(feat.shape[:-1] + (-1,))
+                # print("inst_embedding exists but inst_id is None, using mean inst_code")
+            else:
+                # empty, falls back to single-instance NeRF
+                inst_code = torch.zeros(feat.shape[:-1] + (0,), device=feat.device)
+        else:
+            inst_code = self.inst_embedding(inst_id)
+            inst_code = inst_code.view(
+                inst_code.shape[:1] + (1,) * (feat.ndim - 2) + (-1,)
+            )
+            inst_code = inst_code.expand(feat.shape[:-1] + (-1,))
+
+        # feat = torch.cat([feat, inst_code], -1)
+        # if both input feature and inst_code are empty, return zeros
+        if feat.shape[-1] == 0 and inst_code.shape[-1] == 0:
+            return feat
+        feat = self.transformer(feat, inst_code)
+        return super().forward(feat)
+
+    @staticmethod
+    def get_dim_inst(num_inst, inst_channels):
+        if num_inst > 1:
+            return inst_channels
+        else:
+            return 0
+
+
+class MultiMLP(nn.Module):
+    """Independent MLP for each instance"""
+
+    def __init__(self, num_inst, inst_channels=32, **kwargs):
+        super(MultiMLP, self).__init__()
+        self.out_channels = kwargs["out_channels"]
+        self.num_inst = num_inst
+        self.nets = []
+        for i in range(num_inst):
+            self.nets.append(BaseMLP(**kwargs))
+        self.nets = nn.ModuleList(self.nets)
+
+    def forward(self, feat, inst_id):
+        """
+        Args:
+            feat: (M, ..., self.in_channels)
+            inst_id: (M,) Instance id, or None to use the average instance
+        Returns:
+            out: (M, ..., self.out_channels)
+        """
+        # rearrange the batch dimension
+        shape = feat.shape[:-1]
+        out = torch.zeros(shape + (self.out_channels,), device=feat.device).view(
+            -1, self.out_channels
+        )
+        if inst_id is None:
+            return out.view(shape + (self.out_channels,))
+
+        feat = feat.view(-1, feat.shape[-1])
+        inst_id = inst_id.view((-1,) + (1,) * (len(shape) - 1))
+        inst_id = inst_id.expand(shape)
+        inst_id = inst_id.reshape(-1)
+
+        # do the real work
+
+        empty_input = torch.zeros_like(feat[:1])
+        for it in range(self.num_inst):
+            id_sel = inst_id == it
+            if id_sel.sum() == 0:
+                # to avoid error in ddp
+                # Expected to have finished reduction in the prior iteration before starting a new one.
+                out = out + self.nets[it](empty_input).mean() * 0
+                continue
+            x_sel = feat[id_sel]
+            out[id_sel] = self.nets[it](x_sel)
+        out = out.view(shape + (self.out_channels,))
+        return out
+
+
+class MixMLP(nn.Module):
+    """Mixing CondMLP and MultiMLP"""
+
+    def __init__(self, num_inst, inst_channels=32, **kwargs):
+        super(MixMLP, self).__init__()
+        self.multimlp = MultiMLP(num_inst, inst_channels=inst_channels, **kwargs)
+        kwargs["D"] *= 5  # 5
+        kwargs["W"] *= 2  # 128
+        self.condmlp = CondMLP(num_inst, inst_channels=inst_channels, **kwargs)
+
+    def forward(self, feat, inst_id):
+        out1 = self.condmlp(feat, inst_id)
+        out2 = self.multimlp(feat, inst_id)
+        out = out1 + out2
+        return out

@@ -8,6 +8,7 @@ from torch import nn
 
 from lab4d.nnutils.deformable import Deformable
 from lab4d.nnutils.nerf import NeRF
+from lab4d.nnutils.bgnerf import BGNeRF
 from lab4d.nnutils.pose import ArticulationSkelMLP
 from lab4d.nnutils.warping import ComposedWarp, SkinningWarp
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
@@ -84,11 +85,13 @@ class MultiFields(nn.Module):
             )
             # no directional encoding
         elif category == "bg":
-            nerf = NeRF(
+            # nerf = NeRF(
+            nerf = BGNeRF(
                 data_info,
                 num_freq_xyz=6,
                 num_freq_dir=0,
                 appr_channels=0,
+                num_inst=self.num_inst,
                 init_scale=0.1,
             )
         else:  # exit with an error
@@ -155,7 +158,7 @@ class MultiFields(nn.Module):
             grid_size (int): Marching cubes resolution
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
-            inst_id: (M,) Instance id. If None, extract for the average instance
+            inst_id: (int) Instance id. If None, extract for the average instance
             use_visibility (bool): If True, use visibility mlp to mask out invisible
               region.
             use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
@@ -184,7 +187,7 @@ class MultiFields(nn.Module):
         """
         for category, field in self.field_params.items():
             # print(field.near_far)
-            mesh_geo = field.proxy_geometry
+            mesh_geo = field.get_proxy_geometry()
             quat, trans = field.camera_mlp.get_vals()
             rtmat = quaternion_translation_to_se3(quat, trans).cpu()
             # evenly pick max 200 cameras

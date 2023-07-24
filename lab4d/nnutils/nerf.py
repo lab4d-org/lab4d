@@ -76,6 +76,7 @@ class NeRF(nn.Module):
         init_beta=0.1,
         init_scale=0.1,
         color_act=True,
+        field_arch=CondMLP,
     ):
         rtmat = data_info["rtmat"]
         frame_info = data_info["frame_info"]
@@ -95,7 +96,7 @@ class NeRF(nn.Module):
 
         # xyz encoding layers
         # TODO: add option to replace with instNGP
-        self.basefield = CondMLP(
+        self.basefield = field_arch(
             num_inst=self.num_inst,
             D=D,
             W=W,
@@ -109,7 +110,7 @@ class NeRF(nn.Module):
 
         # color
         self.pos_embedding_color = PosEmbedding(3, num_freq_xyz + 2)
-        self.colorfield = CondMLP(
+        self.colorfield = field_arch(
             num_inst=self.num_inst,
             D=2,
             W=W,
@@ -153,10 +154,9 @@ class NeRF(nn.Module):
         # visibility mlp
         self.vis_mlp = VisField(self.num_inst)
 
-        # load initial mesh
+        # load initial mesh, define aabb
         self.init_proxy(geom_path, init_scale)
-        self.register_buffer("aabb", torch.zeros(2, 3))
-        self.update_aabb(beta=0)
+        self.init_aabb()
 
         # non-parameters are not synchronized
         self.register_buffer("near_far", torch.zeros(len(rtmat), 2), persistent=False)
@@ -235,15 +235,28 @@ class NeRF(nn.Module):
         self.geometry_init(sdf_fn_torch)
 
     def init_proxy(self, geom_path, init_scale):
-        """Initialize the geometry from a mesh
+        """Initialize proxy geometry as a sphere
 
         Args:
-            geom_path (str): Initial shape mesh
-            init_scale (float): Geometry scale factor
+            geom_path (str): Unused
+            init_scale (float): Unused
         """
-        mesh = trimesh.load(geom_path)
+        mesh = trimesh.load(geom_path[0])
         mesh.vertices = mesh.vertices * init_scale
         self.proxy_geometry = mesh
+
+    def get_proxy_geometry(self):
+        """Get proxy geometry
+
+        Returns:
+            proxy_geometry (Trimesh): Proxy geometry
+        """
+        return self.proxy_geometry
+
+    def init_aabb(self):
+        """Initialize axis-aligned bounding box"""
+        self.register_buffer("aabb", torch.zeros(2, 3))
+        self.update_aabb(beta=0)
 
     def geometry_init(self, sdf_fn, nsample=256):
         """Initialize SDF using tsdf-fused geometry if radius is not given.
@@ -265,7 +278,7 @@ class NeRF(nn.Module):
             inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
 
             # sample points
-            pts = self.sample_points_aabb(nsample, extend_factor=0.25)
+            pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.25)
 
             # get sdf from proxy geometry
             sdf_gt = sdf_fn(pts)
@@ -312,7 +325,7 @@ class NeRF(nn.Module):
             grid_size (int): Marching cubes resolution
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
-            inst_id: (M,) Instance id. If None, extract for the average instance
+            inst_id: (int) Instance id. If None, extract for the average instance
             use_visibility (bool): If True, use visibility mlp to mask out invisible
               region.
             use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
@@ -322,12 +335,13 @@ class NeRF(nn.Module):
         """
         if inst_id is not None:
             inst_id = torch.tensor([inst_id], device=next(self.parameters()).device)
+            aabb = self.get_aabb(inst_id=inst_id)[0]  # 2,3
+        else:
+            aabb = self.get_aabb()
         sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id, get_density=False)
         vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > 0
         if use_extend_aabb:
-            aabb = extend_aabb(self.aabb, factor=0.5)
-        else:
-            aabb = self.aabb
+            aabb = extend_aabb(aabb, factor=0.5)
         mesh = marching_cubes(
             sdf_func,
             aabb,
@@ -337,6 +351,18 @@ class NeRF(nn.Module):
             apply_connected_component=True if self.category == "fg" else False,
         )
         return mesh
+
+    def get_aabb(self, inst_id=None):
+        """Get axis-aligned bounding box
+        Args:
+            inst_id: (N,) Instance id
+        Returns:
+            aabb: (2,3) Axis-aligned bounding box if inst_id is None, (N,2,3) otherwise
+        """
+        if inst_id is None:
+            return self.aabb
+        else:
+            return self.aabb[None].repeat(len(inst_id), 1, 1)
 
     def update_aabb(self, beta=0.9):
         """Update axis-aligned bounding box by interpolating with the current
@@ -380,13 +406,16 @@ class NeRF(nn.Module):
             pts: (nsample, 3) Sampled points
         """
         device = next(self.parameters()).device
-        aabb = extend_aabb(self.aabb, factor=extend_factor)
+        frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
+        inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+        aabb = self.get_aabb(inst_id=inst_id)
+        aabb = extend_aabb(aabb, factor=extend_factor)
         pts = (
             torch.rand(nsample, 3, dtype=torch.float32, device=device)
-            * (aabb[1:] - aabb[:1])
-            + aabb[:1]
+            * (aabb[..., 1, :] - aabb[..., 0, :])
+            + aabb[..., 0, :]
         )
-        return pts
+        return pts, frame_id, inst_id
 
     def visibility_decay_loss(self, nsample=512):
         """Encourage visibility to be low at random points within the aabb. The
@@ -398,9 +427,7 @@ class NeRF(nn.Module):
             loss: (0,) Visibility decay loss
         """
         # sample random points
-        device = next(self.parameters()).device
-        pts = self.sample_points_aabb(nsample)
-        inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+        pts, _, inst_id = self.sample_points_aabb(nsample)
 
         # evaluate loss
         vis = self.vis_mlp(pts, inst_id=inst_id)
@@ -491,7 +518,8 @@ class NeRF(nn.Module):
             valid_idx: (M,N,D) Visibility mask, bool
         """
         # check whether the point is inside the aabb
-        aabb = extend_aabb(self.aabb)
+        aabb = self.get_aabb(samples_dict["inst_id"])
+        aabb = extend_aabb(aabb)
         # (M,N,D), whether the point is inside the aabb
         inside_aabb = check_inside_aabb(xyz, aabb)
 
@@ -505,7 +533,7 @@ class NeRF(nn.Module):
             )[1][0]
             t_aabb = torch.stack([t_bones.min(0)[0], t_bones.max(0)[0]], 0)
             t_aabb = extend_aabb(t_aabb, factor=1.0)
-            inside_aabb = check_inside_aabb(xyz_t, t_aabb)
+            inside_aabb = check_inside_aabb(xyz_t, t_aabb[None])
             valid_idx = valid_idx & inside_aabb
 
         # temporally disable visibility mask
@@ -546,10 +574,7 @@ class NeRF(nn.Module):
             near_far = self.near_far.to(device)
             near_far = near_far[batch["frameid"]]
         else:
-            corners = trimesh.bounds.corners(self.proxy_geometry.bounds)
-            corners = torch.tensor(corners, dtype=torch.float32, device=device)
-            field2cam_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])
-            near_far = get_near_far(corners, field2cam_mat, tol_fac=1.5)
+            near_far = self.get_near_far(frame_id, field2cam)
 
         # auxiliary outputs
         samples_dict = {}
@@ -563,6 +588,14 @@ class NeRF(nn.Module):
         if "feature" in batch.keys():
             samples_dict["feature"] = batch["feature"]
         return samples_dict
+
+    def get_near_far(self, frame_id, field2cam):
+        device = next(self.parameters()).device
+        corners = trimesh.bounds.corners(self.proxy_geometry.bounds)
+        corners = torch.tensor(corners, dtype=torch.float32, device=device)
+        field2cam_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])
+        near_far = get_near_far(corners, field2cam_mat, tol_fac=1.5)
+        return near_far
 
     def query_field(self, samples_dict, flow_thresh=None):
         """Render outputs from a neural radiance field.

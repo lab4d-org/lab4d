@@ -315,11 +315,13 @@ def load_small_files(data_path_dict):
     data_info["rtmat"] = np.stack([rtmat_bg, rtmat_fg], 0)
 
     # path to centered mesh files
-    camera_prefix = data_path_dict["cambg"][0].rsplit("/", 1)[0]
-    data_info["geom_path"] = [
-        "%s/mesh-00-centered.obj" % camera_prefix,
-        "%s/mesh-01-centered.obj" % camera_prefix,
-    ]
+    geom_path_bg = []
+    geom_path_fg = []
+    for path in data_path_dict["cambg"]:
+        camera_prefix = path.rsplit("/", 1)[0]
+        geom_path_bg.append("%s/mesh-00-centered.obj" % camera_prefix)
+        geom_path_fg.append("%s/mesh-01-centered.obj" % camera_prefix)
+    data_info["geom_path"] = [geom_path_bg, geom_path_fg]
     return data_info
 
 
