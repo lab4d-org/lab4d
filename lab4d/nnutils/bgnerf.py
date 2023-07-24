@@ -7,21 +7,20 @@ from pysdf import SDF
 
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from lab4d.utils.geom_utils import get_near_far
-from lab4d.nnutils.base import MixMLP, MultiMLP, CondMLP, CondTransformerMLP
+from lab4d.nnutils.base import MixMLP, MultiMLP, CondMLP
 from lab4d.nnutils.visibility import VisField
 
 
 class BGNeRF(NeRF):
     """A static neural radiance field with an MLP backbone. Specialized to background."""
 
-    # def __init__(self, data_info, field_arch=CondTransformerMLP, D=5, W=128, **kwargs):
     # def __init__(self, data_info, field_arch=CondMLP, D=5, W=128, **kwargs):
     def __init__(self, data_info, field_arch=MixMLP, D=1, W=64, **kwargs):
         super(BGNeRF, self).__init__(
             data_info, field_arch=field_arch, D=D, W=W, **kwargs
         )
-        # TODO: update beta
-        # TODO: update scale
+        # TODO: update per-scene beta
+        # TODO: update per-scene scale
 
     def init_proxy(self, geom_paths, init_scale):
         """Initialize the geometry from a mesh
@@ -32,9 +31,8 @@ class BGNeRF(NeRF):
         """
         meshes = []
         for geom_path in geom_paths:
-            mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
-            # mesh = trimesh.load(geom_path)
-            # mesh.vertices = mesh.vertices * init_scale
+            mesh = trimesh.load(geom_path)
+            mesh.vertices = mesh.vertices * init_scale
             meshes.append(mesh)
         self.proxy_geometry = meshes
 
