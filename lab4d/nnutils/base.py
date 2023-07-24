@@ -2,7 +2,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from functorch import vmap, combine_state_for_ensemble
 
 from lab4d.nnutils.embedding import InstEmbedding
 from lab4d.nnutils.transformer import Transformer
@@ -255,12 +254,17 @@ class MultiMLP(nn.Module):
 
     def __init__(self, num_inst, inst_channels=32, **kwargs):
         super(MultiMLP, self).__init__()
+        self.in_channels = kwargs["in_channels"]
         self.out_channels = kwargs["out_channels"]
         self.num_inst = num_inst
+        # ensemble version
         self.nets = []
         for i in range(num_inst):
             self.nets.append(BaseMLP(**kwargs))
         self.nets = nn.ModuleList(self.nets)
+
+        # # linear version
+        # self.linear = nn.Linear(kwargs["in_channels"], num_inst*kwargs["out_channels"])
 
     def forward(self, feat, inst_id):
         """
@@ -272,32 +276,51 @@ class MultiMLP(nn.Module):
         """
         # rearrange the batch dimension
         shape = feat.shape[:-1]
-        out = torch.zeros(shape + (self.out_channels,), device=feat.device).view(
-            -1, self.out_channels
-        )
-        if inst_id is None:
-            return out.view(shape + (self.out_channels,))
-
-        feat = feat.view(-1, feat.shape[-1])
         inst_id = inst_id.view((-1,) + (1,) * (len(shape) - 1))
         inst_id = inst_id.expand(shape)
-        inst_id = inst_id.reshape(-1)
 
-        # do the real work
+        # # linear version: with duplicate computation
+        # out_stacked = self.linear(feat).view(shape + (self.out_channels, self.num_inst)) # (M, ..., self.out_channels, self.num_inst)
+        # # Construct an index tensor
+        # index = inst_id.unsqueeze(-1).expand(shape + (self.out_channels,)).unsqueeze(-1)
+        # # Gather elements from out_stacked using the index tensor
+        # out = torch.gather(out_stacked, -1, index).squeeze(-1)
+        # return out
 
-        empty_input = torch.zeros_like(feat[:1])
-        for it in range(self.num_inst):
+        # # sequential version: with duplicate computation
+        # out = torch.zeros(shape + (self.out_channels,), device=feat.device)
+        # for it, net in enumerate(self.nets):
+        #     id_sel = inst_id == it
+        #     out[id_sel] = net(feat)[id_sel]
+        # return out
+
+        # sequential version: avoid duplicate computation
+        out = torch.zeros(shape + (self.out_channels,), device=feat.device)
+        empty_input = torch.zeros(1,1,self.in_channels, device=feat.device)
+        for it, net in enumerate(self.nets):
             id_sel = inst_id == it
             if id_sel.sum() == 0:
-                # to avoid error in ddp
-                # Expected to have finished reduction in the prior iteration before starting a new one.
                 out = out + self.nets[it](empty_input).mean() * 0
                 continue
-            x_sel = feat[id_sel]
-            out[id_sel] = self.nets[it](x_sel)
-        out = out.view(shape + (self.out_channels,))
+            out[id_sel] = net(feat[id_sel])
         return out
 
+        # # parallel version with issue with ddp; slow
+        # def wrapper(params, buffers, data):
+        #     return torch.func.functional_call(self.nets[0], (params, buffers), (data,))
+
+        # params, buffers = torch.func.stack_module_state(self.nets)
+        # out_stacked = torch.vmap(wrapper, (0, 0, None))(params, buffers, feat)
+
+        # # Construct an index tensor
+        # index = inst_id.unsqueeze(-1).expand(shape + (self.out_channels,)).unsqueeze(0)
+        # # Gather elements from out_stacked using the index tensor
+        # out = torch.gather(out_stacked, 0, index).squeeze(0)
+
+        # empty_input = torch.zeros(1,1,self.in_channels, device=feat.device)
+        # for net in self.nets:
+        #     out += net(empty_input).mean()*0
+        # return out
 
 class MixMLP(nn.Module):
     """Mixing CondMLP and MultiMLP"""
