@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from lab4d.nnutils.embedding import InstEmbedding
+from functorch import vmap, combine_state_for_ensemble
 
 
 class ScaleLayer(nn.Module):
@@ -158,6 +159,18 @@ class CondMLP(BaseMLP):
             return 0
 
 
+class Ensemble(nn.Module):
+    def __init__(self, modules, **kwargs):
+        super().__init__()
+        fmodel, self.params, self.buffers = combine_state_for_ensemble(modules)
+        self.vmap_model = vmap(fmodel, **kwargs)
+        self.params = nn.ParameterList([nn.Parameter(p) for p in self.params])
+
+    def forward(self, *args, **kwargs):
+        params = [i for i in self.params]
+        return self.vmap_model(params, self.buffers, *args, **kwargs)
+
+
 class MultiMLP(nn.Module):
     """Independent MLP for each instance"""
 
@@ -170,6 +183,7 @@ class MultiMLP(nn.Module):
         self.nets = []
         for i in range(num_inst):
             self.nets.append(BaseMLP(**kwargs))
+        # self.nets = Ensemble(self.nets)
         self.nets = nn.ModuleList(self.nets)
 
         # # linear version
@@ -185,6 +199,7 @@ class MultiMLP(nn.Module):
         """
         # rearrange the batch dimension
         shape = feat.shape[:-1]
+        device = feat.device
         inst_id = inst_id.view((-1,) + (1,) * (len(shape) - 1))
         inst_id = inst_id.expand(shape)
 
@@ -229,6 +244,37 @@ class MultiMLP(nn.Module):
         # empty_input = torch.zeros(1,1,self.in_channels, device=feat.device)
         # for net in self.nets:
         #     out += net(empty_input).mean()*0
+        # return out
+
+        # # parallel version, slow due to variable size index
+        # num_elem = inst_id.numel()
+        # feat = feat.view(num_elem, -1)
+        # inst_id = inst_id.reshape(-1)
+
+        # # in: feat: K, in_channels
+        # # in: inst_id: K
+        # # Get the counts for each instance
+        # counts = torch.bincount(inst_id)
+        # max_bs = counts.max()
+
+        # feat_padded = torch.zeros((self.num_inst, max_bs, feat.shape[1]), device=device)
+        # id_sels = torch.stack([(inst_id == it) for it in range(self.num_inst)], 0)
+        # # feat_paded: N, M, in_channels
+        # # id_sels, N, K, 1
+        # # feat: K, in_channels
+        # for it in range(self.num_inst):
+        #     feal_sel = feat[id_sels[it]]
+        #     feat_padded[it, : feal_sel.shape[0]] = feal_sel
+
+        # # run network
+        # out_padded = self.nets(feat_padded)
+
+        # # out_padded: N,K, ..., out_channels
+        # out = torch.zeros((num_elem, self.out_channels), device=feat.device)
+        # for it in range(self.num_inst):
+        #     id_sel = id_sels[it]
+        #     out[id_sel] = out_padded[it][: id_sel.sum()]
+        # out = out.reshape(shape + (self.out_channels,))
         # return out
 
 

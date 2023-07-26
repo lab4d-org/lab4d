@@ -14,7 +14,9 @@ from lab4d.nnutils.visibility import VisField
 class BGNeRF(NeRF):
     """A static neural radiance field with an MLP backbone. Specialized to background."""
 
-    # def __init__(self, data_info, field_arch=CondMLP, D=5, W=128, **kwargs):
+    # def __init__(
+    #     self, data_info, field_arch=CondMLP, D=8, W=256, inst_channels=256, **kwargs
+    # ):
     def __init__(self, data_info, field_arch=MixMLP, D=1, W=64, **kwargs):
         super(BGNeRF, self).__init__(
             data_info, field_arch=field_arch, D=D, W=W, **kwargs
