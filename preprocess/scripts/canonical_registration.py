@@ -38,19 +38,15 @@ from lab4d.utils.vis_utils import draw_cams
 
 
 def save_resampled_feat(imglist, feats, dp2raws, prefix, crop_size):
+    # load crop2raw
+    crop2raw_path = imglist[0].replace("JPEGImages", "Annotations").rsplit("/", 1)[0]
+    crop2raw_path = crop2raw_path + "/%s-%d-crop2raw.npy" % (prefix, crop_size)
+    crop2raws = np.load(crop2raw_path)
     feats_expanded = []
     for it, impath in enumerate(imglist):
         feat = feats[it]
         feat_width = feat.shape[-1]
-        # load crop2raw
-        frame_id = int(os.path.basename(impath).split(".")[0])
-        crop2raw_path = impath.replace("JPEGImages", "Annotations").rsplit("/", 1)[0]
-        crop2raw_path = crop2raw_path + "/%s-%d-%05d.txt" % (
-            prefix,
-            crop_size,
-            frame_id,
-        )
-        crop2raw = np.loadtxt(crop2raw_path)
+        crop2raw = crop2raws[it]
         # compute transform
         crop2dp = K2inv(dp2raws[it]) @ K2mat(crop2raw)
         # resample
