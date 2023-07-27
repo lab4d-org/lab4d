@@ -59,7 +59,7 @@ class VidDataset(Dataset):
         self.dict_list = self.construct_data_list(
             rgblist, opts["data_prefix"], opts["feature_type"]
         )
-        self.num_sample_pixels = opts["num_sample_pixels"]
+        self.pixels_per_image = opts["pixels_per_image"]
         self.dataid = dataid
         self.load_pair = opts["load_pair"]
         self.ks = ks
@@ -184,10 +184,10 @@ class VidDataset(Dataset):
         Returns:
             xy: (N, 2) Sampled pixels
         """
-        if self.num_sample_pixels == -1:
+        if self.pixels_per_image == -1:
             return None
 
-        rand_idx = self.idx_sampler.sample(num_samples=self.num_sample_pixels)
+        rand_idx = self.idx_sampler.sample(num_samples=self.pixels_per_image)
         y0 = rand_idx % self.img_size[0]
         x0 = rand_idx // self.img_size[0]
         xy = np.stack([x0, y0], axis=-1)  # (num_sample, 2)

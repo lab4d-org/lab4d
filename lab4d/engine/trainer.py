@@ -28,10 +28,10 @@ class Trainer:
         Args:
             opts (Dict): Command-line args from absl (defined in lab4d/config.py)
         """
-        # When profiling, use fewer minibatches per batch so trace files are smaller
+        # When profiling, use fewer iterations per round so trace files are smaller
         is_resumed = opts["load_path"] != ""
         if opts["profile"]:
-            opts["minibatch_iters"] = 10
+            opts["iters_per_round"] = 10
 
         self.opts = opts
 
@@ -62,7 +62,7 @@ class Trainer:
             self.log = None
 
         self.current_steps = 0  # 0-total_steps
-        self.current_batch = 0  # 0-num_batches
+        self.current_round = 0  # 0-num_rounds
 
         # 0-last image in eval dataset
         self.eval_fid = np.linspace(0, len(self.evalloader) - 1, 9).astype(int)
@@ -81,8 +81,8 @@ class Trainer:
 
         self.data_info, self.data_path_dict = data_utils.get_data_info(self.evalloader)
 
-        self.total_steps = opts["num_batches"] * min(
-            opts["minibatch_iters"], len(self.trainloader)
+        self.total_steps = opts["num_rounds"] * min(
+            opts["iters_per_round"], len(self.trainloader)
         )
 
     def init_model(self):
@@ -197,7 +197,7 @@ class Trainer:
         else:
             div_factor = 25.0
             final_div_factor = 1.0
-            pct_start = 2.0 / opts["num_batches"]  # use 2 epochs to warm up
+            pct_start = 2.0 / opts["num_rounds"]  # use 2 epochs to warm up
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
             lr_list,
@@ -220,45 +220,43 @@ class Trainer:
             pass
 
         # start training loop
-        self.save_checkpoint(batch_count=self.current_batch)
-        for batch_count in range(
-            self.current_batch, self.current_batch + opts["num_batches"]
+        self.save_checkpoint(round_count=self.current_round)
+        for round_count in range(
+            self.current_round, self.current_round + opts["num_rounds"]
         ):
             start_time = time.time()
             with torch_profile(
-                self.save_dir, f"{batch_count:03d}", enabled=opts["profile"]
+                self.save_dir, f"{round_count:03d}", enabled=opts["profile"]
             ):
-                self.run_one_batch(batch_count)
+                self.run_one_round(round_count)
 
             if get_local_rank() == 0:
-                print(f"Batch {batch_count:03d}: time={time.time() - start_time:.3f}s")
+                print(f"Round {round_count:03d}: time={time.time() - start_time:.3f}s")
 
-    def run_one_batch(self, batch):
-        """Evaluation and training for a single batch
+    def run_one_round(self, round_count):
+        """Evaluation and training for a single round
 
         Args:
-            batch (int): Current batch index
+            round_count (int): Current round index
         """
-        # self.model.batch = batch
-
         self.model.eval()
         if get_local_rank() == 0:
             with torch.no_grad():
                 self.model_eval()
 
         self.model.update_geometry_aux()
-        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, batch))
+        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, round_count))
 
         self.model.train()
-        self.train_one_batch(batch)
-        self.current_batch += 1
-        self.save_checkpoint(batch_count=self.current_batch)
+        self.train_one_round(round_count)
+        self.current_round += 1
+        self.save_checkpoint(round_count=self.current_round)
 
-    def save_checkpoint(self, batch_count):
+    def save_checkpoint(self, round_count):
         """Save model checkpoint to disk
 
         Args:
-            batch_count (int): Current batch index
+            round_count (int): Current round index
         """
         opts = self.opts
         # move to the left
@@ -270,13 +268,13 @@ class Trainer:
         self.optimizer_cache[1] = deepcopy(self.optimizer.state_dict())
         self.scheduler_cache[1] = deepcopy(self.scheduler.state_dict())
 
-        if get_local_rank() == 0 and batch_count % opts["save_freq"] == 0:
-            print("saving batch %d" % (batch_count))
-            param_path = "%s/ckpt_%04d.pth" % (self.save_dir, batch_count)
+        if get_local_rank() == 0 and round_count % opts["save_freq"] == 0:
+            print("saving round %d" % round_count)
+            param_path = "%s/ckpt_%04d.pth" % (self.save_dir, round_count)
 
             checkpoint = {
                 "current_steps": self.current_steps,
-                "current_batch": self.current_batch,
+                "current_round": self.current_round,
                 "model": self.model_cache[1],
                 "optimizer": self.optimizer_cache[1],
             }
@@ -312,7 +310,7 @@ class Trainer:
 
     def load_checkpoint_train(self):
         """Load a checkpoint at training time and update the current step count
-        and batch index
+        and round count
         """
         # training time
         checkpoint = self.load_checkpoint(
@@ -320,24 +318,24 @@ class Trainer:
         )
         if not self.opts["reset_steps"]:
             self.current_steps = checkpoint["current_steps"]
-            self.current_batch = checkpoint["current_batch"]
+            self.current_round = checkpoint["current_round"]
 
         # reset near_far
         self.model.fields.reset_geometry_aux()
 
-    def train_one_batch(self, batch):
-        """Train a single batch (iterate over mini-batches)
+    def train_one_round(self, round_count):
+        """Train a single round (going over mini-batches)
 
         Args:
-            batch (int): Batch index
+            round_count (int): round index
         """
         opts = self.opts
         torch.cuda.empty_cache()
         self.model.train()
 
-        self.trainloader.sampler.set_epoch(batch)  # necessary for shuffling
+        self.trainloader.sampler.set_epoch(round_count)  # necessary for shuffling
         for i, batch in enumerate(self.trainloader):
-            if i == opts["minibatch_iters"]:
+            if i == opts["iters_per_round"]:
                 break
 
             self.model.set_progress(self.current_steps)
@@ -364,7 +362,7 @@ class Trainer:
         Args:
             opts (Dict): Command-line options
             is_eval (bool): When training a model (`is_eval=False`), duplicate
-                the dataset to fix the number of minibatches per batch
+                the dataset to fix the number of iterations per round
             dataset_constructor (torch.utils.data.Dataset): Dataset class to use
         """
         opts_dict = {}
@@ -376,17 +374,17 @@ class Trainer:
 
         if is_eval:
             opts_dict["multiply"] = False
-            opts_dict["num_sample_pixels"] = -1
+            opts_dict["pixels_per_image"] = -1
             opts_dict["delta_list"] = []
         else:
-            # duplicate dataset to fix number of minibatches per batch
+            # duplicate dataset to fix number of iterations per round
             opts_dict["multiply"] = True
-            opts_dict["num_sample_pixels"] = opts["num_sample_pixels"]
+            opts_dict["pixels_per_image"] = opts["pixels_per_image"]
             opts_dict["delta_list"] = [2, 4, 8]
             opts_dict["num_workers"] = opts["num_workers"]
 
-            opts_dict["minibatch_size"] = opts["minibatch_size"]
-            opts_dict["minibatch_iters"] = opts["minibatch_iters"]
+            opts_dict["imgs_per_gpu"] = opts["imgs_per_gpu"]
+            opts_dict["iters_per_round"] = opts["iters_per_round"]
             opts_dict["ngpu"] = opts["ngpu"]
             opts_dict["local_rank"] = get_local_rank()
         return opts_dict
@@ -432,7 +430,7 @@ class Trainer:
         xyz_matches.visual.vertex_colors = [0, 255, 0, 255]
         xyz_cat = trimesh.util.concatenate([xyz, xyz_matches])
 
-        xyz_cat.export("%s/%03d-%s.obj" % (self.save_dir, self.current_batch, tag))
+        xyz_cat.export("%s/%03d-%s.obj" % (self.save_dir, self.current_round, tag))
 
     @staticmethod
     def load_batch(dataset, fids):
@@ -518,7 +516,7 @@ class Trainer:
         """
         for k, v in rendered_seq.items():
             img_grid = make_image_grid(v)
-            self.add_image(self.log, k, img_grid, self.current_batch)
+            self.add_image(self.log, k, img_grid, self.current_round)
 
     def add_image(self, log, tag, img, step):
         """Convert volume-rendered outputs to RGB and add to Tensorboard
@@ -527,7 +525,7 @@ class Trainer:
             log (SummaryWriter): Tensorboard logger
             tag (str): Image tag
             img: (H_out, W_out, x) Image to show
-            step (int): Current batch index
+            step (int): Current step
         """
         if len(img.shape) == 2:
             formats = "HW"
@@ -597,7 +595,7 @@ class Trainer:
         if grad_norm > thresh:
             # clear gradients
             self.optimizer.zero_grad()
-            # load cached model from two batches ago
+            # load cached model from two rounds ago
             if self.model_cache[0] is not None:
                 if get_local_rank() == 0:
                     print("large grad: %.2f, resume from cached weights" % grad_norm)
