@@ -42,8 +42,12 @@ def train_loader(opts_dict):
     # num_workers = min(num_workers, 4)
     # num_workers = 0
     print("# workers: %d" % num_workers)
-    print("# samples per minibatch: %d" % opts_dict["minibatch_size"])
-    print("# minibatches per batch: %d" % opts_dict["minibatch_iters"])
+    print("# iterations per round: %d" % opts_dict["iters_per_round"])
+    print(
+        "# image samples per iteration: %d"
+        % (opts_dict["imgs_per_gpu"] * opts_dict["ngpu"])
+    )
+    print("# pixel samples per image: %d" % opts_dict["pixels_per_image"])
 
     dataset = config_to_dataset(opts_dict)
 
@@ -56,7 +60,7 @@ def train_loader(opts_dict):
 
     dataloader = DataLoader(
         dataset,
-        batch_size=opts_dict["minibatch_size"],
+        batch_size=opts_dict["imgs_per_gpu"],
         num_workers=num_workers,
         drop_last=True,
         # worker_init_fn=_init_fn,
@@ -90,7 +94,7 @@ def eval_loader(opts_dict):
 
 def duplicate_dataset(opts, datalist):
     """Duplicate a list of per-video datasets, so that the length matches the
-    desired number of minibatches per batch during training.
+    desired number of iterations per round during training.
 
     Args:
         datalist (List(VidDataset)): A list of per-video datasets
@@ -100,9 +104,7 @@ def duplicate_dataset(opts, datalist):
     num_samp = np.sum([len(i) for i in datalist])
     if num_samp == 0:
         raise ValueError("Dataset is empty")
-    dup_num = opts["minibatch_iters"] / (
-        num_samp / opts["ngpu"] / opts["minibatch_size"]
-    )
+    dup_num = opts["iters_per_round"] / (num_samp / opts["ngpu"] / opts["imgs_per_gpu"])
     dup_num = int(dup_num) + 1
 
     datalist_mul = datalist * dup_num

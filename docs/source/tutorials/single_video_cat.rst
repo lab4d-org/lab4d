@@ -41,9 +41,9 @@ You may choose `fg_motion` from one of the following motion fields:
 .. note::
 
   The optimization uses 13G GPU memory and takes around 21 minutes on a 3090 GPU. You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
-  To get higher quality, train for more iterations by adding `--num_batches 120`. 
+  To get higher quality, train for more iterations by adding `--num_rounds 120`. 
 
-  To run on a machine with less GPU memory, you may reduce the `--minibatch_size`.
+  To run on a machine with less GPU memory, you may reduce the `--imgs_per_gpu`.
 
 
 Visualization during training
@@ -163,7 +163,7 @@ Now we have reconstructed the cat, can we put the cat in the scene? To do so, we
 Run the following to load the pre-trained foreground field and train the composed fields::
 
     # Args: training script, gpu id, input args
-    bash scripts/train.sh lab4d/train.py 0 --seqname cat-pikachu-0 --logname comp-comp-s2 --field_type comp --fg_motion comp_skel-quad_dense --data_prefix full --num_batches 120 --load_path logdir/cat-pikachu-0-fg-skel/ckpt_latest.pth
+    bash scripts/train.sh lab4d/train.py 0 --seqname cat-pikachu-0 --logname comp-comp-s2 --field_type comp --fg_motion comp_skel-quad_dense --data_prefix full --num_rounds 120 --load_path logdir/cat-pikachu-0-fg-skel/ckpt_latest.pth
     
 .. note::
 
@@ -178,7 +178,7 @@ Run the following to load the pre-trained foreground field and train the compose
 
     We load the pretrained foreground model `logdir/cat-pikachu-0-fg-skel/ckpt_latest.pth` to initialize the optimization.
   
-    The optimization of 120 batches (24k minibatches/iterations) takes around 3.5 hours on a 3090 GPU. 
+    The optimization of 120 rounds (24k iterations) takes around 3.5 hours on a 3090 GPU. 
 
 
 To render videos from the bird's eye view::

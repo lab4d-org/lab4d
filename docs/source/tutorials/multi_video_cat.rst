@@ -39,16 +39,15 @@ To train the dynamic neural fields::
 
 .. note::
 
-  Since there are more video frames than the previous example, we want to set a larger number of ray samples per-batch.
-  This can be achieved by specifying a larger per-gpu batch size (e.g., `--minibatch_size 224`) 
-  or using more gpus.
+  Since there are more video frames than the previous example, we want to get more samples of rays in each (mini)batch.
+  This can be achieved by specifying a larger per-gpu batch size (e.g., `--imgs_per_gpu 224`) or using more gpus.
 
-  The number of rays per-batch is computed as `number of gpus` x `minibatch_size`.
+  The number of rays per (mini)batch is computed as `number of gpus` x `imgs_per_gpu` x `pixels_per_image`.
 
 .. note::
   The training takes around 20 minutes on two 3090 GPUs.
   You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
-  The rendering results in this page assumes 120 batches.
+  The rendering results in this page assumes 120 rounds.
 
 Visualization during training
 ---------------------------------

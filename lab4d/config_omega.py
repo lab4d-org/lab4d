@@ -38,10 +38,10 @@ config = DictConfig(
             },
             "optim": {
                 "learning_rate": 5e-4,  # learning rate
-                "num_batches": 20,  # number of iterations to train
-                "minibatch_iters": 200,  # number of minibatches per batch
-                "minibatch_size": 128,  # size of minibatches per iter, per gpu
-                "num_sample_pixels": 16,  # number of pixel samples per image
+                "num_rounds": 20,  # number of rounds to trainn
+                "iters_per_round": 200,  # number of iterations per round
+                "imgs_per_gpu": 128,  # images samples per iter, per gpu
+                "pixels_per_image": 16,  # pixel samples per image
                 "ngpu": 1,  # number of gpus to use
                 "num_workers": 2,  # number of workers for dataloading
             },

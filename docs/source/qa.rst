@@ -20,8 +20,8 @@ Model training
 
 - How to change hyperparameters when using more videos (or video frames)? 
 
-  - You want to increase the `minibatch_size` and number of gpus, which increases the number of rays per-batch.
-    The number of rays per-batch is computed as number of gpus x minibatch_size. 
+  - You want to increase `pixels_per_image`, `imgs_per_gpu` and use more gpus.
+    The number of sampled rays / pixels per minibatch is computed as the number of gpus x imgs_per_gpu x pixels_per_image. 
     Also see the note `here <https://lab4d-org.github.io/lab4d/tutorials/multi_video_cat.html#training>`__.
 
 - Training on >50 videos might cause the following os error::
