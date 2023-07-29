@@ -36,6 +36,20 @@ Pre-processed data and checkpoints
           Your browser does not support the video tag.
         </video>
         </div>
+  * - `finch <https://www.dropbox.com/scl/fi/6w0qgeuc6gh02ix1o1tck/finch.zip?rlkey=jkz09o6ipw0yb78s7qnt9l1n6&dl=0>`__ (x1)
+    - `link <https://www.dropbox.com/scl/fi/adbr13qpwr9omsgf3s7y2/log-finch-fg-bob-b120.zip?rlkey=b21b213bjamtmgbdd7hswji1n&dl=0>`__
+    - interactive
+    - `Tutorial 1 </lab4d/tutorials/arbitrary_video.html>`__
+    - .. raw:: html
+
+        <div style="display: flex; justify-content: center;">
+        <video width="50%" src="/lab4d/_static/media_resized/finch.mp4" controls autoplay muted loop>
+          Your browser does not support the video tag.
+        </video>
+        <video width="50%" src="/lab4d/_static/media_resized/finch_ref-xyz.mp4" controls autoplay muted loop>
+          Your browser does not support the video tag.
+        </video>
+        </div>
   * - `cat-pikachu-0 <https://www.dropbox.com/s/mb7zgk73oomix4s/cat-pikachu-0.zip?dl=0>`__ (x1)
     - `foreground <https://www.dropbox.com/scl/fi/el4mlo3x0o50ktcgmsvhl/log-cat-pikachu-0-fg-skel-b120.zip?rlkey=lwc9gis8whn3gyfo3a0ct86uv&dl=0>`__, `composition <https://www.dropbox.com/scl/fi/iow542jki6krk25oqxrpq/log-cat-pikachu-0-comp-comp-s2.zip?rlkey=iiuh40c19qc4kcdbm9t002ujn&dl=0>`__
     - automatic
