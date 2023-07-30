@@ -68,7 +68,7 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
         field2cam = field.camera_mlp.get_vals(frame_id_torch)
 
         samples_dict = {}
-        if isinstance(field.warp, SkinningWarp):
+        if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
             (
                 samples_dict["t_articulation"],
                 samples_dict["rest_articulation"],
@@ -115,7 +115,7 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
         )
         motion_tuples[frame_id] = motion_expl
 
-    if isinstance(field.warp, SkinningWarp):
+    if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
         # modify rest mesh based on instance morphological changes on bones
         # idendity transformation of cameras
         field2cam_rot_idn = torch.zeros_like(field2cam[0])
