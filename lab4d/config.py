@@ -59,12 +59,12 @@ class TrainOptConfig:
 
     # accuracy-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")
-    flags.DEFINE_integer("num_batches", 20, "Number of iterations to train")
-    flags.DEFINE_integer("minibatch_iters", 200, "number of minibatches per batch")
-    flags.DEFINE_integer("minibatch_size", 128, "size of minibatches per iter, per gpu")
-    flags.DEFINE_integer("num_sample_pixels", 16, "number of pixel samples per image")
-    # flags.DEFINE_integer("minibatch_size", 1, "size of minibatches per iter")
-    # flags.DEFINE_integer("num_sample_pixels", 4096, "number of pixel samples per image")
+    flags.DEFINE_integer("num_rounds", 20, "number of rounds to train")
+    flags.DEFINE_integer("iters_per_round", 200, "number of iterations per round")
+    flags.DEFINE_integer("imgs_per_gpu", 128, "images samples per iter, per gpu")
+    flags.DEFINE_integer("pixels_per_image", 16, "pixel samples per image")
+    # flags.DEFINE_integer("imgs_per_gpu", 1, "size of minibatches per iter")
+    # flags.DEFINE_integer("pixels_per_image", 4096, "number of pixel samples per image")
     flags.DEFINE_boolean(
         "freeze_bone_len", False, "do not change bone length of skeleton"
     )

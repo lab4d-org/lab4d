@@ -40,7 +40,7 @@ Training
 To train the dynamic neural fields ::
 
   # Args: training script, gpu id, input args
-  bash scripts/train.sh lab4d/train.py 0,1,2,3,4,5,6 --seqname human-48 --logname skel-soft --fg_motion comp_skel-human_dense --nosingle_inst --num_batches 120
+  bash scripts/train.sh lab4d/train.py 0,1,2,3,4,5,6 --seqname human-48 --logname skel-soft --fg_motion comp_skel-human_dense --nosingle_inst --num_rounds 120
 
 .. note::
 

@@ -164,9 +164,9 @@ Run::
   The optimization takes around 14 minutes on a 3090. 
   You may find the list of flags at `lab4d/config.py <https://github.com/lab4d-org/lab4d/blob/main/lab4d/config.py>`_.
 
-  By default we use 20 batches (each batch contains 200 iterations), 
+  By default we train for 20 rounds (each round contains 200 iterations), 
   which leads to a good reconstruction quality and is used for developement purpose.
-  To get higher quality, train for more iterations by adding `--num_batches 120`. The rendering results in this page assumes 120 batches, which takes 1.5 hours.
+  To get higher quality, train for more iterations by adding `--num_rounds 120`. The rendering results in this page assumes 120 rounds, which takes 1.5 hours.
   
 
 Visualization during training
