@@ -402,10 +402,10 @@ def extend_aabb(aabb, factor=0.1):
     If aabb = [-1,1] and factor = 1, the extended aabb will be [-3,3]
 
     Args:
-        aabb: Axis-aligned bounding box, (...,2,3)
+        aabb: Axis-aligned bounding box, ((N,)2,3)
         factor (float): Amount to extend on each side
     Returns:
-        aabb_new: Extended aabb, (...,2,3)
+        aabb_new: Extended aabb, ((N,)2,3)
     """
     aabb_new = aabb.clone()
     size = (aabb[..., 1, :] - aabb[..., 0, :]) * factor
@@ -502,7 +502,7 @@ def check_inside_aabb(xyz, aabb):
         xyz: (N,...,3) Points in object canonical space to query
         aabb: (N,2,3) axis-aligned bounding box
     Returns:
-        inside_aabb: (N,...) Inside mask, bool
+        inside_aabb: (N,...,) Inside mask, bool
     """
     # check whether the point is inside the aabb
     shape = xyz.shape[:-1]

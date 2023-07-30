@@ -159,18 +159,6 @@ class CondMLP(BaseMLP):
             return 0
 
 
-class Ensemble(nn.Module):
-    def __init__(self, modules, **kwargs):
-        super().__init__()
-        fmodel, self.params, self.buffers = combine_state_for_ensemble(modules)
-        self.vmap_model = vmap(fmodel, **kwargs)
-        self.params = nn.ParameterList([nn.Parameter(p) for p in self.params])
-
-    def forward(self, *args, **kwargs):
-        params = [i for i in self.params]
-        return self.vmap_model(params, self.buffers, *args, **kwargs)
-
-
 class MultiMLP(nn.Module):
     """Independent MLP for each instance"""
 
@@ -183,11 +171,7 @@ class MultiMLP(nn.Module):
         self.nets = []
         for i in range(num_inst):
             self.nets.append(BaseMLP(**kwargs))
-        # self.nets = Ensemble(self.nets)
         self.nets = nn.ModuleList(self.nets)
-
-        # # linear version
-        # self.linear = nn.Linear(kwargs["in_channels"], num_inst*kwargs["out_channels"])
 
     def forward(self, feat, inst_id):
         """
@@ -203,21 +187,6 @@ class MultiMLP(nn.Module):
         inst_id = inst_id.view((-1,) + (1,) * (len(shape) - 1))
         inst_id = inst_id.expand(shape)
 
-        # # linear version: with duplicate computation
-        # out_stacked = self.linear(feat).view(shape + (self.out_channels, self.num_inst)) # (M, ..., self.out_channels, self.num_inst)
-        # # Construct an index tensor
-        # index = inst_id.unsqueeze(-1).expand(shape + (self.out_channels,)).unsqueeze(-1)
-        # # Gather elements from out_stacked using the index tensor
-        # out = torch.gather(out_stacked, -1, index).squeeze(-1)
-        # return out
-
-        # # sequential version: with duplicate computation
-        # out = torch.zeros(shape + (self.out_channels,), device=feat.device)
-        # for it, net in enumerate(self.nets):
-        #     id_sel = inst_id == it
-        #     out[id_sel] = net(feat)[id_sel]
-        # return out
-
         # sequential version: avoid duplicate computation
         out = torch.zeros(shape + (self.out_channels,), device=feat.device)
         empty_input = torch.zeros(1, 1, self.in_channels, device=feat.device)
@@ -228,54 +197,6 @@ class MultiMLP(nn.Module):
                 continue
             out[id_sel] = net(feat[id_sel])
         return out
-
-        # # parallel version with issue with ddp; slow
-        # def wrapper(params, buffers, data):
-        #     return torch.func.functional_call(self.nets[0], (params, buffers), (data,))
-
-        # params, buffers = torch.func.stack_module_state(self.nets)
-        # out_stacked = torch.vmap(wrapper, (0, 0, None))(params, buffers, feat)
-
-        # # Construct an index tensor
-        # index = inst_id.unsqueeze(-1).expand(shape + (self.out_channels,)).unsqueeze(0)
-        # # Gather elements from out_stacked using the index tensor
-        # out = torch.gather(out_stacked, 0, index).squeeze(0)
-
-        # empty_input = torch.zeros(1,1,self.in_channels, device=feat.device)
-        # for net in self.nets:
-        #     out += net(empty_input).mean()*0
-        # return out
-
-        # # parallel version, slow due to variable size index
-        # num_elem = inst_id.numel()
-        # feat = feat.view(num_elem, -1)
-        # inst_id = inst_id.reshape(-1)
-
-        # # in: feat: K, in_channels
-        # # in: inst_id: K
-        # # Get the counts for each instance
-        # counts = torch.bincount(inst_id)
-        # max_bs = counts.max()
-
-        # feat_padded = torch.zeros((self.num_inst, max_bs, feat.shape[1]), device=device)
-        # id_sels = torch.stack([(inst_id == it) for it in range(self.num_inst)], 0)
-        # # feat_paded: N, M, in_channels
-        # # id_sels, N, K, 1
-        # # feat: K, in_channels
-        # for it in range(self.num_inst):
-        #     feal_sel = feat[id_sels[it]]
-        #     feat_padded[it, : feal_sel.shape[0]] = feal_sel
-
-        # # run network
-        # out_padded = self.nets(feat_padded)
-
-        # # out_padded: N,K, ..., out_channels
-        # out = torch.zeros((num_elem, self.out_channels), device=feat.device)
-        # for it in range(self.num_inst):
-        #     id_sel = id_sels[it]
-        #     out[id_sel] = out_padded[it][: id_sel.sum()]
-        # out = out.reshape(shape + (self.out_channels,))
-        # return out
 
 
 class MixMLP(nn.Module):

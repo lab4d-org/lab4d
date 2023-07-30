@@ -235,11 +235,11 @@ class NeRF(nn.Module):
         self.geometry_init(sdf_fn_torch)
 
     def init_proxy(self, geom_path, init_scale):
-        """Initialize proxy geometry as a sphere
-
+        """Initialize the geometry from a mesh
+        
         Args:
-            geom_path (str): Unused
-            init_scale (float): Unused
+            geom_path (List(str)): paths to initial shape mesh
+            init_scale (float): Geometry scale factor
         """
         mesh = trimesh.load(geom_path[0])
         mesh.vertices = mesh.vertices * init_scale

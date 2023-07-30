@@ -426,5 +426,5 @@ class MultiFields(nn.Module):
         """
         aabb = {}
         for cate, field in self.field_params.items():
-            aabb[cate] = field.aabb / field.logscale.exp()
+            aabb[cate] = field.get_aabb() / field.logscale.exp()
         return aabb
