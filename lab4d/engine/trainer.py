@@ -38,6 +38,15 @@ class Trainer:
         self.define_dataset()
         self.trainer_init()
         self.define_model()
+
+        # move model to ddp
+        self.model = DataParallelPassthrough(
+            self.model,
+            device_ids=[get_local_rank()],
+            output_device=get_local_rank(),
+            find_unused_parameters=False,
+        )
+
         self.optimizer_init(is_resumed=is_resumed)
 
         # load model
@@ -105,13 +114,6 @@ class Trainer:
         self.model = self.model.to(self.device)
 
         self.init_model()
-
-        self.model = DataParallelPassthrough(
-            self.model,
-            device_ids=[get_local_rank()],
-            output_device=get_local_rank(),
-            find_unused_parameters=False,
-        )
 
         # cache queue of length 2
         self.model_cache = [None, None]

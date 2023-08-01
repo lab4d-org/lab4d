@@ -5,6 +5,7 @@ import torch
 import numpy as np
 
 from lab4d.engine.trainer import Trainer
+from lab4d.engine.trainer import get_local_rank
 from ppr import config
 
 sys.path.insert(0, "%s/ppr-diffphys" % os.path.join(os.path.dirname(__file__)))
@@ -27,10 +28,24 @@ class PPRTrainer(Trainer):
         model_dict["ks_params"] = self.model.intrinsics
         self.phys_model = phys_model(opts, model_dict, use_dr=True)
 
+        # move model to device
+        self.device = torch.device("cuda:{}".format(get_local_rank()))
+        self.phys_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.phys_model)
+        self.phys_model = self.phys_model.to(self.device)
+
     def init_model(self):
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics from external priors, if this is the first run"""
         super().init_model()
+
+    def trainer_init(self):
+        super().trainer_init()
+
+        opts = self.opts
+        self.current_steps_phys = 0  # 0-total_steps
+        self.iters_per_phys_cycle = int(
+            opts["ratio_phys_cycle"] * opts["iters_per_round"]
+        )
 
     def get_lr_dict(self):
         """Return the learning rate for each category of trainable parameters
@@ -58,7 +73,7 @@ class PPRTrainer(Trainer):
         # return param_lr_startwith, param_lr_with
 
     def run_one_round(self, round_count):
-        # super().run_one_round(round_count)
+        super().run_one_round(round_count)
 
         # transfer pharameters
         self.run_phys_cycle()
@@ -78,13 +93,15 @@ class PPRTrainer(Trainer):
             opts["phys_batch"], wdw_length=opts["phys_wdw_len"], is_eval=False
         )
 
-        iters_per_phys_cycle = int(opts["ratio_phys_cycle"] * opts["iters_per_round"])
-        for i in range(iters_per_phys_cycle):
+        for i in range(self.iters_per_phys_cycle):
+            self.phys_model.set_progress(self.current_steps_phys)
             self.run_phys_iter()
+            self.current_steps_phys += 1
+            print(self.current_steps_phys)
 
     def run_phys_iter(self):
         """Run physics optimization"""
-        phys_loss, phys_aux = self.phys_model()
-        self.phys_model.backward(phys_loss)
+        phys_aux = self.phys_model()
+        self.phys_model.backward(phys_aux["total_loss"])
         grad_list = self.phys_model.update()
         phys_aux.update(grad_list)
