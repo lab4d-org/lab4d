@@ -38,6 +38,7 @@ class ExportMeshFlags:
     flags.DEFINE_float(
         "level", 0.0, "contour value of marching cubes use to search for isosurfaces"
     )
+    flags.DEFINE_boolean("use_visibility", False, "use visibility to remove extra pts")
 
 
 class MotionParamsExpl(NamedTuple):
@@ -179,7 +180,7 @@ def extract_motion_params(model, opts, data_info):
         grid_size=opts["grid_size"],
         level=opts["level"],
         inst_id=opts["inst_id"],
-        use_visibility=False,
+        use_visibility=opts["use_visibility"],
         use_extend_aabb=False,
     )
 

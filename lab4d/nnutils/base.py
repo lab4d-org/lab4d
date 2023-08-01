@@ -159,6 +159,105 @@ class CondMLP(BaseMLP):
             return 0
 
 
+# class PosEncArch(nn.Module):
+#     def __init__(self, in_channels, N_freqs) -> None:
+#         super().__init__()
+#         self.pos_embedding = PosEmbedding(in_channels, N_freqs)
+
+
+class DictMLP(BaseMLP):
+    """A MLP that accepts both input `x` and condition `c`
+
+    Args:
+        num_inst (int): Number of distinct object instances. If --nosingle_inst
+            is passed, this is equal to the number of videos, as we assume each
+            video captures a different instance. Otherwise, we assume all videos
+            capture the same instance and set this to 1.
+        D (int): Number of linear layers for density (sigma) encoder
+        W (int): Number of hidden units in each MLP layer
+        in_channels (int): Number of channels in input `x`
+        inst_channels (int): Number of channels in condition `c`
+        out_channels (int): Number of output channels
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+        final_act (bool): If True, apply the activation function to the output
+    """
+
+    def __init__(
+        self,
+        num_inst,
+        D=8,
+        W=256,
+        in_channels=63,
+        inst_channels=32,
+        out_channels=3,
+        skips=[4],
+        activation=nn.ReLU(True),
+        final_act=False,
+    ):
+        super().__init__(
+            D=D,
+            W=W,
+            in_channels=in_channels + inst_channels,
+            out_channels=out_channels,
+            skips=skips,
+            activation=activation,
+            final_act=False,
+        )
+
+        self.basis = BaseMLP(
+            D=D,
+            W=W,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            skips=skips,
+            activation=activation,
+            final_act=final_act,
+        )
+
+        self.inst_embedding = InstEmbedding(num_inst, inst_channels)
+
+    def forward(self, feat, inst_id):
+        """
+        Args:
+            feat: (M, ..., self.in_channels)
+            inst_id: (M,) Instance id, or None to use the average instance
+        Returns:
+            out: (M, ..., self.out_channels)
+        """
+        if inst_id is None:
+            if self.inst_embedding.out_channels > 0:
+                inst_code = self.inst_embedding.get_mean_embedding()
+                inst_code = inst_code.expand(feat.shape[:-1] + (-1,))
+                # print("inst_embedding exists but inst_id is None, using mean inst_code")
+            else:
+                # empty, falls back to single-instance NeRF
+                inst_code = torch.zeros(feat.shape[:-1] + (0,), device=feat.device)
+        else:
+            inst_code = self.inst_embedding(inst_id)
+            inst_code = inst_code.view(
+                inst_code.shape[:1] + (1,) * (feat.ndim - 2) + (-1,)
+            )
+            inst_code = inst_code.expand(feat.shape[:-1] + (-1,))
+
+        out = torch.cat([feat, inst_code], -1)
+        # if both input feature and inst_code are empty, return zeros
+        if out.shape[-1] == 0:
+            return out
+        coeff = super().forward(out)
+        coeff = F.normalize(coeff, dim=-1)
+        basis = self.basis(feat)
+        out = coeff * basis
+        return out
+
+    @staticmethod
+    def get_dim_inst(num_inst, inst_channels):
+        if num_inst > 1:
+            return inst_channels
+        else:
+            return 0
+
+
 class MultiMLP(nn.Module):
     """Independent MLP for each instance"""
 
@@ -214,3 +313,28 @@ class MixMLP(nn.Module):
         out2 = self.multimlp(feat, inst_id)
         out = out1 + out2
         return out
+
+
+# class Triplane(nn.Module):
+#     """Triplane"""
+
+#     def __init__(self, num_inst, inst_channels=32, **kwargs) -> None:
+#         super(Triplane, self).__init__()
+#         init_scale = 0.1
+#         resolution = 128
+#         num_components = 24
+#         self.plane = nn.Parameter(
+#             init_scale * torch.randn((3 * resolution * resolution, num_components))
+#         )
+
+#     def forward(self, feat, inst_id):
+#         """
+#         Args:
+#             feat: (M, ..., self.in_channels)
+#             inst_id: (M,) Instance id, or None to use the average instance
+#         Returns:
+#             out: (M, ..., self.out_channels)
+#         """
+#         # rearrange the batch dimension
+#         shape = feat.shape[:-1]
+#         return out

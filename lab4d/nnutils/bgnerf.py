@@ -7,20 +7,21 @@ from pysdf import SDF
 
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from lab4d.utils.geom_utils import get_near_far
-from lab4d.nnutils.base import MixMLP, MultiMLP, CondMLP
+from lab4d.nnutils.base import MixMLP, MultiMLP, CondMLP, DictMLP
 from lab4d.nnutils.visibility import VisField
 
 
 class BGNeRF(NeRF):
     """A static neural radiance field with an MLP backbone. Specialized to background."""
 
-    # def __init__(
-    #     self, data_info, field_arch=CondMLP, D=8, W=256, inst_channels=256, **kwargs
-    # ):
-    def __init__(self, data_info, field_arch=MixMLP, D=1, W=64, **kwargs):
+    # def __init__(self, data_info, field_arch=CondMLP, D=5, W=128, **kwargs):
+    # def __init__(self, data_info, field_arch=MixMLP, D=1, W=64, **kwargs):
+    def __init__(self, data_info, field_arch=DictMLP, D=8, W=256, **kwargs):
         super(BGNeRF, self).__init__(
             data_info, field_arch=field_arch, D=D, W=W, **kwargs
         )
+        # self.vis_mlp = VisField(self.num_inst, D=D, W=W, field_arch=field_arch)
+        self.vis_mlp = VisField(self.num_inst, D=1, W=64, field_arch=MixMLP)
         # TODO: update per-scene beta
         # TODO: update per-scene scale
 

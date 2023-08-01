@@ -152,7 +152,7 @@ class NeRF(nn.Module):
         self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
 
         # visibility mlp
-        self.vis_mlp = VisField(self.num_inst)
+        self.vis_mlp = VisField(self.num_inst, field_arch=field_arch)
 
         # load initial mesh, define aabb
         self.init_proxy(geom_path, init_scale)
@@ -236,7 +236,7 @@ class NeRF(nn.Module):
 
     def init_proxy(self, geom_path, init_scale):
         """Initialize the geometry from a mesh
-        
+
         Args:
             geom_path (List(str)): paths to initial shape mesh
             init_scale (float): Geometry scale factor
