@@ -88,7 +88,6 @@ class Trainer:
     def init_model(self):
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics from external priors, if this is the first run"""
-        opts = self.opts
         # init mlp
         if get_local_rank() == 0:
             self.model.mlp_init()
