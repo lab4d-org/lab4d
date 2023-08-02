@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from lab4d.utils.torch_utils import frameid_reindex
+from lab4d.utils.torch_utils import frameid_to_vid
 
 
 def get_fourier_embed_dim(in_channels, N_freqs):
@@ -154,15 +154,38 @@ class TimeEmbedding(nn.Module):
         self.num_vids = len(self.frame_offset) - 1
 
         frame_mapping = frame_info["frame_mapping"]  # list of list
-        frame_id_raw = torch.tensor(frame_mapping)  # (M,)
+        frame_mapping = torch.tensor(frame_mapping)  # (M,)
         frame_offset_raw = frame_info["frame_offset_raw"]
 
-        frame_id_all = torch.arange(0, self.num_frames)
-        frame_to_vid, frame_to_tid = frameid_reindex(frame_id_raw, frame_offset_raw)
-        frame_to_tid = frame_to_tid * time_scale  # make it more/less senstiive to time
-        self.register_buffer("frame_to_vid", frame_to_vid.long(), persistent=False)
-        self.register_buffer("frame_to_tid", frame_to_tid, persistent=False)
-        self.register_buffer("frame_id_all", frame_id_all, persistent=False)
+        max_ts = (frame_offset_raw[1:] - frame_offset_raw[:-1]).max()
+        raw_fid = torch.arange(0, frame_offset_raw[-1])
+        raw_fid_to_vid = frameid_to_vid(raw_fid, frame_offset_raw)
+        raw_fid_to_vstart = torch.tensor(frame_offset_raw[raw_fid_to_vid])
+        raw_fid_to_vidend = torch.tensor(frame_offset_raw[raw_fid_to_vid + 1])
+        raw_fid_to_vidlen = raw_fid_to_vidend - raw_fid_to_vstart
+
+        # M
+        self.register_buffer(
+            "frame_to_vid", raw_fid_to_vid[frame_mapping], persistent=False
+        )
+        # M, in range [0,N-1], M<N
+        self.register_buffer("frame_mapping", frame_mapping, persistent=False)
+        # N
+        self.register_buffer("raw_fid_to_vid", raw_fid_to_vid, persistent=False)
+        self.register_buffer("raw_fid_to_vidlen", raw_fid_to_vidlen, persistent=False)
+        self.register_buffer("raw_fid_to_vstart", raw_fid_to_vstart, persistent=False)
+
+        # a function, make it more/less senstiive to time
+        def frame_to_tid_fn(frame_id):
+            if not torch.is_tensor(frame_id):
+                frame_id = torch.tensor(frame_id).to(self.frame_to_vid.device)
+            vid_len = self.raw_fid_to_vidlen[frame_id.long()]
+            tid_sub = frame_id - self.raw_fid_to_vstart[frame_id.long()]
+            tid = (tid_sub - vid_len / 2) / max_ts * 2  # [-1, 1]
+            tid = tid * time_scale
+            return tid
+
+        self.frame_to_tid = frame_to_tid_fn
 
         self.inst_embedding = InstEmbedding(self.num_vids, inst_channels=out_channels)
         self.mapping1 = nn.Linear(t_channels, out_channels)
@@ -176,9 +199,10 @@ class TimeEmbedding(nn.Module):
             t_embed (..., self.W): Output time embeddings
         """
         if frame_id is None:
-            inst_id, t_sample = self.frame_to_vid, self.frame_to_tid
+            inst_id, t_sample = self.frame_to_vid, self.frame_to_tid(self.frame_mapping)
         else:
-            inst_id, t_sample = self.frame_to_vid[frame_id], self.frame_to_tid[frame_id]
+            inst_id = self.raw_fid_to_vid[frame_id]
+            t_sample = self.frame_to_tid(frame_id)
 
         if inst_id.ndim == 1:
             inst_id = inst_id[..., None]  # (N, 1)
@@ -198,7 +222,7 @@ class TimeEmbedding(nn.Module):
         Args:
             device (torch.device): Output device
         """
-        t_embed = self.forward(self.frame_id_all).mean(0, keepdim=True)
+        t_embed = self.forward(self.frame_mapping).mean(0, keepdim=True)
         # t_embed = self.basis.weight.mean(1)
         return t_embed
 

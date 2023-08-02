@@ -64,7 +64,7 @@ def construct_batch_from_opts(opts, model, data_info):
 
     # whether to freeze a frame
     if opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
-        frameid_sub = np.asarray([opts["freeze_id"]] * render_length)  # full video
+        frameid_sub = np.asarray([opts["freeze_id"]] * 150)  # full video
     elif opts["freeze_id"] == -1:
         frameid_sub = np.linspace(0, render_length - 1, render_length).astype(np.int32)
     else:
@@ -74,7 +74,7 @@ def construct_batch_from_opts(opts, model, data_info):
     with torch.no_grad():
         field2cam_fr = model.fields.get_cameras(inst_id=opts["inst_id"])
         intrinsics_fr = model.intrinsics.get_vals(
-            frameid_sub + data_info["frame_info"]["frame_offset"][video_id]
+            frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
         )
         aabb = model.fields.get_aabb()
     # convert to numpy

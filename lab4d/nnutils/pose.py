@@ -141,7 +141,7 @@ class CameraMLP(TimeMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.frame_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
 
         # multiply with per-instance base rotation
         base_quat = self.base_quat[inst_id]
@@ -208,7 +208,7 @@ class ArticulationBaseMLP(TimeMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.frame_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
         t_embed = self.time_embedding(frame_id)
         pred = self.forward(t_embed, inst_id)
         return pred
@@ -508,7 +508,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.frame_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
         t_embed = self.time_embedding(frame_id)
         pred = self.forward(
             t_embed, inst_id, return_so3=return_so3, override_so3=override_so3
@@ -530,7 +530,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.frame_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
         bs = inst_id.shape[0]
         # t embedding
         t_embed = self.time_embedding(frame_id)
