@@ -410,9 +410,7 @@ class MultiFields(nn.Module):
             else:
                 frame_to_vid = field.camera_mlp.time_embedding.frame_to_vid
                 frame_id = (frame_to_vid == inst_id).nonzero()
-            quat, trans = field.camera_mlp.get_vals(frame_id=frame_id)
-            trans = trans / field.logscale.exp()
-            field2cam[cate] = quaternion_translation_to_se3(quat, trans)
+            field2cam[cate] = field.get_camera(frame_id=frame_id)
         return field2cam
 
     def get_aabb(self):

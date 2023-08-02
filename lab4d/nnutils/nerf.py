@@ -982,3 +982,14 @@ class NeRF(nn.Module):
         """
         loss = self.camera_mlp.compute_distance_to_prior()
         return loss
+
+    def get_camera(self, frame_id=None):
+        """Compute camera matrices in world units
+
+        Returns:
+            field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
+        """
+        quat, trans = self.camera_mlp.get_vals(frame_id=frame_id)
+        trans = trans / self.logscale.exp()
+        field2cam = quaternion_translation_to_se3(quat, trans)
+        return field2cam
