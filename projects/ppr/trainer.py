@@ -10,6 +10,7 @@ from ppr import config
 
 sys.path.insert(0, "%s/ppr-diffphys" % os.path.join(os.path.dirname(__file__)))
 from diffphys.warp_env import phys_model
+from diffphys.vis import Logger
 
 
 class PPRTrainer(Trainer):
@@ -27,6 +28,7 @@ class PPRTrainer(Trainer):
         ].warp.articulation
         model_dict["ks_params"] = self.model.intrinsics
         self.phys_model = phys_model(opts, model_dict, use_dr=True)
+        self.phys_visualizer = Logger(opts)
 
         # move model to device
         self.device = torch.device("cuda:{}".format(get_local_rank()))
@@ -46,6 +48,7 @@ class PPRTrainer(Trainer):
         self.iters_per_phys_cycle = int(
             opts["ratio_phys_cycle"] * opts["iters_per_round"]
         )
+        print("# iterations per phys cycle: ", self.iters_per_phys_cycle)
 
     def get_lr_dict(self):
         """Return the learning rate for each category of trainable parameters
@@ -86,6 +89,15 @@ class PPRTrainer(Trainer):
         # eval
         self.phys_model.eval()
         self.phys_model.reinit_envs(1, wdw_length=30, is_eval=True)
+        for vidid in opts["phys_vid"]:
+            frame_start = torch.zeros(1) + self.phys_model.data_offset[vidid]
+            _ = self.phys_model(frame_start=frame_start.to(self.device))
+            img_size = tuple(self.data_info["raw_size"][vidid][::-1])
+            img_size = img_size + (0.5,)  # scale
+            data = self.phys_model.query(img_size=img_size)
+            self.phys_visualizer.show(
+                "%02d-%05d" % (vidid, self.current_steps_phys), data
+            )
 
         # train
         self.phys_model.train()
