@@ -20,6 +20,7 @@ from lab4d.utils.geom_utils import (
     marching_cubes,
     pinhole_projection,
     check_inside_aabb,
+    compute_rectification_se3,
 )
 from lab4d.utils.loss_utils import align_vectors
 from lab4d.utils.quat_transform import (
@@ -160,6 +161,9 @@ class NeRF(nn.Module):
 
         # non-parameters are not synchronized
         self.register_buffer("near_far", torch.zeros(len(rtmat), 2), persistent=False)
+
+        field2world = torch.eye(4)[None].expand(self.num_inst, -1, -1)
+        self.register_buffer("field2world", field2world, persistent=False)
 
     def forward(self, xyz, dir=None, frame_id=None, inst_id=None, get_density=True):
         """
@@ -993,3 +997,27 @@ class NeRF(nn.Module):
         trans = trans / self.logscale.exp()
         field2cam = quaternion_translation_to_se3(quat, trans)
         return field2cam
+
+    def compute_field2world(self):
+        """Compute SE(3) to transform points in the scene space to world space
+        For background, this is computed by detecting planes with ransac.
+
+        Returns:
+            rect_se3: (4,4) SE(3) transform
+        """
+        for inst_id in range(self.num_inst):
+            # TODO: move this to background nerf, and use each proxy geometry
+            self.field2world[inst_id] = compute_rectification_se3(self.proxy_geometry)
+
+    def get_field2world(self, inst_id=None):
+        """Compute SE(3) to transform points in the scene space to world space
+        For background, this is computed by detecting planes with ransac.
+
+        Returns:
+            rect_se3: (4,4) SE(3) transform
+        """
+        if inst_id is None:
+            field2world = self.field2world
+        else:
+            field2world = self.field2world[inst_id]
+        return field2world

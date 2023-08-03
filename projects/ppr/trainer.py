@@ -58,6 +58,9 @@ class PPRTrainer(Trainer):
         opts = self.opts
         torch.cuda.empty_cache()
 
+        # re-initialize field2world transforms
+        self.model.fields.field_params["bg"].compute_field2world()
+
         # eval
         self.phys_model.eval()
         self.phys_model.reinit_envs(1, wdw_length=30, is_eval=True)

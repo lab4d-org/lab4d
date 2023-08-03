@@ -1,9 +1,11 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
+import cv2
 import numpy as np
 import torch
 import trimesh
 from scipy.spatial.transform import Rotation as R
 from skimage import measure
+import open3d as o3d
 
 from lab4d.utils.quat_transform import (
     dual_quaternion_apply,
@@ -506,3 +508,33 @@ def check_inside_aabb(xyz, aabb):
     # check whether the point is inside the aabb
     inside_aabb = ((xyz > aabb[:1]) & (xyz < aabb[1:])).all(-1)
     return inside_aabb
+
+
+def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=1000):
+    # run ransac to get plane
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
+    best_eq, index = pcd.segment_plane(threshold, init_n, iter)
+    segmented_points = pcd.select_by_index(index)
+    trimesh.Trimesh(segmented_points.points).export("tmp/0.obj")
+
+    # point upside
+    if best_eq[1] < 0:
+        best_eq = -1 * best_eq
+
+    # get se3
+    plane_n = np.asarray(best_eq[:3])
+    center = np.asarray(segmented_points.points).mean(0)
+    dist = (center * plane_n).sum() + best_eq[3]
+    plane_o = center - plane_n * dist
+    plane = np.concatenate([plane_o, plane_n])
+    bg2xy = trimesh.geometry.plane_transform(origin=plane[:3], normal=plane[3:6])
+    # to xz
+    xy2xz = np.eye(4)
+    xy2xz[:3, :3] = cv2.Rodrigues(np.asarray([-np.pi / 2, 0, 0]))[0]
+    xy2xz[:3, :3] = cv2.Rodrigues(np.asarray([0, -np.pi / 2, 0]))[0] @ xy2xz[:3, :3]
+    bg2world = xy2xz @ bg2xy  # coplanar with xy->xz plane
+
+    # mesh.apply_transform(bg2world) # DEBUG only
+    bg2world = torch.Tensor(bg2world)
+    return bg2world
