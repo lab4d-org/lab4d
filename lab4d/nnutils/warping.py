@@ -6,7 +6,11 @@ from torch.nn import functional as F
 
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
-from lab4d.nnutils.pose import ArticulationFlatMLP, ArticulationSkelMLP
+from lab4d.nnutils.pose import (
+    ArticulationFlatMLP,
+    ArticulationSkelMLP,
+    ArticulationURDFMLP,
+)
 from lab4d.nnutils.skinning import SkinningField
 from lab4d.third_party.nvp import NVP
 from lab4d.utils.geom_utils import dual_quaternion_skinning, marching_cubes, extend_aabb
@@ -41,7 +45,13 @@ def create_warp(fg_motion, data_info):
     elif fg_motion.startswith("skel-"):
         warp = SkinningWarp(
             frame_info,
-            skel_type=fg_motion.split("-")[1],
+            skel_type=fg_motion,
+            joint_angles=joint_angles,
+        )
+    elif fg_motion.startswith("urdf-"):
+        warp = SkinningWarp(
+            frame_info,
+            skel_type=fg_motion,
             joint_angles=joint_angles,
         )
     elif fg_motion.startswith("comp"):
@@ -257,10 +267,18 @@ class SkinningWarp(IdentityWarp):
         if skel_type == "flat":
             self.articulation = ArticulationFlatMLP(frame_info, num_se3)
             symm_idx = None
-        else:
+        elif skel_type.startswith("skel-"):
+            skel_type = skel_type.split("-")[1]
             self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
+        elif skel_type.startswith("urdf-"):
+            skel_type = skel_type.split("-")[1]
+            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles)
+            num_se3 = self.articulation.num_se3
+            symm_idx = self.articulation.symm_idx
+        else:
+            raise NotImplementedError
 
         self.skinning_model = SkinningField(
             num_se3,
@@ -427,14 +445,14 @@ class ComposedWarp(SkinningWarp):
         # e.g., comp_skel-human_dense, limited to skel+another type of field
         type_list = warp_type.split("_")[1:]
         assert len(type_list) == 2
-        assert type_list[0] in ["skel-human", "skel-quad"]
+        assert type_list[0] in ["skel-human", "skel-quad", "urdf-human", "urdf-quad"]
         assert type_list[1] in ["bob", "dense"]
         if type_list[1] == "bob":
             raise NotImplementedError
 
         super().__init__(
             frame_info,
-            skel_type=type_list[0].split("-")[1],
+            skel_type=type_list[0],
             joint_angles=joint_angles,
         )
         # self.post_warp = DenseWarp(frame_info, D=2, W=64)

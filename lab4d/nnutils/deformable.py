@@ -111,7 +111,7 @@ class Deformable(FeatureNeRF):
             sdf = self.warp.get_gauss_sdf(pts)
             return sdf
 
-        if "skel-" in self.fg_motion:
+        if "skel-" in self.fg_motion or "urdf-" in self.fg_motion:
             return sdf_fn_torch_skel
         else:
             return sdf_fn_torch_sphere
@@ -293,7 +293,7 @@ class Deformable(FeatureNeRF):
         from an external skeleton
         """
         super().mlp_init()
-        if self.fg_motion.startswith("skel"):
+        if "skel-" in self.fg_motion or "urdf-" in self.fg_motion:
             if hasattr(self.warp.articulation, "init_vals"):
                 self.warp.articulation.mlp_init()
 

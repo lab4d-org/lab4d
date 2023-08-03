@@ -8,9 +8,7 @@ opts = flags.FLAGS
 
 class PPRConfig:
     # configs related to ppr
-    flags.DEFINE_string(
-        "urdf_template", "wolf_mod", "whether to use predefined skeleton"
-    )
+    flags.DEFINE_string("urdf_template", "", "whether to use predefined skeleton")
     flags.DEFINE_float("ratio_phys_cycle", 0.2, "number of iterations per round")
     flags.DEFINE_integer("phys_wdw_len", 24, "length of the physics opt window")
     flags.DEFINE_integer("phys_batch", 20, "number of parallel physics sim")

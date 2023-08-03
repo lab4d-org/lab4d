@@ -20,6 +20,7 @@ class PPRTrainer(Trainer):
         # define physics model
         opts = self.opts
         opts["phys_vid"] = [int(i) for i in opts["phys_vid"].split(",")]
+        opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
         model_dict = {}
         model_dict["bg_field"] = self.model.fields.field_params["bg"]
         model_dict["obj_field"] = self.model.fields.field_params["fg"]

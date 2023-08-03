@@ -459,7 +459,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             local_rest_joints = override_local_rest_joints
 
         # run forward kinematics
-        out = fk_se3(local_rest_joints, so3, self.edges)
+        out = self.fk_se3(local_rest_joints, so3, self.edges)
         out = shift_joints_to_bones_dq(out, self.edges, shift=self.shift)
         return out
 
@@ -475,7 +475,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             rel_rest_joints: Translations from parent to child joints
         """
         # get relative joints
-        rel_rest_joints = rest_joints_to_local(self.rest_joints, self.edges)
+        rel_rest_joints = self.rest_joints_to_local(self.rest_joints, self.edges)
 
         # match the shape
         rel_rest_joints = rel_rest_joints[None]
@@ -492,6 +492,14 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         bone_length = (bone_length + bone_length[..., self.symm_idx]) / 2
         rel_rest_joints = rel_rest_joints * bone_length[..., None]
         return rel_rest_joints
+
+    def fk_se3(self, local_rest_joints, so3, edges):
+        """Forward kinematics for a skeleton"""
+        return fk_se3(local_rest_joints, so3, edges)
+
+    def rest_joints_to_local(self, rest_joints, edges):
+        """Convert rest joints to local coordinates"""
+        return rest_joints_to_local(rest_joints, edges)
 
     def get_vals(self, frame_id=None, return_so3=False, override_so3=None):
         """Compute articulation parameters at the given frames.
@@ -598,3 +606,66 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         # loss = (bones_gt - bones_pred).norm(2, -1).mean()
         # loss = loss * 0.2
         return loss
+
+
+class ArticulationURDFMLP(ArticulationSkelMLP):
+    """Encode a skeleton over time using an MLP
+
+    Args:
+        frame_info (FrameInfo): Metadata about the frames in a dataset
+        skel_type (str): Skeleton type ("human" or "quad")
+        joint_angles: (B, 3) If provided, initial joint angles
+        num_se3 (int): Number of bones
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+        num_freq_t (int): Number of frequencies in time Fourier embedding
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+    """
+
+    def __init__(
+        self,
+        frame_info,
+        skel_type,
+        joint_angles,
+        D=5,
+        W=256,
+        num_freq_t=6,
+        skips=[],
+        activation=nn.ReLU(True),
+    ):
+        super().__init__(
+            frame_info,
+            skel_type,
+            joint_angles,
+            D=D,
+            W=W,
+            num_freq_t=num_freq_t,
+            skips=skips,
+            activation=activation,
+        )
+
+        self.urdf = self.get_urdf(skel_type)
+
+        # get local rest rotation matrices, pick the first coordinate in rpy of ball joints
+        local_rest_rmat = np.stack([i.origin[:3, :3] for i in self.urdf.joints], 0)
+        local_rest_rmat = torch.tensor(local_rest_rmat[::3], dtype=torch.float32)
+        self.register_buffer("local_rest_rmat", local_rest_rmat, persistent=False)
+
+    def get_urdf(self, urdf_name):
+        """Load the URDF file for the skeleton"""
+        from urdfpy import URDF
+
+        urdf_path = f"projects/ppr/ppr-diffphys/data/urdf_templates/{urdf_name}.urdf"
+        urdf = URDF.load(urdf_path)
+        return urdf
+
+    def fk_se3(self, local_rest_joints, so3, edges):
+        return fk_se3(
+            local_rest_joints, so3, edges, local_rest_rmat=self.local_rest_rmat
+        )
+
+    def rest_joints_to_local(self, rest_joints, edges):
+        return rest_joints_to_local(
+            rest_joints, edges, local_rest_rmat=self.local_rest_rmat
+        )

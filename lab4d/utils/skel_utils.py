@@ -32,31 +32,45 @@ def get_valid_edges(edges):
     return idx, parent_idx
 
 
-def rest_joints_to_local(rest_joints, edges):
+def rest_joints_to_local(rest_joints, edges, local_rest_rmat=None):
     """Convert rest joints to local coordinates, where local = current - parent
+    If local_rest_rmat is given, local = parent^-1 * current
 
     Args:
         rest_joints: (B, 3) Joint locations
         edges (Dict(int, int)): Maps each joint to its parent joint
+        local_rest_rmat: (B, 3, 3) Local rotations
     Returns:
         local_rest_joints: (B, 3) Translations from parent to child joints
     """
     idx, parent_idx = get_valid_edges(edges)
     local_rest_joints = rest_joints.clone()
     local_rest_joints[idx] = rest_joints[idx] - rest_joints[parent_idx]
+    if local_rest_rmat is not None:
+        # T_rel = R_parent^T(T-T_parent)
+        to_global_rmat = local_rest_rmat.clone()
+        for idx, parent_idx in edges.items():
+            if parent_idx > 0:
+                local_rest_joints[idx - 1] = (
+                    to_global_rmat[parent_idx - 1].T @ local_rest_joints[idx - 1]
+                )
+                to_global_rmat[idx - 1] = (
+                    to_global_rmat[parent_idx - 1] @ local_rest_rmat[idx - 1]
+                )
     return local_rest_joints
 
 
-def fk_se3(local_rest_joints, so3, edges, to_dq=True):
-    """Compute forward kinematics given joint angles on a skeleton
+def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_rmat=None):
+    """Compute forward kinematics given joint angles on a skeleton.
+    If local_rest_rmat is None, assuming identity rotation in zero configuration.
 
     Args:
         local_rest_joints: (B, 3) Translations from parent to current joints,
-            assuming identity rotation in zero configuration
         so3: (..., B, 3) Axis-angles at each joint
         edges (Dict(int, int)): Maps each joint to its parent joint
         to_dq (bool): If True, output link rigid transforms as dual quaternions,
             otherwise output SE(3)
+        local_rest_rot: (B, 3, 3) Local rotations
     Returns:
         out: Location of each joint. This is written as dual quaternions
             ((..., B, 4), (..., B, 4)) if to_dq=True, otherwise it is written
@@ -73,10 +87,17 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True):
     local_to_parent = identity_rt.clone()
     global_rt = identity_rt.clone()
 
+    if local_rest_rmat is None:
+        local_rest_rmat = so3_to_exp_map(so3)
+    else:
+        local_rest_rmat = local_rest_rmat.view((1,) * (len(shape) - 2) + (-1, 3, 3))
+        local_rest_rmat = so3_to_exp_map(so3) @ local_rest_rmat
+
     # get local rt transformation: (..., k, 4, 4)
+    # parent ... child
     # first rotate around joint i
     # then translate wrt the relative position of the parent to i
-    local_to_parent[..., :3, :3] = so3_to_exp_map(so3)
+    local_to_parent[..., :3, :3] = local_rest_rmat
     local_to_parent[..., :3, 3] = local_rest_joints
 
     for idx, parent_idx in edges.items():
