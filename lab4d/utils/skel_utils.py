@@ -9,7 +9,7 @@ from lab4d.utils.geom_utils import so3_to_exp_map
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
-    quaternion_translation_mul,
+    dual_quaternion_mul,
     quaternion_translation_to_dual_quaternion,
     dual_quaternion_to_quaternion_translation,
 )
@@ -32,35 +32,22 @@ def get_valid_edges(edges):
     return idx, parent_idx
 
 
-def rest_joints_to_local(rest_joints, edges, local_rest_rmat=None):
+def rest_joints_to_local(rest_joints, edges):
     """Convert rest joints to local coordinates, where local = current - parent
-    If local_rest_rmat is given, local = parent^-1 * current
 
     Args:
         rest_joints: (B, 3) Joint locations
         edges (Dict(int, int)): Maps each joint to its parent joint
-        local_rest_rmat: (B, 3, 3) Local rotations
     Returns:
         local_rest_joints: (B, 3) Translations from parent to child joints
     """
     idx, parent_idx = get_valid_edges(edges)
     local_rest_joints = rest_joints.clone()
     local_rest_joints[idx] = rest_joints[idx] - rest_joints[parent_idx]
-    if local_rest_rmat is not None:
-        # T_rel = R_parent^T(T-T_parent)
-        to_global_rmat = local_rest_rmat.clone()
-        for idx, parent_idx in edges.items():
-            if parent_idx > 0:
-                local_rest_joints[idx - 1] = (
-                    to_global_rmat[parent_idx - 1].T @ local_rest_joints[idx - 1]
-                )
-                to_global_rmat[idx - 1] = (
-                    to_global_rmat[parent_idx - 1] @ local_rest_rmat[idx - 1]
-                )
     return local_rest_joints
 
 
-def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_rmat=None):
+def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_coord=None):
     """Compute forward kinematics given joint angles on a skeleton.
     If local_rest_rmat is None, assuming identity rotation in zero configuration.
 
@@ -75,6 +62,7 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_rmat=None):
         out: Location of each joint. This is written as dual quaternions
             ((..., B, 4), (..., B, 4)) if to_dq=True, otherwise it is written
             as (..., B, 4, 4) SE(3) matrices.
+            link to global transforms X_global = T_1...T_k x X_k
     """
     assert local_rest_joints.shape == so3.shape
     shape = so3.shape
@@ -84,22 +72,22 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_rmat=None):
     identity_rt = identity_rt.view((1,) * (len(shape) - 2) + (-1, 4, 4))
     identity_rt = identity_rt.expand(*shape[:-1], -1, -1).clone()
     identity_rt_slice = identity_rt[..., 0, :, :].clone()
-    local_to_parent = identity_rt.clone()
     global_rt = identity_rt.clone()
 
-    if local_rest_rmat is None:
-        local_rest_rmat = so3_to_exp_map(so3)
+    if local_rest_coord is None:
+        local_rmat = so3_to_exp_map(so3)
     else:
-        local_rest_rmat = local_rest_rmat.view((1,) * (len(shape) - 2) + (-1, 3, 3))
-        local_rest_rmat = so3_to_exp_map(so3) @ local_rest_rmat
+        local_rmat = local_rest_coord[:, :3, :3]
+        local_rmat = local_rmat.view((1,) * (len(shape) - 2) + (-1, 3, 3))
+        local_rmat = local_rmat @ so3_to_exp_map(so3)
+
+    local_to_parent = torch.cat([local_rmat, local_rest_joints[..., None]], -1)
+    local_to_parent = torch.cat([local_to_parent, identity_rt[..., -1:, :]], -2)
 
     # get local rt transformation: (..., k, 4, 4)
     # parent ... child
     # first rotate around joint i
     # then translate wrt the relative position of the parent to i
-    local_to_parent[..., :3, :3] = local_rest_rmat
-    local_to_parent[..., :3, 3] = local_rest_joints
-
     for idx, parent_idx in edges.items():
         if parent_idx > 0:
             parent_to_global = global_rt[..., parent_idx - 1, :, :].clone()
@@ -119,7 +107,7 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_rmat=None):
         return global_rt
 
 
-def shift_joints_to_bones_dq(dq, edges, shift=None):
+def shift_joints_to_bones_dq(dq, edges, shift=None, orient=None):
     """Compute bone centers and orientations from joint locations
 
     Args:
@@ -131,10 +119,17 @@ def shift_joints_to_bones_dq(dq, edges, shift=None):
             written as dual quaternions
     """
     quat, joints = dual_quaternion_to_quaternion_translation(dq)
-    if shift is not None:
-        joints += shift.reshape((1,) * (joints[0].ndim - 1) + (3,))
     joints = shift_joints_to_bones(joints, edges)
     dq = quaternion_translation_to_dual_quaternion(quat, joints)
+    if shift is not None and orient is not None:
+        shift = shift.reshape((1,) * (joints[0].ndim - 1) + (3,))
+        shift = shift.expand(*joints.shape[:-1], -1)
+        orient = orient.reshape((1,) * (joints[0].ndim - 1) + (4,))
+        orient = orient.expand(*joints.shape[:-1], -1)
+        offset_dq = quaternion_translation_to_dual_quaternion(orient, shift)
+        dq = dual_quaternion_mul(offset_dq, dq)
+    else:
+        raise ValueError("shift and orient cannot be both None")
     return dq
 
 

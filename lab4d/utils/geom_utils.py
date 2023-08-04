@@ -516,7 +516,6 @@ def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=1000):
     pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
     best_eq, index = pcd.segment_plane(threshold, init_n, iter)
     segmented_points = pcd.select_by_index(index)
-    trimesh.Trimesh(segmented_points.points).export("tmp/0.obj")
 
     # point upside
     if best_eq[1] < 0:
@@ -538,3 +537,19 @@ def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=1000):
     # mesh.apply_transform(bg2world) # DEBUG only
     bg2world = torch.Tensor(bg2world)
     return bg2world
+
+
+def se3_inv(rtmat):
+    """Invert an SE(3) matrix
+
+    Args:
+        rtmat: (..., 4, 4) SE(3) matrix
+    Returns:
+        rtmat_inv: (..., 4, 4) Inverse SE(3) matrix
+    """
+    rmat, tmat = se3_mat2rt(rtmat)
+    rmat = rmat.transpose(-1, -2)
+    tmat = -rmat @ tmat[..., None]
+    rtmat[..., :3, :3] = rmat
+    rtmat[..., :3, 3] = tmat[..., 0]
+    return rtmat

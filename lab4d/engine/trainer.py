@@ -145,6 +145,7 @@ class Trainer:
             ".base_logfocal": lr_explicit,
             ".base_ppoint": lr_explicit,
             ".shift": lr_explicit,
+            ".orient": lr_explicit,
         }
         return param_lr_startwith, param_lr_with
 

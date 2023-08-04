@@ -22,7 +22,7 @@ class PPRTrainer(Trainer):
         opts["phys_vid"] = [int(i) for i in opts["phys_vid"].split(",")]
         opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
         model_dict = {}
-        model_dict["bg_field"] = self.model.fields.field_params["bg"]
+        model_dict["scene_field"] = self.model.fields.field_params["bg"]
         model_dict["obj_field"] = self.model.fields.field_params["fg"]
         model_dict["intrinsics"] = self.model.intrinsics
         self.phys_model = phys_interface(opts, model_dict)
@@ -46,21 +46,25 @@ class PPRTrainer(Trainer):
         self.iters_per_phys_cycle = int(
             opts["ratio_phys_cycle"] * opts["iters_per_round"]
         )
-        print("# iterations per phys cycle: ", self.iters_per_phys_cycle)
+        print("# iterations per phys cycle:", self.iters_per_phys_cycle)
 
     def run_one_round(self, round_count):
+        # run dr cycle
         super().run_one_round(round_count)
 
+        # re-initialize field2world transforms
+        self.model.fields.field_params["bg"].compute_field2world()
+
         # transfer pharameters
+        self.phys_model.override_states()
+        # run physics cycle
         self.run_phys_cycle()
         # transfer pharameters
+        self.phys_model.override_states_inv()
 
     def run_phys_cycle(self):
         opts = self.opts
         torch.cuda.empty_cache()
-
-        # re-initialize field2world transforms
-        self.model.fields.field_params["bg"].compute_field2world()
 
         # eval
         self.phys_model.eval()
@@ -85,7 +89,6 @@ class PPRTrainer(Trainer):
             self.phys_model.set_progress(self.current_steps_phys)
             self.run_phys_iter()
             self.current_steps_phys += 1
-            print(self.current_steps_phys)
 
     def run_phys_iter(self):
         """Run physics optimization"""

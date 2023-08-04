@@ -377,6 +377,8 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
+        self.orient = nn.Parameter(torch.tensor([1.0, 0.0, 0.0, 0.0]))
+
         # instance bone length
         num_inst = len(frame_info["frame_offset"]) - 1
         self.log_bone_len = CondMLP(
@@ -460,7 +462,9 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
         # run forward kinematics
         out = self.fk_se3(local_rest_joints, so3, self.edges)
-        out = shift_joints_to_bones_dq(out, self.edges, shift=self.shift)
+        out = shift_joints_to_bones_dq(
+            out, self.edges, shift=self.shift, orient=self.orient
+        )
         return out
 
     def compute_rel_rest_joints(self, inst_id=None, override_log_bone_len=None):
@@ -645,27 +649,47 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
             activation=activation,
         )
 
-        self.urdf = self.get_urdf(skel_type)
+        local_rest_coord, scale_factor, orient, offset = self.parse_urdf(skel_type)
+        self.logscale.data = torch.log(scale_factor)
+        self.shift.data = offset
+        self.orient.data = orient
 
         # get local rest rotation matrices, pick the first coordinate in rpy of ball joints
-        local_rest_rmat = np.stack([i.origin[:3, :3] for i in self.urdf.joints], 0)
-        local_rest_rmat = torch.tensor(local_rest_rmat[::3], dtype=torch.float32)
-        self.register_buffer("local_rest_rmat", local_rest_rmat, persistent=False)
+        # by default: transform points from child to parent
+        local_rest_coord = torch.tensor(local_rest_coord, dtype=torch.float32)
+        self.register_buffer("local_rest_coord", local_rest_coord, persistent=False)
+        self.rest_joints = None
 
-    def get_urdf(self, urdf_name):
+    def parse_urdf(self, urdf_name):
         """Load the URDF file for the skeleton"""
         from urdfpy import URDF
 
         urdf_path = f"projects/ppr/ppr-diffphys/data/urdf_templates/{urdf_name}.urdf"
         urdf = URDF.load(urdf_path)
-        return urdf
+
+        local_rest_coord = np.stack([i.origin for i in urdf.joints], 0)[::3]
+
+        if urdf_name == "human":
+            offset = torch.tensor([0.0, 0.0, 0.0])
+            orient = torch.tensor([1.0, 0.0, 0.0, 0.0])  # wxyz
+            scale_factor = torch.tensor([0.08])
+        elif urdf_name == "quad":
+            offset = torch.tensor([0.0, -0.02, 0.02])
+            orient = torch.tensor([1.0, -0.8, 0.0, 0.0])
+            scale_factor = torch.tensor([0.05])
+        else:
+            raise NotImplementedError
+
+        orient = F.normalize(orient, dim=-1)
+        return local_rest_coord, scale_factor, orient, offset
 
     def fk_se3(self, local_rest_joints, so3, edges):
         return fk_se3(
-            local_rest_joints, so3, edges, local_rest_rmat=self.local_rest_rmat
+            local_rest_joints,
+            so3,
+            edges,
+            local_rest_coord=self.local_rest_coord.clone(),
         )
 
     def rest_joints_to_local(self, rest_joints, edges):
-        return rest_joints_to_local(
-            rest_joints, edges, local_rest_rmat=self.local_rest_rmat
-        )
+        return self.local_rest_coord[:, :3, 3].clone()

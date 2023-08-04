@@ -163,7 +163,7 @@ class NeRF(nn.Module):
         self.register_buffer("near_far", torch.zeros(len(rtmat), 2), persistent=False)
 
         field2world = torch.eye(4)[None].expand(self.num_inst, -1, -1)
-        self.register_buffer("field2world", field2world, persistent=False)
+        self.register_buffer("field2world", field2world, persistent=True)
 
     def forward(self, xyz, dir=None, frame_id=None, inst_id=None, get_density=True):
         """
