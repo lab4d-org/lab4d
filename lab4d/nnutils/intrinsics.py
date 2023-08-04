@@ -96,7 +96,7 @@ class IntrinsicsMLP(TimeMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.frame_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
         base_focal = self.base_logfocal[inst_id].exp()
         base_ppoint = self.base_ppoint[inst_id]
         focal = focal * base_focal

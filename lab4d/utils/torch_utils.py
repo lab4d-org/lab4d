@@ -2,9 +2,8 @@
 import torch
 
 
-def frameid_reindex(fid, frame_offset):
-    """Given absolute frame ids [0, ..., N], compute the video id and relative
-    frame id of each frame.
+def frameid_to_vid(fid, frame_offset):
+    """Given absolute frame ids [0, ..., N], compute the video id of each frame.
 
     Args:
         fid: (nframes,) Absolute frame ids
@@ -16,15 +15,10 @@ def frameid_reindex(fid, frame_offset):
         tid: (nframes,) Maps idx to relative frame id
     """
     vid = torch.zeros_like(fid)
-    tid = torch.zeros_like(fid).float()
-    max_ts = (frame_offset[1:] - frame_offset[:-1]).max()
     for i in range(frame_offset.shape[0] - 1):
-        len_sub = frame_offset[i + 1] - frame_offset[i]
         assign = torch.logical_and(fid >= frame_offset[i], fid < frame_offset[i + 1])
         vid[assign] = i
-        tid_sub = fid[assign].float() - frame_offset[i]
-        tid[assign] = (tid_sub - len_sub / 2) / max_ts * 2  # [-1, 1]
-    return vid, tid
+    return vid
 
 
 def remove_ddp_prefix(state_dict):
@@ -84,7 +78,7 @@ def remove_state_with(state_dict, string):
 def compress_state_with(state_dict, string):
     """Initialize model parameters with the mean of the instance embedding if
     the parameter name contains a string
-    
+
     Args:
         state_dict (Dict): Model checkpoint, modified in place
         string (str): String to filter

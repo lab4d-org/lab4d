@@ -408,8 +408,8 @@ class MultiFields(nn.Module):
             if inst_id is None:
                 frame_id = None
             else:
-                frame_to_vid = field.camera_mlp.time_embedding.frame_to_vid
-                frame_id = (frame_to_vid == inst_id).nonzero()
+                raw_fid_to_vid = field.camera_mlp.time_embedding.raw_fid_to_vid
+                frame_id = (raw_fid_to_vid == inst_id).nonzero()
             field2cam[cate] = field.get_camera(frame_id=frame_id)
         return field2cam
 

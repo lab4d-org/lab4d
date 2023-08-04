@@ -43,7 +43,8 @@ class RenderFlags:
         "viewpoint", "ref", "camera viewpoint, {ref,rot-elevation-degree,rot-60-0,...}"
     )
     flags.DEFINE_integer("freeze_id", -1, "freeze frame id to render, no freeze if -1")
-    flags.DEFINE_integer("num_frames", -1, "number of frames to render")
+    flags.DEFINE_integer("num_frames", -1, "frames to render if freeze_id id is used")
+    flags.DEFINE_bool("noskip", False, "render all frames skipped by flow")
 
 
 def construct_batch_from_opts(opts, model, data_info):
@@ -57,24 +58,35 @@ def construct_batch_from_opts(opts, model, data_info):
     raw_size = data_info["raw_size"][video_id]  # full range of pixels
     # ref video length
     vid_length = data_utils.get_vid_length(video_id, data_info)
-    if opts["num_frames"] > 0:
-        render_length = opts["num_frames"]
-    else:
-        render_length = vid_length
 
     # whether to freeze a frame
-    if opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
-        frameid_sub = np.asarray([opts["freeze_id"]] * render_length)  # full video
-    elif opts["freeze_id"] == -1:
-        frameid_sub = np.linspace(0, render_length - 1, render_length).astype(np.int32)
+    if opts["freeze_id"] == -1:
+        if opts["noskip"]:
+            # render all frames
+            frameid_sub = np.arange(vid_length)
+        else:
+            # render filtered frames
+            frame_mapping = data_info["frame_info"]["frame_mapping"]
+            frame_offset = data_info["frame_info"]["frame_offset"]
+            frameid = frame_mapping[frame_offset[video_id] : frame_offset[video_id + 1]]
+
+            frameid_start = data_info["frame_info"]["frame_offset_raw"][video_id]
+            frameid_sub = frameid - frameid_start
+    elif opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
+        if opts["num_frames"] == -1:
+            num_frames = vid_length
+        else:
+            num_frames = 150
+        frameid_sub = np.asarray([opts["freeze_id"]] * num_frames)
     else:
         raise ValueError("frame id %d out of range" % opts["freeze_id"])
+    print("rendering frames: %s from video %d" % (str(frameid_sub), video_id))
 
     # get cameras wrt each field
     with torch.no_grad():
         field2cam_fr = model.fields.get_cameras(inst_id=opts["inst_id"])
         intrinsics_fr = model.intrinsics.get_vals(
-            frameid_sub + data_info["frame_info"]["frame_offset"][video_id]
+            frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
         )
         aabb = model.fields.get_aabb()
     # convert to numpy
@@ -177,7 +189,7 @@ def render(opts, construct_batch_func):
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     batch, raw_size = construct_batch_func(opts, model, data_info)
     save_dir = make_save_dir(
-        opts, sub_dir="renderings_%s_%04d" % (opts["viewpoint"], opts["inst_id"])
+        opts, sub_dir="renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
     )
 
     # render
