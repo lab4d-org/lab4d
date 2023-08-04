@@ -17,14 +17,21 @@ class PPRTrainer(Trainer):
     def define_model(self):
         super().define_model()
 
-        # define physics model
+        # opts
         opts = self.opts
         opts["phys_vid"] = [int(i) for i in opts["phys_vid"].split(",")]
         opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
+
+        # re-initialize field2world transforms
+        self.model.fields.field_params["bg"].compute_field2world()
+
+        # model
         model_dict = {}
         model_dict["scene_field"] = self.model.fields.field_params["bg"]
         model_dict["obj_field"] = self.model.fields.field_params["fg"]
         model_dict["intrinsics"] = self.model.intrinsics
+
+        # define phys model
         self.phys_model = phys_interface(opts, model_dict)
         self.phys_visualizer = Logger(opts)
 
@@ -51,9 +58,6 @@ class PPRTrainer(Trainer):
     def run_one_round(self, round_count):
         # run dr cycle
         super().run_one_round(round_count)
-
-        # re-initialize field2world transforms
-        self.model.fields.field_params["bg"].compute_field2world()
 
         # transfer pharameters
         self.phys_model.override_states()
