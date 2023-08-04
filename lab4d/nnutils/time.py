@@ -18,6 +18,8 @@ class TimeMLP(BaseMLP):
         num_freq_t (int): Number of frequencies in the time embedding
         skips (List(int)): List of layers to add skip connections at
         activation (Function): Activation function to use (e.g. nn.ReLU())
+        time_scale (float): Control the sensitivity to time by scaling.
+            Lower values make the module less sensitive to time.
     """
 
     def __init__(
