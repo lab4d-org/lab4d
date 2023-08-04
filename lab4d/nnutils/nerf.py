@@ -30,7 +30,6 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
-from lab4d.utils.torch_utils import frameid_reindex
 
 
 class NeRF(nn.Module):
@@ -81,12 +80,14 @@ class NeRF(nn.Module):
         rtmat = data_info["rtmat"]
         frame_info = data_info["frame_info"]
         frame_offset = data_info["frame_info"]["frame_offset"]
+        frame_offset_raw = data_info["frame_info"]["frame_offset_raw"]
         geom_path = data_info["geom_path"]
 
         super().__init__()
 
         # dataset info
         self.frame_offset = frame_offset
+        self.frame_offset_raw = frame_offset_raw
         self.num_frames = frame_offset[-1]
         self.num_inst = num_inst
 
@@ -159,7 +160,9 @@ class NeRF(nn.Module):
         self.init_aabb()
 
         # non-parameters are not synchronized
-        self.register_buffer("near_far", torch.zeros(len(rtmat), 2), persistent=False)
+        self.register_buffer(
+            "near_far", torch.zeros(frame_offset_raw[-1], 2), persistent=False
+        )
 
     def forward(self, xyz, dir=None, frame_id=None, inst_id=None, get_density=True):
         """
@@ -393,7 +396,10 @@ class NeRF(nn.Module):
         if verts is not None:
             proxy_pts = torch.tensor(verts, dtype=torch.float32, device=device)
             near_far = get_near_far(proxy_pts, rtmat).to(device)
-            self.near_far.data = self.near_far.data * beta + near_far * (1 - beta)
+            frame_mapping = self.camera_mlp.time_embedding.frame_mapping
+            self.near_far.data[frame_mapping] = self.near_far.data[
+                frame_mapping
+            ] * beta + near_far * (1 - beta)
 
     def sample_points_aabb(self, nsample, extend_factor=1.0):
         """Sample points within axis-aligned bounding box

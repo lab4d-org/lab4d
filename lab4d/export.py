@@ -58,7 +58,7 @@ class MotionParamsExpl(NamedTuple):
 def extract_deformation(field, mesh_rest, inst_id, render_length):
     device = next(field.parameters()).device
     xyz = torch.tensor(mesh_rest.vertices, dtype=torch.float32, device=device)
-    offset = field.frame_offset[inst_id]
+    offset = field.frame_offset_raw[inst_id]
     inst_id = torch.tensor([inst_id], dtype=torch.long, device=device)
 
     motion_tuples = {}

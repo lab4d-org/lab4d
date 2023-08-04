@@ -40,7 +40,7 @@ for dev_id, device in enumerate(dev_list):
     for inst_id in assigned_ids:
         # Add the command for this inst_id to the device's command list.
         command_for_device.append(
-            f"CUDA_VISIBLE_DEVICES={device} python lab4d/render.py --flagfile={flagfile} --load_suffix latest --inst_id {inst_id} --render_res 256"
+            f"CUDA_VISIBLE_DEVICES={device} python lab4d/render.py --flagfile={flagfile} --load_suffix latest --inst_id {inst_id} --render_res 256 --data_prefix full"
         )
         command_for_device.append(
             f"CUDA_VISIBLE_DEVICES={device} python lab4d/render.py --flagfile={flagfile} --load_suffix latest --inst_id {inst_id} --render_res 256 --viewpoint rot-0-360"
@@ -60,6 +60,6 @@ for dev_id, device in enumerate(dev_list):
 
     # Start a screen session for this device, executing the device's command string.
     subprocess.Popen(
-        f'screen -S render-{device}-{assigned_ids} -d -m bash -c "{command_str}"',
+        f'screen -S render-{device}-{",".join(str(i) for i in assigned_ids)} -d -m bash -c "{command_str}"',
         shell=True,
     )

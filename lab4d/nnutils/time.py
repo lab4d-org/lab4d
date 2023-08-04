@@ -18,6 +18,8 @@ class TimeMLP(BaseMLP):
         num_freq_t (int): Number of frequencies in the time embedding
         skips (List(int)): List of layers to add skip connections at
         activation (Function): Activation function to use (e.g. nn.ReLU())
+        time_scale (float): Control the sensitivity to time by scaling.
+            Lower values make the module less sensitive to time.
     """
 
     def __init__(
@@ -31,12 +33,14 @@ class TimeMLP(BaseMLP):
         time_scale=1.0,
     ):
         frame_offset = frame_info["frame_offset"]
+        # frame_offset_raw = frame_info["frame_offset_raw"]
         if num_freq_t > 0:
             max_ts = (frame_offset[1:] - frame_offset[:-1]).max()
-            # scale according to input frequency
-            scaled_max_ts = max_ts * np.exp2(num_freq_t - 6)
-            # num_frames = 64 -> freq = 6, num_frames = 128 -> freq = 7
-            num_freq_t = int(np.rint(np.log2(scaled_max_ts)))
+            # scale according to input frequency: num_frames = 64 -> freq = 6
+            num_freq_t = np.log2(max_ts / 64) + num_freq_t
+            # # scale according to input frequency: num_frames = 512 -> freq = 6
+            # num_freq_t = np.log2(max_ts / 512) + num_freq_t
+            num_freq_t = int(np.rint(num_freq_t))
             # print("max video len: %d, override num_freq_t to %d" % (max_ts, num_freq_t))
 
         super().__init__(

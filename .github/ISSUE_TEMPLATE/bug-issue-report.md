@@ -1,14 +1,14 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: "[BUG]"
+name: Bug/issue report
+about: Issues running the code / bug report to help us improve
+title: "[Bug/issue]"
 labels: ''
 assignees: ''
 
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is.
+A clear and concise description of what the issue is.
 
 **To Reproduce**
 Steps to reproduce the behavior:

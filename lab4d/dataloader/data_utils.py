@@ -334,7 +334,7 @@ def get_vid_length(inst_id, data_info):
         inst_id (int): Video to check
         data_info (Dict): Dataset metadata
     """
-    frame_info = data_info["frame_info"]
-    vid_length = frame_info["frame_offset"][1:] - frame_info["frame_offset"][:-1]
+    frame_offset_raw = data_info["frame_info"]["frame_offset_raw"]
+    vid_length = frame_offset_raw[1:] - frame_offset_raw[:-1]
     vid_length = vid_length[inst_id]
     return vid_length

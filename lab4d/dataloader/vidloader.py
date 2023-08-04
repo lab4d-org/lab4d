@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 from lab4d.utils.numpy_utils import bilinear_interp
+from lab4d.dataloader.data_utils import FrameInfo
 
 
 class RangeSampler:
@@ -68,6 +69,7 @@ class VidDataset(Dataset):
         self.load_data_list(self.dict_list)
 
         self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
+        self.frame_info = FrameInfo(self.dict_list["ref"])
 
     def construct_data_list(self, reflist, prefix, feature_type):
         """Construct a dict of .npy/.txt paths that contain all the frame data
@@ -242,6 +244,8 @@ class VidDataset(Dataset):
             hp_crop = np.concatenate([rand_xy, np.ones_like(rand_xy[..., :1])], -1)
         hp_crop = hp_crop.astype(np.float32)
 
+        raw_frameid_sub = self.frame_info.frame_map[im0idx]
+
         data_dict = {}
         data_dict["rgb"] = rgb
         data_dict["mask"] = mask
@@ -253,7 +257,7 @@ class VidDataset(Dataset):
         data_dict["crop2raw"] = crop2raw
         data_dict["is_detected"] = is_detected
         data_dict["dataid"] = self.dataid
-        data_dict["frameid_sub"] = im0idx  # frameid in each video
+        data_dict["frameid_sub"] = raw_frameid_sub  # frameid in each video
         data_dict["hxy"] = hp_crop
         return data_dict
 
