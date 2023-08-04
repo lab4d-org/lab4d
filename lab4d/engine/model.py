@@ -85,7 +85,7 @@ class dvr_model(nn.Module):
         """
         if not hasattr(self, "offset_cuda"):
             self.offset_cache = torch.tensor(
-                self.data_info["frame_info"]["frame_offset"],
+                self.data_info["frame_info"]["frame_offset_raw"],
                 device=self.device,
                 dtype=torch.long,
             )
