@@ -43,7 +43,7 @@ class RenderFlags:
         "viewpoint", "ref", "camera viewpoint, {ref,rot-elevation-degree,rot-60-0,...}"
     )
     flags.DEFINE_integer("freeze_id", -1, "freeze frame id to render, no freeze if -1")
-    flags.DEFINE_integer("num_frames", 150, "frames to render if freeze_id id is used")
+    flags.DEFINE_integer("num_frames", -1, "frames to render if freeze_id id is used")
     flags.DEFINE_bool("noskip", False, "render all frames skipped by flow")
 
 
@@ -73,11 +73,15 @@ def construct_batch_from_opts(opts, model, data_info):
             frameid_start = data_info["frame_info"]["frame_offset_raw"][video_id]
             frameid_sub = frameid - frameid_start
     elif opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
-        frameid_sub = np.asarray([opts["freeze_id"]] * opts["num_frames"])
+        if opts["num_frames"] == -1:
+            num_frames = vid_length
+        else:
+            num_frames = 150
+        frameid_sub = np.asarray([opts["freeze_id"]] * num_frames)
     else:
         raise ValueError("frame id %d out of range" % opts["freeze_id"])
     print("rendering frames: %s from video %d" % (str(frameid_sub), video_id))
-    
+
     # get cameras wrt each field
     with torch.no_grad():
         field2cam_fr = model.fields.get_cameras(inst_id=opts["inst_id"])
@@ -185,7 +189,7 @@ def render(opts, construct_batch_func):
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     batch, raw_size = construct_batch_func(opts, model, data_info)
     save_dir = make_save_dir(
-        opts, sub_dir="renderings_%s_%04d" % (opts["viewpoint"], opts["inst_id"])
+        opts, sub_dir="renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
     )
 
     # render

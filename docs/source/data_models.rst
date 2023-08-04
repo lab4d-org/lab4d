@@ -29,10 +29,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/car-turnaround-2.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/car-turnaround_ref-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/car-turnaround-2_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -43,10 +40,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/finch.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/finch_ref-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/finch_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -57,10 +51,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-0_ref-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/cat-pikachu-0_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -71,10 +62,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/squirrel.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/squirrel-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/squirrel_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -85,10 +73,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/dog-dualrig-fgbg000.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/dog-dualrig-fgbg000-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/dog-robolounge_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -99,10 +84,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-7.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/cat-pikachu-8_ref-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/cat-pikachu-7_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -113,10 +95,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/shiba-haru-7.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/shiba-haru-7-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/shiba-haru-7_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -127,10 +106,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="49%" src="/lab4d/_static/media_resized/human-cap-3.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="51%" src="/lab4d/_static/media_resized/human-cap-3-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/human-cap-3_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
@@ -141,10 +117,7 @@ Pre-processed data and checkpoints
     - .. raw:: html
 
         <div style="display: flex; justify-content: center;">
-        <video width="50%" src="/lab4d/_static/media_resized/penguin.mp4" controls autoplay muted loop>
-          Your browser does not support the video tag.
-        </video>
-        <video width="50%" src="/lab4d/_static/media_resized/penguin-1-xyz.mp4" controls autoplay muted loop>
+        <video width="100%" src="/lab4d/_static/media_resized/penguin-2_collage.mp4" controls autoplay muted loop>
           Your browser does not support the video tag.
         </video>
         </div>
