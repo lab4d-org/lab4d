@@ -28,7 +28,7 @@ class PPRTrainer(Trainer):
         # model
         model_dict = {}
         model_dict["scene_field"] = self.model.fields.field_params["bg"]
-        model_dict["obj_field"] = self.model.fields.field_params["fg"]
+        model_dict["object_field"] = self.model.fields.field_params["fg"]
         model_dict["intrinsics"] = self.model.intrinsics
 
         # define phys model
@@ -58,7 +58,6 @@ class PPRTrainer(Trainer):
     def run_one_round(self, round_count):
         # run dr cycle
         super().run_one_round(round_count)
-
         # transfer pharameters
         self.phys_model.override_states()
         # run physics cycle
@@ -72,6 +71,30 @@ class PPRTrainer(Trainer):
 
         # eval
         self.phys_model.eval()
+        self.run_phys_visualization(tag="kinematics")
+
+        # train
+        self.phys_model.train()
+        self.phys_model.reinit_envs(
+            opts["phys_batch"], wdw_length=opts["phys_wdw_len"], is_eval=False
+        )
+        for i in range(self.iters_per_phys_cycle):
+            self.phys_model.set_progress(self.current_steps_phys)
+            self.run_phys_iter()
+            self.current_steps_phys += 1
+
+        # eval again
+        self.phys_model.eval()
+        self.run_phys_visualization(tag="phys")
+
+    def run_phys_iter(self):
+        """Run physics optimization"""
+        phys_aux = self.phys_model()
+        self.phys_model.backward(phys_aux["total_loss"])
+        self.phys_model.update()
+
+    def run_phys_visualization(self, tag=""):
+        opts = self.opts
         self.phys_model.reinit_envs(1, wdw_length=30, is_eval=True)
         for vidid in opts["phys_vid"]:
             frame_start = torch.zeros(1) + self.phys_model.data_offset[vidid]
@@ -80,23 +103,5 @@ class PPRTrainer(Trainer):
             img_size = img_size + (0.5,)  # scale
             data = self.phys_model.query(img_size=img_size)
             self.phys_visualizer.show(
-                "%02d-%05d" % (vidid, self.current_steps_phys), data
+                "%s-%02d-%05d" % (tag, vidid, self.current_steps_phys), data
             )
-
-        # train
-        self.phys_model.train()
-        self.phys_model.reinit_envs(
-            opts["phys_batch"], wdw_length=opts["phys_wdw_len"], is_eval=False
-        )
-
-        for i in range(self.iters_per_phys_cycle):
-            self.phys_model.set_progress(self.current_steps_phys)
-            self.run_phys_iter()
-            self.current_steps_phys += 1
-
-    def run_phys_iter(self):
-        """Run physics optimization"""
-        phys_aux = self.phys_model()
-        self.phys_model.backward(phys_aux["total_loss"])
-        grad_list = self.phys_model.update()
-        phys_aux.update(grad_list)
