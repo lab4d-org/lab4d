@@ -71,10 +71,23 @@ def pca_numpy(raw_data, n_components):
     # choose the top k eigenvectors (or all eigenvectors if k is not specified)
     top_eigenvectors = sorted_eigenvectors[:, :n_components]
 
-    def apply_pca_fn(data):
+    def apply_pca_fn(data, normalize=False):
+        """
+        Args:
+            data (np.array): Data to apply PCA to
+            normalize (bool): If True, normalize the data to 0,1 for visualization
+        """
         shape = data.shape
         data = data.reshape(-1, shape[-1])
         data = np.dot(data - mean, top_eigenvectors)
+
+        if normalize:
+            # scale to std = 1
+            data = data / np.sqrt(eigenvalues[sorted_indices][:n_components])
+            data = np.clip(data, -2, 2)  # clip to [-2, 2], 95.4% percentile
+            # scale to 0,1
+            data = (data + 2) / 4
+
         data = data.reshape(shape[:-1] + (n_components,))
         return data
 

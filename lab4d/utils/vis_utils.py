@@ -39,8 +39,7 @@ def img2color(tag, img, pca_fn=None):
         img = (img + 1) / 2
 
     if "feature" in tag:
-        img = pca_fn(img)
-        img = minmax_normalize(img)
+        img = pca_fn(img, normalize=True)
 
     if "xyz" in tag:
         img = minmax_normalize(img)
