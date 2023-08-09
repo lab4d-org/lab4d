@@ -243,10 +243,13 @@ def get_data_info(loader):
         intrinsics += [dataset.ks] * frame_info.num_frames
         raw_size += [dataset.raw_size]
 
-        # randomly sample 1k pixels for PCA per-video:
         feature_array = dataset.mmap_list["feature"].reshape(-1, 16)
-        rand_idx = np.random.permutation(len(feature_array))[:1000]
-        feature_pxs.append(feature_array[rand_idx])
+        # # randomly sample 1k pixels for PCA per-video:
+        # rand_idx = np.random.permutation(len(feature_array))[:1000]
+        # feature_pxs.append(feature_array[rand_idx])
+        # sampling a fixed set of pixels for PCA:
+        num_skip = max(1, len(feature_array) // 1000)
+        feature_pxs.append(feature_array[::num_skip])
 
     # compute PCA on non-zero features
     feature_pxs = np.concatenate(feature_pxs, 0)

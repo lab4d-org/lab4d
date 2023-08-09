@@ -22,6 +22,16 @@ def warp_flow(img, flow, normed=False):
 
 
 def point_vec(img, flow, skip=40):
+    assert flow.ndim == 3  # h, w, 3
+    assert img.ndim == 3  # h, w, 3
+    assert flow.shape[2] == 2 or flow.shape[2] == 3
+    if flow.shape[-1] == 2:
+        invalid = np.linalg.norm(flow, 2, -1) == 0
+        flow = np.concatenate([flow, invalid.astype(float)[..., None]], -1)
+    if img.shape[-1] == 4:
+        transparency = img[..., 3]
+        img = img[..., :3]
+
     extendfac = 1.0
     resize_factor = 1
     # resize_factor = max(1,int(max(maxsize/img.shape[0], maxsize/img.shape[1])))
@@ -54,6 +64,13 @@ def point_vec(img, flow, skip=40):
                 tipLength=4 / leng,
                 line_type=cv2.LINE_AA,
             )
+    if img.shape[-1] == 4:
+        # add back transparency channel
+        transparency = cv2.resize(
+            transparency, None, fx=resize_factor, fy=resize_factor
+        )
+        transparency[np.abs(dispimg).sum(-1) > 0] = 255
+        dispimg = np.concatenate([dispimg, transparency[..., None]], -1)
     return dispimg
 
 
