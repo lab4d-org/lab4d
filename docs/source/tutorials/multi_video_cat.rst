@@ -14,14 +14,6 @@ First, download pre-processeed data::
 
 To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
 
-.. note::
-
-  Preprocessing takes about 90 minutes for 11 videos on a single device. To speed up the pre-processing, 
-  we can parallelize tasks over multiple gpus with the following::
-  
-    # Args: video name, quadruped category, on four gpus 0,1,2,3
-    python scripts/run_preprocess.py cat-pikachu quad "0,1,2,3"
-
 
 Training
 -----------

@@ -1,4 +1,4 @@
-# python scripts/run_preprocess.py shiba-haru quad "0,1,2,3,4,5,6,7"
+# python scripts/run_preprocess.py shiba-haru animal quad "0,1,2,3,4,5,6,7"
 import configparser
 import glob
 import importlib
@@ -19,7 +19,6 @@ from preprocess.scripts.extract_dinov2 import extract_dinov2
 from preprocess.scripts.extract_frames import extract_frames
 from preprocess.scripts.tsdf_fusion import tsdf_fusion
 from preprocess.scripts.write_config import write_config
-from preprocess.third_party.MinVIS.extract_tracks import extract_tracks
 from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
 
@@ -33,13 +32,9 @@ track_anything_cli = importlib.import_module(
 track_anything_cli = track_anything_cli.track_anything_cli
 
 
-def track_anything_lab4d(seqname, outdir, obj_class):
+def track_anything_lab4d(seqname, outdir, text_prompt):
     input_folder = "%s/JPEGImages/Full-Resolution/%s" % (outdir, seqname)
     output_folder = "%s/Annotations/Full-Resolution/%s" % (outdir, seqname)
-    if obj_class == "human":
-        text_prompt = "human"
-    elif obj_class == "quad":
-        text_prompt = "animal"
     track_anything_cli(input_folder, text_prompt, output_folder)
 
 
@@ -72,7 +67,7 @@ def run_extract_frames(seqname, outdir, infile, use_filter_frames):
         run_bash_command(f"cp {imgpath}/* {outpath}/")
 
 
-def run_extract_priors(seqname, outdir, obj_class):
+def run_extract_priors(seqname, outdir, obj_class_cam):
     print("extracting priors: ", seqname)
     # flow
     for dframe in [1, 2, 4, 8]:
@@ -89,23 +84,28 @@ def run_extract_priors(seqname, outdir, obj_class):
     camera_registration(seqname, 0)
     camera_registration(seqname, 1)
     tsdf_fusion(seqname, 0)
-    canonical_registration(seqname, 256, obj_class)
+    canonical_registration(seqname, 256, obj_class_cam)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print(f"Usage: python {sys.argv[0]} <vidname> <obj_class> <gpulist>")
-        print(f"  Example: python {sys.argv[0]} cat-pikachu-0 quad '0,1,2,3,4,5,6,7'")
+    if len(sys.argv) != 5:
+        print(
+            f"Usage: python {sys.argv[0]} <vidname> <text_prompt_seg> <obj_class_cam> <gpulist>"
+        )
+        print(
+            f"  Example: python {sys.argv[0]} cat-pikachu-0 cat quad '0,1,2,3,4,5,6,7'"
+        )
         exit()
     vidname = sys.argv[1]
-    obj_class = sys.argv[2]
-    assert obj_class in ["human", "quad", "other"]
-    gpulist = [int(n) for n in sys.argv[3].split(",")]
+    text_prompt_seg = sys.argv[2]
+    obj_class_cam = sys.argv[3]
+    assert obj_class_cam in ["human", "quad", "other"]
+    gpulist = [int(n) for n in sys.argv[4].split(",")]
 
     # True: manually annotate object masks | False: use detect object based on text prompt
-    use_manual_segment = True if obj_class == "other" else False
+    use_manual_segment = True if text_prompt_seg == "other" else False
     # True: manually annotate camera for key frames
-    use_manual_cameras = True if obj_class == "other" else False
+    use_manual_cameras = True if obj_class_cam == "other" else False
     # True: filter frame based on motion magnitude | False: use all frames
     use_filter_frames = True
 
@@ -132,17 +132,18 @@ if __name__ == "__main__":
     # read config
     config = configparser.RawConfigParser()
     config.read("database/configs/%s.config" % vidname)
+    seg_args = []
     prior_args = []
     for vidid in range(len(config.sections()) - 1):
         seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
-        prior_args.append((seqname, outdir, obj_class))
+        seg_args.append((seqname, outdir, text_prompt_seg))
+        prior_args.append((seqname, outdir, obj_class_cam))
 
     # let the user specify the segmentation mask
     if use_manual_segment:
         track_anything_gui(vidname)
     else:
-        # gpu_map(extract_tracks, prior_args, gpus=gpulist)
-        gpu_map(track_anything_lab4d, prior_args, gpus=gpulist)
+        gpu_map(track_anything_lab4d, seg_args, gpus=gpulist)
 
     # Manually adjust camera positions
     if use_manual_cameras:
