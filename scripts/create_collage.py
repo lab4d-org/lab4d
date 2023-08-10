@@ -23,10 +23,10 @@ def main():
     for sub_seq in sorted(glob.glob("%s/%s*" % (args.testdir, args.prefix))):
         path_list = []
         path_list.append("%s/ref/ref_rgb.mp4" % sub_seq)
-        # path_list.append("%s/ref/rgb.mp4" % sub_seq)
+        path_list.append("%s/ref/rgb.mp4" % sub_seq)
         path_list.append("%s/ref/xyz.mp4" % sub_seq)
-        # path_list.append("%s/rot-0-360/rgb.mp4" % sub_seq)
-        # path_list.append("%s/rot-0-360/xyz.mp4" % sub_seq)
+        path_list.append("%s/rot-0-360/rgb.mp4" % sub_seq)
+        path_list.append("%s/rot-0-360/xyz.mp4" % sub_seq)
 
         # make sure these exist
         if np.sum([os.path.exists(path) for path in path_list]) == len(path_list):

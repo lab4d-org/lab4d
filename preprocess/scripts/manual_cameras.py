@@ -20,14 +20,28 @@ from lab4d.utils.geom_utils import K2mat, compute_crop_params
 from preprocess.libs.io import read_mask
 
 
-def read_mask_img(img_path, crop_size, use_full, use_minvis):
+def is_gray(image):
+    # Check for two dimensions
+    if len(image.shape) == 2:
+        return True
+
+    # Check for three channels with identical values across all channels
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        r, g, b = cv2.split(image)
+        if np.array_equal(r, g) and np.array_equal(r, b):
+            return True
+
+    return False
+
+
+def read_mask_img(img_path, crop_size, use_full):
     mask_img_path = img_path.replace("JPEGImages", "Annotations")
     mask_img = cv2.imread(mask_img_path)[..., ::-1] / 255.0
     shape = mask_img.shape
     mask_path = mask_img_path.replace(".jpg", ".npy")
     mask, _, _ = read_mask(mask_path, shape)
 
-    if use_minvis:
+    if is_gray(mask_img):
         img = cv2.imread(img_path)[..., ::-1] / 255.0
 
         orange_mask = np.stack((mask,) * 3, axis=-1).squeeze().astype(np.float64)
@@ -78,7 +92,7 @@ def adjust_bounds(fig, v_adj):
 
 
 def get_annotation(track, index):
-    annot = load_annotation(track.frame_paths[index], track.use_minvis)
+    annot = load_annotation(track.frame_paths[index])
     return Image.fromarray(np.uint8(annot * 255))
 
 
@@ -176,13 +190,12 @@ def debug_format(R):
 
 
 class FigureTracker:
-    def __init__(self, mesh_path, seqnames, use_minvis, config):
+    def __init__(self, mesh_path, seqnames, config):
         self.se3_dict = {}
         self.terminated = False
         self.config = config
         self.vid = 0
         self.seqnames = seqnames
-        self.use_minvis = use_minvis
 
         self.frame_paths = []
         self.update_frame_paths()
@@ -234,10 +247,10 @@ def terminate(track):
     )
 
 
-def load_annotation(frame_path, use_minvis):
+def load_annotation(frame_path):
     crop_size = 256
     use_full = False
-    mask_img = read_mask_img(frame_path, crop_size, use_full, use_minvis)
+    mask_img = read_mask_img(frame_path, crop_size, use_full)
     return mask_img
 
 
@@ -394,7 +407,7 @@ def prev_frame(track, index):
     return load_fig(track), new_index, str(annot_id)
 
 
-def manual_camera_interface(vidname, use_minvis, mesh_path):
+def manual_camera_interface(vidname, mesh_path):
     config = configparser.RawConfigParser()
     config.read("database/configs/%s.config" % vidname)
     seqnames = []
@@ -402,7 +415,7 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
         seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
         seqnames.append(seqname)
 
-    track = FigureTracker(mesh_path, seqnames, use_minvis, config)
+    track = FigureTracker(mesh_path, seqnames, config)
 
     with gr.Blocks() as demo:
         with gr.Row():
@@ -500,8 +513,6 @@ def manual_camera_interface(vidname, use_minvis, mesh_path):
 if __name__ == "__main__":
     # The video(s) name (ex. cat-pikachu-0)
     vidname = sys.argv[1]
-    # If used minvis for creating annotations (1 or 0)
-    use_minvis = bool(int(sys.argv[2]))
 
     mesh_path = "database/mesh-templates/cat-pikachu-remeshed.obj"
-    manual_camera_interface(vidname, use_minvis, mesh_path)
+    manual_camera_interface(vidname, mesh_path)

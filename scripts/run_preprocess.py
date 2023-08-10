@@ -26,7 +26,21 @@ from preprocess.third_party.vcnplus.frame_filter import frame_filter
 track_anything_module = importlib.import_module(
     "preprocess.third_party.Track-Anything.app"
 )
-track_anything_interface = track_anything_module.track_anything_interface
+track_anything_gui = track_anything_module.track_anything_interface
+track_anything_cli = importlib.import_module(
+    "preprocess.third_party.Track-Anything.track_anything_cli"
+)
+track_anything_cli = track_anything_cli.track_anything_cli
+
+
+def track_anything_lab4d(seqname, outdir, obj_class):
+    input_folder = "%s/JPEGImages/Full-Resolution/%s" % (outdir, seqname)
+    output_folder = "%s/Annotations/Full-Resolution/%s" % (outdir, seqname)
+    if obj_class == "human":
+        text_prompt = "human"
+    elif obj_class == "quad":
+        text_prompt = "animal"
+    track_anything_cli(input_folder, text_prompt, output_folder)
 
 
 def remove_exist_dir(seqname, outdir):
@@ -88,8 +102,8 @@ if __name__ == "__main__":
     assert obj_class in ["human", "quad", "other"]
     gpulist = [int(n) for n in sys.argv[3].split(",")]
 
-    # True: use MinVis | False: use Track-Anything GUI
-    use_minvis = True if obj_class != "other" else False
+    # True: manually annotate object masks | False: use detect object based on text prompt
+    use_manual_segment = True if obj_class == "other" else False
     # True: manually annotate camera for key frames
     use_manual_cameras = True if obj_class == "other" else False
     # True: filter frame based on motion magnitude | False: use all frames
@@ -124,18 +138,18 @@ if __name__ == "__main__":
         prior_args.append((seqname, outdir, obj_class))
 
     # let the user specify the segmentation mask
-    if use_minvis:
-        # minvis segmentation + tracking
-        gpu_map(extract_tracks, prior_args, gpus=gpulist)
+    if use_manual_segment:
+        track_anything_gui(vidname)
     else:
-        track_anything_interface(vidname)
+        # gpu_map(extract_tracks, prior_args, gpus=gpulist)
+        gpu_map(track_anything_lab4d, prior_args, gpus=gpulist)
 
     # Manually adjust camera positions
     if use_manual_cameras:
         from preprocess.scripts.manual_cameras import manual_camera_interface
 
         mesh_path = "database/mesh-templates/cat-pikachu-remeshed.obj"
-        manual_camera_interface(vidname, use_minvis, mesh_path)
+        manual_camera_interface(vidname, use_manual_segment, mesh_path)
 
     # extract flow/depth/camera/etc
     gpu_map(run_extract_priors, prior_args, gpus=gpulist)
