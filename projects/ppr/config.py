@@ -15,3 +15,14 @@ class PPRConfig:
     flags.DEFINE_string(
         "phys_vid", "0", "whether to optimize selected videos, e.g., 0,1,2"
     )
+
+    # weights
+    flags.DEFINE_float("traj_wt", 0.1, "weight for traj matching loss")
+    flags.DEFINE_float("pos_state_wt", 0.1, "weight for position matching reg")
+    flags.DEFINE_float("vel_state_wt", 0.0, "weight for velocity matching reg")
+
+    # regs
+    flags.DEFINE_float("reg_torque_wt", 0.0, "weight for torque regularization")
+    flags.DEFINE_float("reg_res_f_wt", 0.0, "weight for residual force regularization")
+    flags.DEFINE_float("reg_foot_wt", 0.0, "weight for foot contact regularization")
+    flags.DEFINE_float("reg_root_wt", 0.0, "weight for root pose regularization")

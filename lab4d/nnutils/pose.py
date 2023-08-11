@@ -7,7 +7,7 @@ import trimesh
 
 from lab4d.nnutils.base import CondMLP, BaseMLP, ScaleLayer
 from lab4d.nnutils.time import TimeMLP
-from lab4d.utils.geom_utils import so3_to_exp_map
+from lab4d.utils.geom_utils import so3_to_exp_map, rot_angle
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
@@ -141,7 +141,7 @@ class CameraMLP(TimeMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
 
         # multiply with per-instance base rotation
         base_quat = self.base_quat[inst_id]
@@ -520,7 +520,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
         t_embed = self.time_embedding(frame_id)
         pred = self.forward(
             t_embed, inst_id, return_so3=return_so3, override_so3=override_so3

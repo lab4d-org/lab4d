@@ -201,7 +201,7 @@ class TimeEmbedding(nn.Module):
         if frame_id is None:
             inst_id, t_sample = self.frame_to_vid, self.frame_to_tid(self.frame_mapping)
         else:
-            inst_id = self.raw_fid_to_vid[frame_id]
+            inst_id = self.raw_fid_to_vid[frame_id.long()]
             t_sample = self.frame_to_tid(frame_id)
 
         if inst_id.ndim == 1:
@@ -257,10 +257,11 @@ class InstEmbedding(nn.Module):
             return torch.zeros(inst_id.shape + (0,), device=inst_id.device)
         else:
             if self.num_inst == 1:
-                return self.mapping(torch.zeros_like(inst_id))
-            if self.training and self.beta_prob > 0:
-                inst_id = self.randomize_instance(inst_id)
-            inst_code = self.mapping(inst_id)
+                inst_code = self.mapping(torch.zeros_like(inst_id))
+            else:
+                if self.training and self.beta_prob > 0:
+                    inst_id = self.randomize_instance(inst_id)
+                inst_code = self.mapping(inst_id)
             return inst_code
 
     def randomize_instance(self, inst_id):
