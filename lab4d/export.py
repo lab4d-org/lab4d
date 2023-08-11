@@ -34,7 +34,6 @@ cudnn.benchmark = True
 class ExportMeshFlags:
     flags.DEFINE_integer("inst_id", 0, "video/instance id")
     flags.DEFINE_integer("grid_size", 128, "grid size of marching cubes")
-    flags.DEFINE_integer("num_frames", -1, "number of frames to render")
     flags.DEFINE_float(
         "level", 0.0, "contour value of marching cubes use to search for isosurfaces"
     )
@@ -54,17 +53,14 @@ class MotionParamsExpl(NamedTuple):
     bone_t: trimesh.Trimesh  # bone center at time t
 
 
-def extract_deformation(field, mesh_rest, inst_id, render_length):
+def extract_deformation(field, mesh_rest, inst_id, frame_ids):
     device = next(field.parameters()).device
     xyz = torch.tensor(mesh_rest.vertices, dtype=torch.float32, device=device)
-    offset = field.frame_offset_raw[inst_id]
     inst_id = torch.tensor([inst_id], dtype=torch.long, device=device)
 
     motion_tuples = {}
-    for frame_id in range(render_length):
-        frame_id_torch = torch.tensor(
-            [offset + frame_id], dtype=torch.long, device=device
-        )
+    for frame_id in frame_ids:
+        frame_id_torch = torch.tensor([frame_id], dtype=torch.long, device=device)
         field2cam = field.camera_mlp.get_vals(frame_id_torch)
 
         samples_dict = {}
@@ -183,18 +179,18 @@ def extract_motion_params(model, opts, data_info):
         use_extend_aabb=False,
     )
 
-    # get length of the seq
-    vid_length = data_utils.get_vid_length(opts["inst_id"], data_info)
-    if opts["num_frames"] > 0:
-        render_length = opts["num_frames"]
-    else:
-        render_length = vid_length
+    # get absolute frame ids
+    inst_id = opts["inst_id"]
+    frame_mapping = data_info["frame_info"]["frame_mapping"]
+    frame_offset = data_info["frame_info"]["frame_offset"]
+    frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
+    print("Extracting motion parameters for frame ids:", frame_ids)
 
     # get deformation
     motion_tuples = {}
     for cate, field in model.fields.field_params.items():
         meshes_rest[cate], motion_tuples[cate] = extract_deformation(
-            field, meshes_rest[cate], opts["inst_id"], render_length
+            field, meshes_rest[cate], opts["inst_id"], frame_ids=frame_ids
         )
     return meshes_rest, motion_tuples
 

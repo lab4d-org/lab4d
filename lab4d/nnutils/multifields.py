@@ -397,7 +397,7 @@ class MultiFields(nn.Module):
             deltas = torch.gather(deltas, 2, z_idx.expand_as(deltas))
         return field_dict, deltas
 
-    def get_cameras(self, inst_id=None):
+    def get_cameras(self, frame_id=None):
         """Compute camera matrices in world units
 
         Returns:
@@ -405,11 +405,6 @@ class MultiFields(nn.Module):
         """
         field2cam = {}
         for cate, field in self.field_params.items():
-            if inst_id is None:
-                frame_id = None
-            else:
-                raw_fid_to_vid = field.camera_mlp.time_embedding.raw_fid_to_vid
-                frame_id = (raw_fid_to_vid == inst_id).nonzero()
             quat, trans = field.camera_mlp.get_vals(frame_id=frame_id)
             trans = trans / field.logscale.exp()
             field2cam[cate] = quaternion_translation_to_se3(quat, trans)

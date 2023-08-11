@@ -1,3 +1,5 @@
+mim install mmcv
+
 (cd lab4d/third_party/quaternion && pip install .)
 
 mkdir ./preprocess/third_party/Track-Anything/checkpoints; gdown --fuzzy https://drive.google.com/uc?id=10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3 -O ./preprocess/third_party/Track-Anything/checkpoints/E2FGVI-HQ-CVPR22.pth
