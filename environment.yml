@@ -9,8 +9,8 @@ dependencies:
   - pytorch
   - torchvision
   - cudatoolkit-dev=11.7
-  - gcc_linux-64=10
-  - gxx_linux-64=10
+  - gcc_linux-64=11
+  - gxx_linux-64=11
   - matplotlib
   - ninja
   - absl-py 
@@ -30,9 +30,10 @@ dependencies:
   - tqdm
   - pip:
     - pysdf
-    - pyrender
-    - gradio
-    - openmim
+    - gradio==3.28.3
+    - timm==0.6.7
     - detectron2 @ git+https://github.com/facebookresearch/detectron2.git
     - segment_anything @ git+https://github.com/facebookresearch/segment-anything.git
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
+    - openmim
+    - pyrender
