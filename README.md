@@ -28,7 +28,7 @@
 
 ## Acknowledgement
 - Our pre-processing pipeline is built upon the following open-sourced repos: 
-  - Segmentation: [Track-Anything](https://github.com/gaomingqi/Track-Anything), [MinVIS](https://github.com/NVlabs/MinVIS)
+  - Segmentation: [Track-Anything](https://github.com/gaomingqi/Track-Anything), [Grounding-DINO](https://github.com/IDEA-Research/GroundingDINO)
   - Feature & correspondence: [DensePose-CSE](https://github.com/facebookresearch/detectron2/blob/cbbc1ce26473cb2a5cc8f58e8ada9ae14cb41052/projects/DensePose/doc/DENSEPOSE_CSE.md), [DINOv2](https://github.com/facebookresearch/dinov2), [VCNPlus](https://github.com/gengshan-y/rigidmask)
   - Depth: [ZoeDepth](https://github.com/isl-org/ZoeDepth)
   - Camera: [BANMo-viewpoint](https://github.com/facebookresearch/banmo)
