@@ -1026,4 +1026,5 @@ class NeRF(nn.Module):
             field2world = self.field2world
         else:
             field2world = self.field2world[inst_id]
+        field2world[..., :3, 3] /= self.logscale.exp()
         return field2world

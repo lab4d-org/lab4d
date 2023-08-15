@@ -4,6 +4,7 @@ from typing import Dict
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from lab4d.utils.geom_utils import so3_to_exp_map
 from lab4d.utils.quat_transform import (
@@ -107,7 +108,7 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_coord=None):
         return global_rt
 
 
-def shift_joints_to_bones_dq(dq, edges, shift=None, orient=None):
+def shift_joints_to_bones_dq(dq, edges):
     """Compute bone centers and orientations from joint locations
 
     Args:
@@ -121,15 +122,6 @@ def shift_joints_to_bones_dq(dq, edges, shift=None, orient=None):
     quat, joints = dual_quaternion_to_quaternion_translation(dq)
     joints = shift_joints_to_bones(joints, edges)
     dq = quaternion_translation_to_dual_quaternion(quat, joints)
-    if shift is not None and orient is not None:
-        shift = shift.reshape((1,) * (joints[0].ndim - 1) + (3,))
-        shift = shift.expand(*joints.shape[:-1], -1)
-        orient = orient.reshape((1,) * (joints[0].ndim - 1) + (4,))
-        orient = orient.expand(*joints.shape[:-1], -1)
-        offset_dq = quaternion_translation_to_dual_quaternion(orient, shift)
-        dq = dual_quaternion_mul(offset_dq, dq)
-    else:
-        raise ValueError("shift and orient cannot be both None")
     return dq
 
 
@@ -151,6 +143,31 @@ def shift_joints_to_bones(joints, edges):
             # average over all the children
             joints[..., i, :] = (joint_center[..., parent_idx == i, :]).mean(dim=-2)
     return joints
+
+
+def apply_root_offset(dq, shift, orient):
+    """Compute bone centers and orientations from joint locations
+
+    Args:
+        dq: ((..., B, 4), (..., B, 4)) Location of each joint, written as dual
+            quaternions
+        edges (Dict(int, int)): Maps each joint to its parent joint
+    Returns:
+        dq: ((..., B, 4), (..., B, 4)) Bone-to-object SE(3) transforms,
+            written as dual quaternions
+    """
+    # normliaze the quaternion
+    orient = F.normalize(orient, 2, dim=-1)
+    ndim = dq[0].ndim
+    shape = dq[0].shape
+    shift = shift.reshape((1,) * (ndim - 1) + (3,))
+    shift = shift.expand(*shape[:-1], -1)
+    orient = orient.reshape((1,) * (ndim - 1) + (4,))
+    orient = orient.expand(*shape[:-1], -1)
+    offset_dq = quaternion_translation_to_dual_quaternion(orient, shift)
+    dq = dual_quaternion_mul(offset_dq, dq)
+
+    return dq
 
 
 def get_predefined_skeleton(skel_type):
@@ -246,7 +263,7 @@ def get_predefined_skeleton(skel_type):
         22: 0,  # right hip
         2: 1,  # spine 2
         3: 2,  # spine 3
-        4: 3,  # spine 4
+        4: 3,  # head
         5: 3,  # left shoulder
         9: 3,  # right shoulder
         6: 5,  # left elbow

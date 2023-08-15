@@ -277,6 +277,9 @@ class SkinningWarp(IdentityWarp):
             self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
+            init_gauss_scale = (
+                self.articulation.bone_sizes * self.articulation.logscale.exp()
+            )
         else:
             raise NotImplementedError
 
@@ -383,19 +386,17 @@ class SkinningWarp(IdentityWarp):
         if bone2obj is None:
             bone2obj = self.articulation.get_mean_vals()  # 1,K,4,4
 
-        dist2 = get_xyz_bone_distance(xyz, bone2obj)  # N,K
-        dist2 = dist2 / (0.01) ** 2  # assuming spheres of radius 0.01
-
-        # # gauss bones
-        # xyz = xyz[:, None, None]  # (N,1,1,3)
-        # bone2obj = (
-        #     bone2obj[0][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-        #     bone2obj[1][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-        # )  # (N,1,1,K,4)
-        # dist2 = -self.skinning_model.forward(
-        #     xyz, bone2obj, None, None, normalize=False
-        # )[0][:, 0, 0]
-
+        if isinstance(self.articulation, ArticulationURDFMLP):
+            # gauss bones + skinning
+            xyz = xyz[:, None, None]  # (N,1,1,3)
+            bone2obj = (
+                bone2obj[0][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
+                bone2obj[1][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
+            )  # (N,1,1,K,4)
+            dist2 = -self.skinning_model.forward(xyz, bone2obj, None, None)[0][:, 0, 0]
+        else:
+            dist2 = get_xyz_bone_distance(xyz, bone2obj)  # N,K
+            dist2 = dist2 / (0.01) ** 2  # assuming spheres of radius 0.01
         score = (-0.5 * dist2).exp()  # (N,K)
 
         # hard selection

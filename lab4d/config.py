@@ -65,9 +65,7 @@ class TrainOptConfig:
     flags.DEFINE_integer("pixels_per_image", 16, "pixel samples per image")
     # flags.DEFINE_integer("imgs_per_gpu", 1, "size of minibatches per iter")
     # flags.DEFINE_integer("pixels_per_image", 4096, "number of pixel samples per image")
-    flags.DEFINE_boolean(
-        "freeze_bone_len", False, "do not change bone length of skeleton"
-    )
+    flags.DEFINE_boolean("use_freq_anneal", True, "whether to use frequency annealing")
     flags.DEFINE_boolean(
         "reset_steps",
         True,

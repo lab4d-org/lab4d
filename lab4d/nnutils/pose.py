@@ -13,7 +13,7 @@ from lab4d.utils.quat_transform import (
     matrix_to_quaternion,
     quaternion_mul,
     quaternion_translation_to_dual_quaternion,
-    dual_quaternion_to_quaternion_translation,
+    dual_quaternion_mul,
     quaternion_translation_to_se3,
 )
 from lab4d.utils.skel_utils import (
@@ -21,7 +21,7 @@ from lab4d.utils.skel_utils import (
     get_predefined_skeleton,
     rest_joints_to_local,
     shift_joints_to_bones_dq,
-    shift_joints_to_bones,
+    apply_root_offset,
 )
 from lab4d.utils.vis_utils import draw_cams
 
@@ -462,10 +462,12 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
         # run forward kinematics
         out = self.fk_se3(local_rest_joints, so3, self.edges)
-        out = shift_joints_to_bones_dq(
-            out, self.edges, shift=self.shift, orient=self.orient
-        )
+        out = self.shift_joints_to_bones(out)
+        out = apply_root_offset(out, self.shift, self.orient)
         return out
+
+    def shift_joints_to_bones(self, se3):
+        return shift_joints_to_bones_dq(se3, self.edges)
 
     def compute_rel_rest_joints(self, inst_id=None, override_log_bone_len=None):
         """Compute relative position difference from parent to child bone
@@ -649,10 +651,19 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
             activation=activation,
         )
 
-        local_rest_coord, scale_factor, orient, offset = self.parse_urdf(skel_type)
+        (
+            local_rest_coord,
+            scale_factor,
+            orient,
+            offset,
+            bone_centers,
+            bone_sizes,
+        ) = self.parse_urdf(skel_type)
         self.logscale.data = torch.log(scale_factor)
-        self.shift.data = offset
+        self.shift.data = offset  # same scale as object field
         self.orient.data = orient
+        self.register_buffer("bone_centers", bone_centers, persistent=False)
+        self.register_buffer("bone_sizes", bone_sizes, persistent=False)
 
         # get local rest rotation matrices, pick the first coordinate in rpy of ball joints
         # by default: transform points from child to parent
@@ -679,9 +690,25 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
             scale_factor = torch.tensor([0.05])
         else:
             raise NotImplementedError
-
         orient = F.normalize(orient, dim=-1)
-        return local_rest_coord, scale_factor, orient, offset
+
+        # get center/size of each link
+        bone_centers = []
+        bone_sizes = []
+        for link in urdf._reverse_topo:
+            if len(link.visuals) == 0:
+                continue
+            bone_bounds = link.collision_mesh.bounds
+            center = (bone_bounds[1] + bone_bounds[0]) / 2
+            size = (bone_bounds[1] - bone_bounds[0]) / 2
+            center = torch.tensor(center, dtype=torch.float)
+            size = torch.tensor(size, dtype=torch.float)
+            bone_centers.append(center)
+            bone_sizes.append(size)
+
+        bone_centers = torch.stack(bone_centers, dim=0)[1:]  # skip root
+        bone_sizes = torch.stack(bone_sizes, dim=0)[1:]  # skip root
+        return local_rest_coord, scale_factor, orient, offset, bone_centers, bone_sizes
 
     def fk_se3(self, local_rest_joints, so3, edges):
         return fk_se3(
@@ -693,3 +720,14 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
 
     def rest_joints_to_local(self, rest_joints, edges):
         return self.local_rest_coord[:, :3, 3].clone()
+
+    def shift_joints_to_bones(self, bone_to_obj):
+        idn_quat = torch.zeros_like(bone_to_obj[0])
+        idn_quat[..., 0] = 1.0
+        bone_centers = self.bone_centers.expand_as(idn_quat[..., :3])
+        bone_centers = bone_centers * self.logscale.exp().clone()
+        link_transform = quaternion_translation_to_dual_quaternion(
+            idn_quat, bone_centers
+        )
+        bone_to_obj = dual_quaternion_mul(bone_to_obj, link_transform)
+        return bone_to_obj

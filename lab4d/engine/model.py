@@ -98,14 +98,15 @@ class dvr_model(nn.Module):
         Args:
             current_steps (int): Number of optimization steps so far
         """
-        # positional encoding annealing
-        anchor_x = (0, 4000)
-        anchor_y = (0.6, 1)
-        type = "linear"
-        alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
-        if alpha >= 1:
-            alpha = None
-        self.fields.set_alpha(alpha)
+        if self.config["use_freq_anneal"]:
+            # positional encoding annealing
+            anchor_x = (0, 4000)
+            anchor_y = (0.6, 1)
+            type = "linear"
+            alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
+            if alpha >= 1:
+                alpha = None
+            self.fields.set_alpha(alpha)
 
         # beta_prob: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)

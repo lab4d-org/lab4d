@@ -12,6 +12,7 @@ from lab4d.nnutils.pose import ArticulationSkelMLP
 from lab4d.nnutils.warping import ComposedWarp, SkinningWarp
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from lab4d.utils.vis_utils import draw_cams, mesh_cat
+from lab4d.utils.geom_utils import extend_aabb
 
 
 class MultiFields(nn.Module):
@@ -194,7 +195,8 @@ class MultiFields(nn.Module):
             mesh_cam = draw_cams(rtmat)
             mesh = mesh_cat(mesh_geo, mesh_cam)
             if category == "fg":
-                mesh_gauss, mesh_sdf = field.warp.get_template_vis(aabb=field.aabb)
+                aabb = extend_aabb(field.aabb, factor=0.5)
+                mesh_gauss, mesh_sdf = field.warp.get_template_vis(aabb=aabb)
                 mesh_gauss.export("%s-%s-gauss.obj" % (path, category))
                 mesh_sdf.export("%s-%s-sdf.obj" % (path, category))
             mesh.export("%s-%s-proxy.obj" % (path, category))

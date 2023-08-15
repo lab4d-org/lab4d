@@ -58,11 +58,16 @@ class SkinningField(nn.Module):
     ):
         super().__init__()
 
-        # 3D gaussians
-        gaussians = init_scale * torch.ones(
-            num_coords, 3
-        )  # scale of bone skinning field
+        # 3D gaussians: scale of bone skinning field
+        if torch.is_tensor(init_scale):
+            gaussians = init_scale
+        else:
+            gaussians = init_scale * torch.ones(num_coords, 3)
+        # clip minimum radius to 0.01
+        gaussians = torch.clamp(gaussians, min=0.01)
         self.log_gauss = nn.Parameter(torch.log(gaussians))
+        # self.register_buffer("log_gauss", torch.log(gaussians), persistent=False)
+        self.logscale = nn.Parameter(torch.zeros(1))
         self.num_coords = num_coords
 
         if delta_skin:
@@ -115,8 +120,10 @@ class SkinningField(nn.Module):
             t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
             xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
             delta = self.delta_field(xyzt_embed, inst_id)
-            delta = F.relu(delta) * 0.1
-            skin = -(dist2 + delta)
+            # delta = F.relu(delta) * 0.1
+            # skin = -(dist2 + delta)
+            dist2 = dist2 * (0.1 * delta).exp()
+            skin = -dist2
         else:
             skin = -dist2
             delta = None
@@ -150,6 +157,7 @@ class SkinningField(nn.Module):
         log_gauss = self.log_gauss
         if self.symm_idx is not None:
             log_gauss = (log_gauss[self.symm_idx] + log_gauss) / 2
+        log_gauss = log_gauss + self.logscale
         return log_gauss.exp()
 
     def draw_gaussian(self, articulation, edges):

@@ -140,7 +140,7 @@ class Trainer:
             ".logibeta": lr_explicit,
             ".logsigma": lr_explicit,
             ".logscale": lr_explicit,
-            ".log_gauss": lr_explicit,
+            ".log_gauss": 0.0,
             ".base_quat": lr_explicit,
             ".base_logfocal": lr_explicit,
             ".base_ppoint": lr_explicit,
@@ -159,9 +159,6 @@ class Trainer:
         opts = self.opts
 
         param_lr_startwith, param_lr_with = self.get_lr_dict()
-
-        if opts["freeze_bone_len"]:
-            param_lr_with[".log_bone_len"] = 0
 
         params_list = []
         lr_list = []
