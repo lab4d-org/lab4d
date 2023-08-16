@@ -103,7 +103,10 @@ class PPRTrainer(Trainer):
         # train
         self.phys_model.train()
         self.phys_model.reinit_envs(
-            opts["phys_batch"], wdw_length=opts["phys_wdw_len"], is_eval=False
+            opts["phys_batch"],
+            frames_per_wdw=int(opts["phys_wdw_len"] / self.phys_model.frame_interval)
+            + 1,
+            is_eval=False,
         )
         for i in tqdm.tqdm(range(self.iters_per_phys_cycle)):
             self.phys_model.set_progress(self.current_steps_phys)
@@ -113,6 +116,7 @@ class PPRTrainer(Trainer):
         # eval again
         self.phys_model.eval()
         self.run_phys_visualization(tag="phys")
+        torch.cuda.empty_cache()
 
     def run_phys_iter(self):
         """Run physics optimization"""
@@ -127,7 +131,7 @@ class PPRTrainer(Trainer):
         opts = self.opts
         frame_offset_raw = self.phys_model.frame_offset_raw
         vid_frame_max = max(frame_offset_raw[1:] - frame_offset_raw[:-1])
-        self.phys_model.reinit_envs(1, wdw_length=vid_frame_max, is_eval=True)
+        self.phys_model.reinit_envs(1, frames_per_wdw=vid_frame_max, is_eval=True)
         for vidid in opts["phys_vid"]:
             frame_start = torch.zeros(1) + frame_offset_raw[vidid]
             _ = self.phys_model(frame_start=frame_start.to(self.device))

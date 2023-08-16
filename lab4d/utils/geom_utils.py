@@ -510,12 +510,13 @@ def check_inside_aabb(xyz, aabb):
     return inside_aabb
 
 
-def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=1000):
+def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=2000):
     # run ransac to get plane
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
     best_eq, index = pcd.segment_plane(threshold, init_n, iter)
     segmented_points = pcd.select_by_index(index)
+    print("segmented floor points: ", len(segmented_points.points) / len(mesh.vertices))
 
     # point upside
     if best_eq[1] < 0:
@@ -531,8 +532,9 @@ def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=1000):
     # xz plane
     bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, 1, 0])
 
+    # # DEBUG only
     # mesh.export("tmp/raw.obj")
-    # mesh.apply_transform(bg2world)  # DEBUG only
+    # mesh.apply_transform(bg2world)
     # mesh.export("tmp/rect.obj")
 
     bg2world = torch.Tensor(bg2world)

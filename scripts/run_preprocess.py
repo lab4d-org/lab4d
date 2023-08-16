@@ -93,7 +93,7 @@ if __name__ == "__main__":
     # True: manually annotate camera for key frames
     use_manual_cameras = True if obj_class == "other" else False
     # True: filter frame based on motion magnitude | False: use all frames
-    use_filter_frames = True
+    use_filter_frames = False
 
     outdir = "database/processed/"
     viddir = "database/raw/%s" % vidname
