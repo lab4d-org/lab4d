@@ -1013,7 +1013,8 @@ class NeRF(nn.Module):
         """
         for inst_id in range(self.num_inst):
             # TODO: move this to background nerf, and use each proxy geometry
-            self.field2world[inst_id] = compute_rectification_se3(self.proxy_geometry)
+            mesh = self.extract_canonical_mesh(level=0.005)
+            self.field2world[inst_id] = compute_rectification_se3(mesh)
 
     def get_field2world(self, inst_id=None):
         """Compute SE(3) to transform points in the scene space to world space

@@ -527,16 +527,89 @@ def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=1000):
     dist = (center * plane_n).sum() + best_eq[3]
     plane_o = center - plane_n * dist
     plane = np.concatenate([plane_o, plane_n])
-    bg2xy = trimesh.geometry.plane_transform(origin=plane[:3], normal=plane[3:6])
-    # to xz
-    xy2xz = np.eye(4)
-    xy2xz[:3, :3] = cv2.Rodrigues(np.asarray([-np.pi / 2, 0, 0]))[0]
-    xy2xz[:3, :3] = cv2.Rodrigues(np.asarray([0, -np.pi / 2, 0]))[0] @ xy2xz[:3, :3]
-    bg2world = xy2xz @ bg2xy  # coplanar with xy->xz plane
 
-    # mesh.apply_transform(bg2world) # DEBUG only
+    # xz plane
+    bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, 1, 0])
+
+    # mesh.export("tmp/raw.obj")
+    # mesh.apply_transform(bg2world)  # DEBUG only
+    # mesh.export("tmp/rect.obj")
+
     bg2world = torch.Tensor(bg2world)
     return bg2world
+
+
+def plane_transform(origin, normal, axis=[0, 1, 0]):
+    """
+    # modified from https://github.com/mikedh/trimesh/blob/main/trimesh/geometry.py#L14
+    Given the origin and normal of a plane find the transform
+    that will move that plane to be coplanar with the XZ plane.
+    Parameters
+    ----------
+    origin : (3,) float
+        Point that lies on the plane
+    normal : (3,) float
+        Vector that points along normal of plane
+    Returns
+    ---------
+    transform: (4,4) float
+        Transformation matrix to move points onto XZ plane
+    """
+    transform = align_vectors(normal, axis)
+    if origin is not None:
+        transform[:3, 3] = -np.dot(transform, np.append(origin, 1))[:3]
+    return transform
+
+
+def align_vectors(a, b, return_angle=False):
+    """
+    # modified from https://github.com/mikedh/trimesh/blob/main/trimesh/geometry.py#L38
+    Find the rotation matrix that transforms one 3D vector
+    to another.
+    Parameters
+    ------------
+    a : (3,) float
+      Unit vector
+    b : (3,) float
+      Unit vector
+    return_angle : bool
+      Return the angle between vectors or not
+    Returns
+    -------------
+    matrix : (4, 4) float
+      Homogeneous transform to rotate from `a` to `b`
+    angle : float
+      If `return_angle` angle in radians between `a` and `b`
+    """
+    a = np.array(a, dtype=np.float64)
+    b = np.array(b, dtype=np.float64)
+    if a.shape != (3,) or b.shape != (3,):
+        raise ValueError("vectors must be (3,)!")
+
+    # find the SVD of the two vectors
+    au = np.linalg.svd(a.reshape((-1, 1)))[0]
+    bu = np.linalg.svd(b.reshape((-1, 1)))[0]
+
+    if np.linalg.det(au) < 0:
+        au[:, -1] *= -1.0
+    if np.linalg.det(bu) < 0:
+        bu[:, -1] *= -1.0
+
+    # put rotation into homogeneous transformation
+    matrix = np.eye(4)
+    matrix[:3, :3] = bu.dot(au.T)
+
+    if return_angle:
+        # projection of a onto b
+        # first row of SVD result is normalized source vector
+        dot = np.dot(au[0], bu[0])
+        # clip to avoid floating point error
+        angle = np.arccos(np.clip(dot, -1.0, 1.0))
+        if dot < -1e-5:
+            angle += np.pi
+        return matrix, angle
+
+    return matrix
 
 
 def se3_inv(rtmat):

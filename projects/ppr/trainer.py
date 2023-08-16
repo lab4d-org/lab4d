@@ -23,9 +23,6 @@ class PPRTrainer(Trainer):
         opts["phys_vid"] = [int(i) for i in opts["phys_vid"].split(",")]
         opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
 
-        # re-initialize field2world transforms
-        self.model.fields.field_params["bg"].compute_field2world()
-
         # model
         model_dict = {}
         model_dict["scene_field"] = self.model.fields.field_params["bg"]
@@ -58,6 +55,10 @@ class PPRTrainer(Trainer):
                 "module.fields.field_params.fg.colorfield.": 0.0,
                 "module.fields.field_params.fg.sdf.": 0.0,
                 "module.fields.field_params.fg.rgb.": 0.0,
+                "module.fields.field_params.bg.basefield.": 0.0,
+                "module.fields.field_params.bg.colorfield.": 0.0,
+                "module.fields.field_params.bg.sdf.": 0.0,
+                "module.fields.field_params.bg.rgb.": 0.0,
             }
         )
         return param_lr_startwith, param_lr_with
@@ -65,7 +66,8 @@ class PPRTrainer(Trainer):
     def init_model(self):
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics from external priors, if this is the first run"""
-        super().init_model()
+        # super().init_model()
+        return
 
     def trainer_init(self):
         super().trainer_init()
@@ -78,6 +80,8 @@ class PPRTrainer(Trainer):
         print("# iterations per phys cycle:", self.iters_per_phys_cycle)
 
     def run_one_round(self, round_count):
+        # re-initialize field2world transforms
+        self.model.fields.field_params["bg"].compute_field2world()
         # transfer pharameters
         self.phys_model.override_states()
         # run physics cycle

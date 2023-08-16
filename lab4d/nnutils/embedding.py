@@ -199,13 +199,14 @@ class TimeEmbedding(nn.Module):
         Returns:
             t_embed (..., self.W): Output time embeddings
         """
+        device = self.parameters().__next__().device
         if frame_id is None:
             inst_id, t_sample = self.frame_to_vid, self.frame_to_tid(self.frame_mapping)
         else:
             if torch.is_tensor(frame_id):
                 frame_id = frame_id.long()
             else:
-                frame_id = torch.tensor(frame_id, dtype=torch.long)
+                frame_id = torch.tensor(frame_id, dtype=torch.long, device=device)
             inst_id = self.raw_fid_to_vid[frame_id]
             t_sample = self.frame_to_tid(frame_id)
 
