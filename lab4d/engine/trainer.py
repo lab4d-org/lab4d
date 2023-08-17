@@ -101,13 +101,13 @@ class Trainer:
         if get_local_rank() == 0:
             self.model.mlp_init()
 
-    def define_model(self):
+    def define_model(self, model=dvr_model):
         """Define a Lab4D model and wrap it with DistributedDataParallel"""
         opts = self.opts
         data_info = self.data_info
 
         self.device = torch.device("cuda:{}".format(get_local_rank()))
-        self.model = dvr_model(opts, data_info)
+        self.model = model(opts, data_info)
 
         # ddp
         self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)

@@ -7,11 +7,53 @@ import tqdm
 
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank
+from lab4d.engine.model import dvr_model
 from ppr import config
 
 sys.path.insert(0, "%s/ppr-diffphys" % os.path.join(os.path.dirname(__file__)))
-from diffphys.dp_interface import phys_interface
+from diffphys.dp_interface import phys_interface, query_q
 from diffphys.vis import Logger
+from diffphys.dp_utils import se3_loss
+
+
+class dvr_phys_reg(dvr_model):
+    """A model that contains a collection of static/deformable neural fields
+
+    Args:
+        config (Dict): Command-line args
+        data_info (Dict): Dataset metadata from get_data_info()
+    """
+
+    @torch.no_grad()
+    def copy_phys_traj(self, phys_model):
+        self.steps_fr = torch.arange(phys_model.total_frames, device=self.device)
+        self.phys_q = phys_model.root_pose_mlp(self.steps_fr)  # N, 7
+        self.phys_ja = phys_model.joint_angle_mlp(self.steps_fr)
+
+    def forward(self, batch):
+        loss_dict = super().forward(batch)
+        reg_phys = self.compute_kinemaics_phys_diff()
+        reg_phys = self.config["reg_phys_wt"] * reg_phys
+        loss_dict["phys_reg"] = reg_phys
+        return loss_dict
+
+    def compute_kinemaics_phys_diff(self):
+        """
+        compute the difference between the target kinematics and kinematics estimated by physics proxy
+        """
+        object_field = self.fields.field_params["fg"]
+        scene_field = self.fields.field_params["bg"]
+        kinematics_q = query_q(self.steps_fr, object_field, scene_field)[0]
+        kinematics_ja = object_field.warp.articulation.get_vals(
+            self.steps_fr, return_so3=True
+        )
+
+        loss_q = se3_loss(self.phys_q, kinematics_q).mean()
+        loss_ja = (self.phys_ja - kinematics_ja).pow(2).mean()
+        # print("loss_q:", loss_q)
+        # print("loss_ja:", loss_ja)
+        loss = 1e-2 * loss_q + loss_ja
+        return loss
 
 
 class PPRTrainer(Trainer):
@@ -21,6 +63,9 @@ class PPRTrainer(Trainer):
         Args:
             opts (Dict): Command-line args from absl (defined in lab4d/config.py)
         """
+        opts["phys_vid"] = [int(i) for i in opts["phys_vid"].split(",")]
+        opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
+
         super().__init__(opts)
         self.model.fields.field_params["bg"].compute_field2world()
 
@@ -40,14 +85,10 @@ class PPRTrainer(Trainer):
         # super().init_model()
         return
 
-    def define_model(self):
-        super().define_model()
-
+    def define_model(self, model=dvr_phys_reg):
+        super().define_model(model=model)
         # opts
         opts = self.opts
-        opts["phys_vid"] = [int(i) for i in opts["phys_vid"].split(",")]
-        opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
-
         # model
         model_dict = {}
         model_dict["scene_field"] = self.model.fields.field_params["bg"]
@@ -101,12 +142,15 @@ class PPRTrainer(Trainer):
         return param_lr_startwith, param_lr_with
 
     def run_one_round(self, round_count):
-        # transfer pharameters
-        self.phys_model.override_states()
+        if round_count == 0:
+            # initialize control input of phys model to kinematics
+            self.phys_model.override_states()
         # run physics cycle
         self.run_phys_cycle()
-        # transfer pharameters
-        self.phys_model.override_states_inv()
+        # # transfer phys-optimized kinematics to dvr
+        # self.phys_model.override_states_inv()
+        # transfer hys-optimized kinematics to dvr as soft constriaints
+        self.model.copy_phys_traj(self.phys_model)
         # run dr cycle
         super().run_one_round(round_count)
 
@@ -117,7 +161,8 @@ class PPRTrainer(Trainer):
         # eval
         self.phys_model.eval()
         self.phys_model.correct_foot_position()
-        self.run_phys_visualization(tag="kinematics")
+        if self.current_round == 0:
+            self.run_phys_visualization(tag="kinematics")
 
         # train
         self.phys_model.train()
