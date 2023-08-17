@@ -203,11 +203,9 @@ class TimeEmbedding(nn.Module):
         if frame_id is None:
             inst_id, t_sample = self.frame_to_vid, self.frame_to_tid(self.frame_mapping)
         else:
-            if torch.is_tensor(frame_id):
-                frame_id = frame_id.long()
-            else:
-                frame_id = torch.tensor(frame_id, dtype=torch.long, device=device)
-            inst_id = self.raw_fid_to_vid[frame_id]
+            if not torch.is_tensor(frame_id):
+                frame_id = torch.tensor(frame_id, device=device)
+            inst_id = self.raw_fid_to_vid[frame_id.long()]
             t_sample = self.frame_to_tid(frame_id)
 
         if inst_id.ndim == 1:

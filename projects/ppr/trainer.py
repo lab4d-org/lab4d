@@ -15,6 +15,31 @@ from diffphys.vis import Logger
 
 
 class PPRTrainer(Trainer):
+    def __init__(self, opts):
+        """Train and evaluate a Lab4D model.
+
+        Args:
+            opts (Dict): Command-line args from absl (defined in lab4d/config.py)
+        """
+        super().__init__(opts)
+        self.model.fields.field_params["bg"].compute_field2world()
+
+    def trainer_init(self):
+        super().trainer_init()
+
+        opts = self.opts
+        self.current_steps_phys = 0  # 0-total_steps
+        self.iters_per_phys_cycle = int(
+            opts["ratio_phys_cycle"] * opts["iters_per_round"]
+        )
+        print("# iterations per phys cycle:", self.iters_per_phys_cycle)
+
+    def init_model(self):
+        """Initialize camera transforms, geometry, articulations, and camera
+        intrinsics from external priors, if this is the first run"""
+        # super().init_model()
+        return
+
     def define_model(self):
         super().define_model()
 
@@ -37,6 +62,18 @@ class PPRTrainer(Trainer):
         self.device = torch.device("cuda:{}".format(get_local_rank()))
         self.phys_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.phys_model)
         self.phys_model = self.phys_model.to(self.device)
+
+    def load_checkpoint_train(self):
+        """Load a checkpoint at training time and update the current step count
+        and round count
+        """
+        super().load_checkpoint_train()
+        # training time
+        if self.opts["load_path_bg"] != "":
+            _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
+
+        # reset near_far
+        self.model.fields.reset_geometry_aux()
 
     def get_lr_dict(self):
         """Return the learning rate for each category of trainable parameters
@@ -63,25 +100,7 @@ class PPRTrainer(Trainer):
         )
         return param_lr_startwith, param_lr_with
 
-    def init_model(self):
-        """Initialize camera transforms, geometry, articulations, and camera
-        intrinsics from external priors, if this is the first run"""
-        # super().init_model()
-        return
-
-    def trainer_init(self):
-        super().trainer_init()
-
-        opts = self.opts
-        self.current_steps_phys = 0  # 0-total_steps
-        self.iters_per_phys_cycle = int(
-            opts["ratio_phys_cycle"] * opts["iters_per_round"]
-        )
-        print("# iterations per phys cycle:", self.iters_per_phys_cycle)
-
     def run_one_round(self, round_count):
-        # re-initialize field2world transforms
-        self.model.fields.field_params["bg"].compute_field2world()
         # transfer pharameters
         self.phys_model.override_states()
         # run physics cycle
@@ -102,10 +121,14 @@ class PPRTrainer(Trainer):
 
         # train
         self.phys_model.train()
+        # to use the same amount memory: batch * time_per_wdw = 2.4*20 = 48
+        num_envs = int(48 / opts["secs_per_wdw"])
+        frames_per_wdw = int(opts["secs_per_wdw"] / self.phys_model.frame_interval) + 1
+        print("num_envs:", num_envs)
+        print("frames_per_wdw:", frames_per_wdw)
         self.phys_model.reinit_envs(
-            opts["phys_batch"],
-            frames_per_wdw=int(opts["phys_wdw_len"] / self.phys_model.frame_interval)
-            + 1,
+            num_envs,
+            frames_per_wdw=frames_per_wdw,
             is_eval=False,
         )
         for i in tqdm.tqdm(range(self.iters_per_phys_cycle)):
@@ -116,7 +139,6 @@ class PPRTrainer(Trainer):
         # eval again
         self.phys_model.eval()
         self.run_phys_visualization(tag="phys")
-        torch.cuda.empty_cache()
 
     def run_phys_iter(self):
         """Run physics optimization"""
@@ -143,3 +165,7 @@ class PPRTrainer(Trainer):
                 data,
                 fps=1.0 / self.phys_model.frame_interval,
             )
+
+    def save_checkpoint(self, round_count):
+        super().save_checkpoint(round_count)
+        self.phys_model.save_checkpoint(round_count)

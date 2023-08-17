@@ -594,10 +594,11 @@ class Trainer:
         if grad_norm > thresh:
             # clear gradients
             self.optimizer.zero_grad()
+            print("large grad: %.2f, clear gradients" % grad_norm)
             # load cached model from two rounds ago
             if self.model_cache[0] is not None:
                 if get_local_rank() == 0:
-                    print("large grad: %.2f, resume from cached weights" % grad_norm)
+                    print("fallback to cached model")
                 self.model.load_state_dict(self.model_cache[0])
                 self.optimizer.load_state_dict(self.optimizer_cache[0])
                 self.scheduler.load_state_dict(self.scheduler_cache[0])

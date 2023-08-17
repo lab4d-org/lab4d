@@ -83,6 +83,7 @@ class CameraMLP(TimeMLP):
         self.register_buffer(
             "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
         )
+        self.base_init()
 
         # override the loss function
         def loss_fn(gt):
@@ -103,7 +104,6 @@ class CameraMLP(TimeMLP):
 
     def mlp_init(self):
         """Initialize camera SE(3) transforms from external priors"""
-        self.base_init()
         super().mlp_init()
 
         # with torch.no_grad():

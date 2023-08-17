@@ -301,7 +301,7 @@ class NeRF(nn.Module):
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
         mesh = self.extract_canonical_mesh(level=0.005)
-        if mesh is not None:
+        if len(mesh.vertices) > 3:
             self.proxy_geometry = mesh
 
     @torch.no_grad()

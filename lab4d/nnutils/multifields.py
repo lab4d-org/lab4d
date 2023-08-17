@@ -90,7 +90,7 @@ class MultiFields(nn.Module):
                 num_freq_xyz=6,
                 num_freq_dir=0,
                 appr_channels=0,
-                init_scale=0.1,
+                init_scale=0.2,
             )
         else:  # exit with an error
             raise ValueError("Invalid category")
