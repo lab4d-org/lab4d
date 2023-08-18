@@ -36,9 +36,9 @@ class dvr_phys_reg(dvr_model):
 
     def forward(self, batch):
         loss_dict = super().forward(batch)
-        reg_phys = self.compute_kinemaics_phys_diff()
-        reg_phys = self.config["reg_phys_wt"] * reg_phys
-        loss_dict["phys_reg"] = reg_phys
+        reg_phys_q, reg_phys_ja = self.compute_kinemaics_phys_diff()
+        loss_dict["phys_q_reg"] = self.config["reg_phys_q_wt"] * reg_phys_q
+        loss_dict["phys_ja_reg"] = self.config["reg_phys_ja_wt"] * reg_phys_ja
         return loss_dict
 
     def compute_kinemaics_phys_diff(self):
@@ -46,7 +46,10 @@ class dvr_phys_reg(dvr_model):
         compute the difference between the target kinematics and kinematics estimated by physics proxy
         """
         if not hasattr(self, "phys_traj"):
-            return torch.zeros(1).to(self.device).mean()
+            return (
+                torch.zeros(1).to(self.device).mean(),
+                torch.zeros(1).to(self.device).mean(),
+            )
         steps_fr = self.phys_traj["steps_fr"]
         phys_q = self.phys_traj["phys_q"]
         phys_ja = self.phys_traj["phys_ja"]
@@ -62,8 +65,7 @@ class dvr_phys_reg(dvr_model):
         loss_ja = (phys_ja - kinematics_ja).pow(2).mean()
         # print("loss_q:", loss_q)
         # print("loss_ja:", loss_ja)
-        loss = 1e-2 * loss_q + loss_ja
-        return loss
+        return loss_q, loss_ja
 
 
 class PPRTrainer(Trainer):
@@ -107,7 +109,8 @@ class PPRTrainer(Trainer):
         model_dict["intrinsics"] = self.model.intrinsics
 
         # define phys model
-        self.phys_model = phys_interface(opts, model_dict)
+        self.phys_model = phys_interface(opts, model_dict, dt=1e-3)
+        # self.phys_model = phys_interface(opts, model_dict)
         self.phys_visualizer = Logger(opts)
 
         # move model to device
@@ -119,13 +122,9 @@ class PPRTrainer(Trainer):
         """Load a checkpoint at training time and update the current step count
         and round count
         """
-        super().load_checkpoint_train()
-        # training time
         if self.opts["load_path_bg"] != "":
             _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
-
-        # reset near_far
-        self.model.fields.reset_geometry_aux()
+        super().load_checkpoint_train()
 
     def get_lr_dict(self):
         """Return the learning rate for each category of trainable parameters
