@@ -26,9 +26,13 @@ class dvr_phys_reg(dvr_model):
 
     @torch.no_grad()
     def copy_phys_traj(self, phys_model):
-        self.steps_fr = torch.arange(phys_model.total_frames, device=self.device)
-        self.phys_q = phys_model.root_pose_mlp(self.steps_fr)  # N, 7
-        self.phys_ja = phys_model.joint_angle_mlp(self.steps_fr)
+        phys_traj = {}
+        phys_traj["steps_fr"] = torch.arange(
+            phys_model.total_frames, device=self.device
+        )
+        phys_traj["phys_q"] = phys_model.root_pose_mlp(phys_traj["steps_fr"])  # N, 7
+        phys_traj["phys_ja"] = phys_model.joint_angle_mlp(phys_traj["steps_fr"])
+        self.phys_traj = phys_traj
 
     def forward(self, batch):
         loss_dict = super().forward(batch)
@@ -41,15 +45,21 @@ class dvr_phys_reg(dvr_model):
         """
         compute the difference between the target kinematics and kinematics estimated by physics proxy
         """
+        if not hasattr(self, "phys_traj"):
+            return torch.zeros(1).to(self.device).mean()
+        steps_fr = self.phys_traj["steps_fr"]
+        phys_q = self.phys_traj["phys_q"]
+        phys_ja = self.phys_traj["phys_ja"]
+
         object_field = self.fields.field_params["fg"]
         scene_field = self.fields.field_params["bg"]
-        kinematics_q = query_q(self.steps_fr, object_field, scene_field)[0]
+        kinematics_q = query_q(steps_fr, object_field, scene_field)[0]
         kinematics_ja = object_field.warp.articulation.get_vals(
-            self.steps_fr, return_so3=True
+            steps_fr, return_so3=True
         )
 
-        loss_q = se3_loss(self.phys_q, kinematics_q).mean()
-        loss_ja = (self.phys_ja - kinematics_ja).pow(2).mean()
+        loss_q = se3_loss(phys_q, kinematics_q).mean()
+        loss_ja = (phys_ja - kinematics_ja).pow(2).mean()
         # print("loss_q:", loss_q)
         # print("loss_ja:", loss_ja)
         loss = 1e-2 * loss_q + loss_ja
@@ -74,6 +84,7 @@ class PPRTrainer(Trainer):
 
         opts = self.opts
         self.current_steps_phys = 0  # 0-total_steps
+        self.current_round_phys = 0  # 0-total_rounds
         self.iters_per_phys_cycle = int(
             opts["ratio_phys_cycle"] * opts["iters_per_round"]
         )
@@ -143,6 +154,8 @@ class PPRTrainer(Trainer):
 
     def run_one_round(self, round_count):
         if round_count == 0:
+            # run dr cycle
+            super().run_one_round(round_count)
             # initialize control input of phys model to kinematics
             self.phys_model.override_states()
         # run physics cycle
@@ -153,15 +166,15 @@ class PPRTrainer(Trainer):
         self.model.copy_phys_traj(self.phys_model)
         # run dr cycle
         super().run_one_round(round_count)
+        self.current_round_phys += 1
 
     def run_phys_cycle(self):
         opts = self.opts
         torch.cuda.empty_cache()
 
         # eval
-        self.phys_model.eval()
         self.phys_model.correct_foot_position()
-        if self.current_round == 0:
+        if self.current_round_phys == 0:
             self.run_phys_visualization(tag="kinematics")
 
         # train
@@ -182,7 +195,6 @@ class PPRTrainer(Trainer):
             self.current_steps_phys += 1
 
         # eval again
-        self.phys_model.eval()
         self.run_phys_visualization(tag="phys")
 
     def run_phys_iter(self):
@@ -194,7 +206,9 @@ class PPRTrainer(Trainer):
             del phys_aux["total_loss"]
             self.add_scalar(self.log, phys_aux, self.current_steps_phys)
 
+    @torch.no_grad()
     def run_phys_visualization(self, tag=""):
+        self.phys_model.eval()
         opts = self.opts
         frame_offset_raw = self.phys_model.frame_offset_raw
         vid_frame_max = max(frame_offset_raw[1:] - frame_offset_raw[:-1])

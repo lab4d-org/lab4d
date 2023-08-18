@@ -238,9 +238,8 @@ class Trainer:
         Args:
             round_count (int): Current round index
         """
-        self.model.eval()
         if get_local_rank() == 0:
-            with torch.no_grad():
+            if round_count == 0:
                 self.model_eval()
 
         self.model.update_geometry_aux()
@@ -250,6 +249,9 @@ class Trainer:
         self.train_one_round(round_count)
         self.current_round += 1
         self.save_checkpoint(round_count=self.current_round)
+
+        if get_local_rank() == 0:
+            self.model_eval()
 
     def save_checkpoint(self, round_count):
         """Save model checkpoint to disk
@@ -396,8 +398,10 @@ class Trainer:
                 sum += p.abs().sum()
         print(f"{sum:.16f}")
 
+    @torch.no_grad()
     def model_eval(self):
         """Evaluate the current model"""
+        self.model.eval()
         torch.cuda.empty_cache()
         ref_dict, batch = self.load_batch(self.evalloader.dataset, self.eval_fid)
         self.construct_eval_batch(batch)
