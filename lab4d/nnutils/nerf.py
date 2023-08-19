@@ -9,7 +9,7 @@ from torch import nn
 from lab4d.nnutils.appearance import AppearanceEmbedding
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
-from lab4d.nnutils.pose import CameraMLP
+from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3
 from lab4d.nnutils.visibility import VisField
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import (
@@ -150,6 +150,7 @@ class NeRF(nn.Module):
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
+        # self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
         self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
 
         # visibility mlp

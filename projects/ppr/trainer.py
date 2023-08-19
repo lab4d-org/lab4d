@@ -153,19 +153,18 @@ class PPRTrainer(Trainer):
 
     def run_one_round(self, round_count):
         if round_count == 0:
-            # run dr cycle
-            super().run_one_round(round_count)
             # initialize control input of phys model to kinematics
             self.phys_model.override_states()
         # run physics cycle
         self.run_phys_cycle()
+        self.current_round_phys += 1
+        self.phys_model.save_checkpoint(round_count=self.current_round_phys)
         # # transfer phys-optimized kinematics to dvr
         # self.phys_model.override_states_inv()
         # transfer hys-optimized kinematics to dvr as soft constriaints
         self.model.copy_phys_traj(self.phys_model)
         # run dr cycle
         super().run_one_round(round_count)
-        self.current_round_phys += 1
 
     def run_phys_cycle(self):
         opts = self.opts
@@ -178,8 +177,8 @@ class PPRTrainer(Trainer):
 
         # train
         self.phys_model.train()
-        # to use the same amount memory: batch * time_per_wdw = 2.4*20 = 48
-        num_envs = int(48 / opts["secs_per_wdw"])
+        # to use the same amount memory as DR
+        num_envs = int(128 / opts["secs_per_wdw"])
         frames_per_wdw = int(opts["secs_per_wdw"] / self.phys_model.frame_interval) + 1
         print("num_envs:", num_envs)
         print("frames_per_wdw:", frames_per_wdw)
@@ -223,7 +222,3 @@ class PPRTrainer(Trainer):
                 data,
                 fps=1.0 / self.phys_model.frame_interval,
             )
-
-    def save_checkpoint(self, round_count):
-        super().save_checkpoint(round_count)
-        self.phys_model.save_checkpoint(round_count)

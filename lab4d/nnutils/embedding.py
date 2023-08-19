@@ -171,6 +171,9 @@ class TimeEmbedding(nn.Module):
         )
         # M, in range [0,N-1], M<N
         self.register_buffer("frame_mapping", frame_mapping, persistent=False)
+        frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
+        frame_mapping_inv[frame_mapping] = torch.arange(len(frame_mapping))
+        self.register_buffer("frame_mapping_inv", frame_mapping_inv, persistent=False)
         # N
         self.register_buffer("raw_fid_to_vid", raw_fid_to_vid, persistent=False)
         self.register_buffer("raw_fid_to_vidlen", raw_fid_to_vidlen, persistent=False)

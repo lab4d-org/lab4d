@@ -150,6 +150,169 @@ class CameraMLP(TimeMLP):
         return quat, trans
 
 
+class CameraMLP_so3(TimeMLP):
+    """Encode camera pose over time (rotation + translation) with an MLP
+
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+        num_freq_t (int): Number of frequencies in time Fourier embedding
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+    """
+
+    def __init__(
+        self,
+        rtmat,
+        frame_info=None,
+        D=5,
+        W=256,
+        num_freq_t=6,
+        skips=[],
+        activation=nn.ReLU(True),
+    ):
+        if frame_info is None:
+            num_frames = len(rtmat)
+            frame_info = {
+                "frame_offset": np.asarray([0, num_frames]),
+                "frame_mapping": list(range(num_frames)),
+                "frame_offset_raw": np.asarray([0, num_frames]),
+            }
+        # xyz encoding layers
+        super().__init__(
+            frame_info,
+            D=D,
+            W=W,
+            num_freq_t=num_freq_t,
+            skips=skips,
+            activation=activation,
+        )
+        # output layers
+        self.trans = nn.Sequential(
+            nn.Linear(W, 3),
+        )
+        self.so3 = nn.Sequential(
+            nn.Linear(W, 3),
+        )
+
+        # camera pose: field to camera
+        self.base_quat = nn.Parameter(torch.zeros(self.time_embedding.num_vids, 4))
+        # self.base_quat2 = nn.Parameter(torch.zeros(num_frames, 4))
+        self.register_buffer(
+            "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
+        )
+        self.base_init()
+
+        # override the loss function
+        def loss_fn(gt):
+            quat, trans = self.get_vals()
+            pred = quaternion_translation_to_se3(quat, trans)
+            loss = F.mse_loss(pred, gt)
+            return loss
+
+        self.loss_fn = loss_fn
+
+    def base_init(self):
+        """Initialize base camera rotations from initial camera trajectory"""
+        rtmat = self.init_vals
+        frame_offset = self.get_frame_offset()
+        base_rmat = rtmat[frame_offset[:-1], :3, :3]
+        base_quat = matrix_to_quaternion(base_rmat)
+        self.base_quat.data = base_quat
+
+        # base_rmat = rtmat[:, :3, :3]
+        # base_quat = matrix_to_quaternion(base_rmat)
+        # self.base_quat2.data = base_quat
+
+    def mlp_init(self):
+        """Initialize camera SE(3) transforms from external priors"""
+        super().mlp_init()
+
+        # with torch.no_grad():
+        #     os.makedirs("tmp", exist_ok=True)
+        #     draw_cams(rtmat.cpu().numpy()).export("tmp/cameras_gt.obj")
+        #     quat, trans = self.get_vals()
+        #     rtmat_pred = quaternion_translation_to_se3(quat, trans)
+        #     draw_cams(rtmat_pred.cpu()).export("tmp/cameras_pred.obj")
+
+    def forward(self, t_embed):
+        """
+        Args:
+            t_embed: (M, self.W) Input Fourier time embeddings
+        Returns:
+            quat: (M, 4) Output camera rotation quaternions
+            trans: (M, 3) Output camera translations
+        """
+        t_feat = super().forward(t_embed)
+        trans = self.trans(t_feat)
+        so3 = self.so3(t_feat)
+        quat = axis_angle_to_quaternion(so3)
+        return quat, trans
+
+    def get_vals(self, frame_id=None):
+        """Compute camera pose at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute values at all frames
+        Returns:
+            quat: (M, 4) Output camera rotations
+            trans: (M, 3) Output camera translations
+        """
+        t_embed = self.time_embedding(frame_id)
+        quat, trans = self.forward(t_embed)
+        if frame_id is None:
+            inst_id = self.time_embedding.frame_to_vid
+        else:
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
+
+        # multiply with per-instance base rotation
+        base_quat = self.base_quat[inst_id]
+        base_quat = F.normalize(base_quat, dim=-1)
+
+        # if frame_id is None:
+        #     base_quat = self.base_quat2
+        # else:
+        #     base_quat = self.interpolate_base_quat(frame_id)
+
+        quat = quaternion_mul(quat, base_quat)
+        return quat, trans
+
+    # def interpolate_base_quat(self, frame_id):
+    #     # check if x has decimal part
+    #     if (frame_id - frame_id.long()).abs().sum() > 0:
+    #         has_decimal = True
+    #     else:
+    #         has_decimal = False
+
+    #     frame_idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
+
+    #     bs = frame_id.shape[0]
+    #     if has_decimal:
+    #         # interpolate se3
+    #         if frame_id.shape[-1] == 1:
+    #             frame_id = frame_id.squeeze(-1)
+    #         trans = interpolate_linear(self.se3[:, :3], frame_id)
+    #         rot = interpolate_slerp(self.se3[:, 3:7], frame_id)
+    #         frame_id = torch.cat([trans, rot], -1)
+    #     else:
+    #         frame_id = self.se3[frame_id.long()]  # bs B,x
+    #     rts = frame_id.view(-1, self.num_output)
+    #     B = rts.shape[0] // bs
+
+    #     tmat = rts[:, 0:3] * 0.1
+
+    #     if self.delta:
+    #         rot = rts[:, 3:6]
+    #         rmat = transforms.so3_exponential_map(rot)
+    #     else:
+    #         rquat = rts[:, 3:7]
+    #         rquat = F.normalize(rquat, 2, -1)
+    #         rmat = transforms.quaternion_to_matrix(rquat)
+    #     rmat = rmat.view(-1, 9)
+
+
 class ArticulationBaseMLP(TimeMLP):
     """Base class for bone articulation model (bag-of-bones or skeleton)
 
