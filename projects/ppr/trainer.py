@@ -209,9 +209,9 @@ class PPRTrainer(Trainer):
         self.phys_model.eval()
         opts = self.opts
         frame_offset_raw = self.phys_model.frame_offset_raw
-        vid_frame_max = max(frame_offset_raw[1:] - frame_offset_raw[:-1])
-        self.phys_model.reinit_envs(1, frames_per_wdw=vid_frame_max, is_eval=True)
         for vidid in opts["phys_vid"]:
+            vid_frame = frame_offset_raw[vidid + 1] - frame_offset_raw[vidid]
+            self.phys_model.reinit_envs(1, frames_per_wdw=vid_frame, is_eval=True)
             frame_start = torch.zeros(1) + frame_offset_raw[vidid]
             _ = self.phys_model(frame_start=frame_start.to(self.device))
             img_size = tuple(self.data_info["raw_size"][vidid][::-1])

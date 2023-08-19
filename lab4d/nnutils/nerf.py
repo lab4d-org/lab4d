@@ -1047,7 +1047,7 @@ class NeRF(nn.Module):
         """
         for inst_id in range(self.num_inst):
             # TODO: move this to background nerf, and use each proxy geometry
-            mesh = self.extract_canonical_mesh(level=0.005)
+            mesh = self.extract_canonical_mesh(level=0.005, inst_id=inst_id)
             self.field2world[inst_id] = compute_rectification_se3(mesh)
 
     def get_field2world(self, inst_id=None):

@@ -35,7 +35,7 @@ class MultiFields(nn.Module):
         data_info,
         field_type="bg",
         fg_motion="rigid",
-        num_inst=None,
+        single_inst=True,
     ):
         vis_info = data_info["vis_info"]
 
@@ -43,7 +43,7 @@ class MultiFields(nn.Module):
         field_params = nn.ParameterDict()
         self.field_type = field_type
         self.fg_motion = fg_motion
-        self.num_inst = num_inst
+        self.single_inst = single_inst
 
         # specify field type
         if field_type == "comp":
@@ -74,6 +74,7 @@ class MultiFields(nn.Module):
         # which is identical to video frameid if # instance=1
         data_info["rtmat"] = data_info["rtmat"][tracklet_id]
         data_info["geom_path"] = data_info["geom_path"][tracklet_id]
+        num_inst = len(data_info["frame_info"]["frame_offset"]) - 1
         if category == "fg":
             # TODO add a flag to decide rigid fg vs deformable fg
             nerf = Deformable(
@@ -81,7 +82,7 @@ class MultiFields(nn.Module):
                 data_info,
                 num_freq_dir=-1,
                 appr_channels=32,
-                num_inst=self.num_inst,
+                num_inst=1 if self.single_inst else num_inst,
                 init_scale=0.2,
             )
             # no directional encoding
@@ -92,7 +93,7 @@ class MultiFields(nn.Module):
                 num_freq_xyz=6,
                 num_freq_dir=0,
                 appr_channels=0,
-                num_inst=self.num_inst,
+                num_inst=num_inst,
                 init_scale=0.2,
             )
         else:  # exit with an error

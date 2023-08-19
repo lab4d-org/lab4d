@@ -32,9 +32,7 @@ class dvr_model(nn.Module):
             data_info=data_info,
             field_type=config["field_type"],
             fg_motion=config["fg_motion"],
-            num_inst=1
-            if config["single_inst"]
-            else len(data_info["frame_info"]["frame_offset"]) - 1,
+            single_inst=config["single_inst"],
         )
         self.intrinsics = IntrinsicsMLP(
             self.data_info["intrinsics"],

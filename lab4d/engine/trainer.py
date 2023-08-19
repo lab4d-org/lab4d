@@ -15,7 +15,11 @@ cudnn.benchmark = True
 from lab4d.dataloader import data_utils
 from lab4d.dataloader.vidloader import VidDataset
 from lab4d.engine.model import dvr_model
-from lab4d.engine.train_utils import DataParallelPassthrough, get_local_rank
+from lab4d.engine.train_utils import (
+    DataParallelPassthrough,
+    get_local_rank,
+    match_param_name,
+)
 from lab4d.utils.profile_utils import torch_profile
 from lab4d.utils.torch_utils import remove_ddp_prefix
 from lab4d.utils.vis_utils import img2color, make_image_grid
@@ -157,30 +161,7 @@ class Trainer:
             is_resumed (bool): True if resuming from checkpoint
         """
         opts = self.opts
-
-        param_lr_startwith, param_lr_with = self.get_lr_dict()
-
-        params_list = []
-        lr_list = []
-        for name, p in self.model.named_parameters():
-            name_found = False
-            for params_name, lr in param_lr_with.items():
-                if params_name in name:
-                    params_list.append({"params": p})
-                    lr_list.append(lr)
-                    name_found = True
-                    if get_local_rank() == 0:
-                        print(name, p.shape, lr)
-
-            if name_found:
-                continue
-            for params_name, lr in param_lr_startwith.items():
-                if name.startswith(params_name):
-                    params_list.append({"params": p})
-                    lr_list.append(lr)
-                    if get_local_rank() == 0:
-                        print(name, p.shape, lr)
-
+        self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list()
         self.optimizer = torch.optim.AdamW(
             params_list,
             lr=opts["learning_rate"],
@@ -207,6 +188,36 @@ class Trainer:
             div_factor=div_factor,
             final_div_factor=final_div_factor,
         )
+
+    def get_optimizable_param_list(self):
+        """
+        Get the optimizable param list
+        Returns:
+            params_ref_list (List): List of params
+            params_list (List): List of params
+            lr_list (List): List of learning rates
+        """
+        param_lr_startwith, param_lr_with = self.get_lr_dict()
+        params_ref_list = []
+        params_list = []
+        lr_list = []
+
+        for name, p in self.model.named_parameters():
+            matched, lr = match_param_name(name, param_lr_with, type="with")
+            if not matched:
+                matched, lr = match_param_name(
+                    name, param_lr_startwith, type="startwith"
+                )
+            if matched:
+                params_ref_list.append({name: p})
+                params_list.append({"params": p})
+                lr_list.append(lr)
+                if get_local_rank() == 0:
+                    print(name, p.shape, lr)
+            # else:
+            #     print(name, "not found")
+
+        return params_ref_list, params_list, lr_list
 
     def train(self):
         """Training loop"""
@@ -588,13 +599,13 @@ class Trainer:
             thresh (float): Gradient clipping threshold
         """
         # parameters that are sensitive to large gradients
-
-        param_list = []
-        for name, p in self.model.named_parameters():
+        params_list = []
+        for param_dict in self.params_ref_list:
+            ((name, p),) = param_dict.items()
             if p.requires_grad:
-                param_list.append(p)
+                params_list.append(p)
 
-        grad_norm = torch.nn.utils.clip_grad_norm_(param_list, thresh)
+        grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
         if grad_norm > thresh:
             # clear gradients
             self.optimizer.zero_grad()
