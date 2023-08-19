@@ -108,7 +108,7 @@ class dvr_model(nn.Module):
                 alpha = None
             self.fields.set_alpha(alpha)
 
-        # beta_prob: steps(0->2k, 1->0.2), range (0.2,1)
+        # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)
         anchor_y = (1.0, 0.2)
         type = "linear"

@@ -38,6 +38,7 @@ class ExportMeshFlags:
     flags.DEFINE_float(
         "level", 0.0, "contour value of marching cubes use to search for isosurfaces"
     )
+    flags.DEFINE_boolean("use_visibility", False, "use visibility to remove extra pts")
 
 
 class MotionParamsExpl(NamedTuple):
@@ -68,7 +69,7 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
         field2cam = field.camera_mlp.get_vals(frame_id_torch)
 
         samples_dict = {}
-        if isinstance(field.warp, SkinningWarp):
+        if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
             (
                 samples_dict["t_articulation"],
                 samples_dict["rest_articulation"],
@@ -115,7 +116,7 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
         )
         motion_tuples[frame_id] = motion_expl
 
-    if isinstance(field.warp, SkinningWarp):
+    if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
         # modify rest mesh based on instance morphological changes on bones
         # idendity transformation of cameras
         field2cam_rot_idn = torch.zeros_like(field2cam[0])
@@ -179,7 +180,7 @@ def extract_motion_params(model, opts, data_info):
         grid_size=opts["grid_size"],
         level=opts["level"],
         inst_id=opts["inst_id"],
-        use_visibility=False,
+        use_visibility=opts["use_visibility"],
         use_extend_aabb=False,
     )
 

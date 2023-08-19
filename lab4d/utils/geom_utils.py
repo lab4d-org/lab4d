@@ -404,14 +404,15 @@ def extend_aabb(aabb, factor=0.1):
     If aabb = [-1,1] and factor = 1, the extended aabb will be [-3,3]
 
     Args:
-        aabb: Axis-aligned bounding box, (2,3)
+        aabb: Axis-aligned bounding box, ((N,)2,3)
         factor (float): Amount to extend on each side
     Returns:
-        aabb_new: Extended aabb, (2,3)
+        aabb_new: Extended aabb, ((N,)2,3)
     """
     aabb_new = aabb.clone()
-    aabb_new[0] = aabb[0] - (aabb[1] - aabb[0]) * factor
-    aabb_new[1] = aabb[1] + (aabb[1] - aabb[0]) * factor
+    size = (aabb[..., 1, :] - aabb[..., 0, :]) * factor
+    aabb_new[..., 0, :] = aabb[..., 0, :] - size
+    aabb_new[..., 1, :] = aabb[..., 1, :] + size
     return aabb_new
 
 
@@ -500,13 +501,15 @@ def check_inside_aabb(xyz, aabb):
     """Return a mask of whether the input poins are inside the aabb
 
     Args:
-        xyz: (N,3) Points in object canonical space to query
-        aabb: (2,3) axis-aligned bounding box
+        xyz: (N,...,3) Points in object canonical space to query
+        aabb: (N,2,3) axis-aligned bounding box
     Returns:
-        inside_aabb: (N) Inside mask, bool
+        inside_aabb: (N,...,) Inside mask, bool
     """
     # check whether the point is inside the aabb
-    inside_aabb = ((xyz > aabb[:1]) & (xyz < aabb[1:])).all(-1)
+    shape = xyz.shape[:-1]
+    aabb = aabb.view((aabb.shape[0], 2) + (1,) * (len(shape) - 1) + (3,))
+    inside_aabb = ((xyz > aabb[:, 0]) & (xyz < aabb[:, 1])).all(-1)
     return inside_aabb
 
 
