@@ -40,12 +40,9 @@ def match_param_name(name, param_lr, type):
             raise ValueError("type not found")
 
     if len(matched_param) == 0:
-        return False, 0
+        return False, 0.0
     elif len(matched_param) == 1:
-        if matched_lr[0] == 0:
-            return False, 0
-        else:
-            return True, matched_lr[0]
+        return True, matched_lr[0]
     else:
         raise ValueError("multiple matches found")
 

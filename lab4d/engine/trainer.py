@@ -203,19 +203,23 @@ class Trainer:
         lr_list = []
 
         for name, p in self.model.named_parameters():
-            matched, lr = match_param_name(name, param_lr_with, type="with")
-            if not matched:
-                matched, lr = match_param_name(
-                    name, param_lr_startwith, type="startwith"
-                )
-            if matched:
+            matched_loose, lr_loose = match_param_name(name, param_lr_with, type="with")
+            matched_strict, lr_strict = match_param_name(
+                name, param_lr_startwith, type="startwith"
+            )
+            if matched_loose > 0:
+                lr = lr_loose  # higher priority
+            elif matched_strict > 0:
+                lr = lr_strict
+            else:
+                lr = 0.0  # not found
+                # print(name, "not found")
+            if lr > 0:
                 params_ref_list.append({name: p})
                 params_list.append({"params": p})
                 lr_list.append(lr)
                 if get_local_rank() == 0:
                     print(name, p.shape, lr)
-            # else:
-            #     print(name, "not found")
 
         return params_ref_list, params_list, lr_list
 
