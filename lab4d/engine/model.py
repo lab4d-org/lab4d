@@ -127,12 +127,12 @@ class dvr_model(nn.Module):
         type = "log"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
-        # skel prior wt: steps(0->4000, 1->0), range (0,1)
-        loss_name = "reg_skel_prior_wt"
-        anchor_x = (0, 4000)
-        anchor_y = (1, 0)
-        type = "linear"
-        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # # skel prior wt: steps(0->4000, 1->0), range (0,1)
+        # loss_name = "reg_skel_prior_wt"
+        # anchor_x = (0, 4000)
+        # anchor_y = (1, 0)
+        # type = "linear"
+        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # gauss mask wt: steps(0->4000, 1->0), range (0,1)
         loss_name = "reg_gauss_mask_wt"
@@ -598,7 +598,11 @@ class dvr_model(nn.Module):
         px_unit_keys = ["flow", "feat_reproj"]
         for k, v in loss_dict.items():
             # average over non-zero pixels
-            loss_dict[k] = v[v > 0].mean()
+            v = v[v > 0]
+            if v.numel() > 0:
+                loss_dict[k] = v.mean()
+            else:
+                loss_dict[k] = v.sum()  # return zero
 
             # scale with image resolution
             if k in px_unit_keys:

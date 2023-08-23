@@ -10,6 +10,7 @@ import open3d as o3d
 from lab4d.utils.quat_transform import (
     dual_quaternion_apply,
     quaternion_translation_apply,
+    dual_quaternion_to_se3,
 )
 
 
@@ -58,11 +59,19 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
     shape = pts.shape
     bs, B, _ = dual_quat[0].shape
     pts = pts.view(bs, -1, 3)
-    skin = skin.view(bs, -1, B)
+    skin = skin.view(bs, -1, B)  # M, N*D, B
     N = pts.shape[1]
 
+    # (M, ND, B, 4)
     qr = dual_quat[0][:, None].repeat(1, N, 1, 1)
     qd = dual_quat[1][:, None].repeat(1, N, 1, 1)
+
+    # make sure to blend in the same hemisphere
+    anchor = skin.argmax(-1).view(shape[0], -1, 1, 1).repeat(1, 1, 1, 4)  # M, ND, 1, 4
+    sign = (torch.gather(qr, 2, anchor) * qr).sum(-1) > 0  # M, ND, B
+    sign = sign[..., None].float() * 2 - 1
+    qr = sign * qr
+
     qr_w = torch.einsum("bnk,bnkl->bnl", skin, qr)
     qd_w = torch.einsum("bnk,bnkl->bnl", skin, qd)
 
@@ -74,6 +83,29 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
 
     pts = pts.view(*shape)
     return pts
+
+
+def linear_blend_skinning(dual_quat, xyz, skin_prob):
+    """Attach points to SE(3) bones according to skinning weights
+
+    Args:
+        dual_quat: ((M,B,4), (M,B,4)) per-bone SE(3) transforms,
+            written as dual quaternions
+        xyz: (M, ..., 3) Points in object canonical space
+        skin_prob: (M, ..., B) Skinning weights from each point to each bone
+    Returns:
+        pts: (M, ..., 3) Articulated points
+    """
+    shape = xyz.shape
+    xyz = xyz.view(shape[0], -1, 3)  # M, N*D, 3
+    skin_prob = skin_prob.view(shape[0], -1, skin_prob.shape[-1])  # M, N*D, B
+    se3 = dual_quaternion_to_se3(dual_quat)  # M,B,4,4
+    # M ND B 4 4
+    out = se3[:, None, :, :3, :3] @ xyz[:, :, None, :, None]
+    out = out + se3[:, None, :, :3, 3:4]  # M,ND,B,3,1
+    out = (out[..., 0] * skin_prob[..., None]).sum(-2)  # M,ND,B,3
+    out = out.view(shape)
+    return out
 
 
 def hat_map(v):

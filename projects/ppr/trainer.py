@@ -30,8 +30,11 @@ class dvr_phys_reg(dvr_model):
         phys_traj["steps_fr"] = torch.arange(
             phys_model.total_frames, device=self.device
         )
-        phys_traj["phys_q"] = phys_model.root_pose_mlp(phys_traj["steps_fr"])  # N, 7
-        phys_traj["phys_ja"] = phys_model.joint_angle_mlp(phys_traj["steps_fr"])
+        # phys_traj["phys_q"] = phys_model.root_pose_mlp(phys_traj["steps_fr"])
+        # phys_traj["phys_ja"] = phys_model.joint_angle_mlp(phys_traj["steps_fr"])
+        # N, 7/dof
+        phys_traj["phys_q"] = phys_model.root_pose_distilled(phys_traj["steps_fr"])
+        phys_traj["phys_ja"] = phys_model.joint_angle_distilled(phys_traj["steps_fr"])
         self.phys_traj = phys_traj
 
     def forward(self, batch):
@@ -158,7 +161,6 @@ class PPRTrainer(Trainer):
         # run physics cycle
         self.run_phys_cycle()
         self.current_round_phys += 1
-        self.phys_model.save_checkpoint(round_count=self.current_round_phys)
         # # transfer phys-optimized kinematics to dvr
         # self.phys_model.override_states_inv()
         # transfer hys-optimized kinematics to dvr as soft constriaints
@@ -166,34 +168,40 @@ class PPRTrainer(Trainer):
         # run dr cycle
         super().run_one_round(round_count)
 
-    def run_phys_cycle(self):
+    def init_phys_env_train(self):
         opts = self.opts
-        torch.cuda.empty_cache()
-
-        # eval
-        self.phys_model.correct_foot_position()
-        if self.current_round_phys == 0:
-            self.run_phys_visualization(tag="kinematics")
-
-        # train
-        self.phys_model.train()
         # to use the same amount memory as DR
         num_envs = int(128 / opts["secs_per_wdw"])
         frames_per_wdw = int(opts["secs_per_wdw"] / self.phys_model.frame_interval) + 1
         print("num_envs:", num_envs)
         print("frames_per_wdw:", frames_per_wdw)
+        self.phys_model.train()
         self.phys_model.reinit_envs(
             num_envs,
             frames_per_wdw=frames_per_wdw,
             is_eval=False,
         )
+
+    def run_phys_cycle(self):
+        opts = self.opts
+        torch.cuda.empty_cache()
+
+        # eval
+        if self.current_round_phys == 0:
+            self.phys_model.correct_foot_position()
+            self.run_phys_visualization(tag="kinematics")
+
+        # train
+        self.init_phys_env_train()
         for i in tqdm.tqdm(range(self.iters_per_phys_cycle)):
             self.phys_model.set_progress(self.current_steps_phys)
             self.run_phys_iter()
             self.current_steps_phys += 1
-
-        # eval again
-        self.run_phys_visualization(tag="phys")
+            if self.current_steps_phys % opts["phys_vis_interval"] == 0:
+                # eval
+                self.phys_model.save_checkpoint(round_count=self.current_round_phys)
+                self.run_phys_visualization(tag="phys")
+                self.init_phys_env_train()
 
     def run_phys_iter(self):
         """Run physics optimization"""

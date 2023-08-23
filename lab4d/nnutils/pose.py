@@ -845,8 +845,8 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
 
         if urdf_name == "human":
             offset = torch.tensor([0.0, 0.0, 0.0])
-            orient = torch.tensor([1.0, 0.0, 0.0, 0.0])  # wxyz
-            scale_factor = torch.tensor([0.08])
+            orient = torch.tensor([0.0, -1.0, 0.0, 0.0])  # wxyz
+            scale_factor = torch.tensor([0.1])
         elif urdf_name == "quad":
             offset = torch.tensor([0.0, -0.02, 0.02])
             orient = torch.tensor([1.0, -0.8, 0.0, 0.0])
