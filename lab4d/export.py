@@ -141,14 +141,18 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
 
 def save_motion_params(meshes_rest, motion_tuples, save_dir):
     for cate, mesh_rest in meshes_rest.items():
-        mesh_rest.export("%s/%s.obj" % (save_dir, cate))
+        mesh_rest.export("%s/%s-mesh.obj" % (save_dir, cate))
         motion_params = {"field2cam": [], "t_articulation": [], "joint_so3": []}
+        os.makedirs("%s/mesh" % save_dir, exist_ok=True)
+        os.makedirs("%s/bone" % save_dir, exist_ok=True)
         for frame_id, motion_expl in motion_tuples[cate].items():
             # save mesh
-            motion_expl.mesh_t.export("%s/%s-%05d.obj" % (save_dir, cate, frame_id))
+            motion_expl.mesh_t.export(
+                "%s/mesh/%s-%05d.obj" % (save_dir, cate, frame_id)
+            )
             if motion_expl.bone_t is not None:
                 motion_expl.bone_t.export(
-                    "%s/%s-%05d-bone.obj" % (save_dir, cate, frame_id)
+                    "%s/bone/%s-%05d.obj" % (save_dir, cate, frame_id)
                 )
 
             # save motion params
@@ -207,6 +211,14 @@ def export(opts):
     # save motion paramters
     meshes_rest, motion_tuples = extract_motion_params(model, opts, data_info)
     save_motion_params(meshes_rest, motion_tuples, save_dir)
+
+    # same raw image size and intrinsics
+    with torch.no_grad():
+        intrinsics = model.intrinsics.get_intrinsics(opts["inst_id"])
+        camera_info = {}
+        camera_info["raw_size"] = data_info["raw_size"][opts["inst_id"]].tolist()
+        camera_info["intrinsics"] = intrinsics.cpu().numpy().tolist()
+        json.dump(camera_info, open("%s/camera.json" % (save_dir), "w"))
 
     # save reference images
     raw_size = data_info["raw_size"][opts["inst_id"]]  # full range of pixels

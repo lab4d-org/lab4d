@@ -110,10 +110,10 @@ class PPRTrainer(Trainer):
         model_dict["scene_field"] = self.model.fields.field_params["bg"]
         model_dict["object_field"] = self.model.fields.field_params["fg"]
         model_dict["intrinsics"] = self.model.intrinsics
+        model_dict["frame_interval"] = opts["frame_interval"]
 
         # define phys model
-        self.phys_model = phys_interface(opts, model_dict, dt=1e-3)
-        # self.phys_model = phys_interface(opts, model_dict)
+        self.phys_model = phys_interface(opts, model_dict, dt=opts["timestep"])
         self.phys_visualizer = Logger(opts)
 
         # move model to device
@@ -171,7 +171,8 @@ class PPRTrainer(Trainer):
     def init_phys_env_train(self):
         opts = self.opts
         # to use the same amount memory as DR
-        num_envs = int(128 / opts["secs_per_wdw"])
+        total_timesteps = opts["secs_per_wdw"] / opts["timestep"]
+        num_envs = int(128000 / total_timesteps)
         frames_per_wdw = int(opts["secs_per_wdw"] / self.phys_model.frame_interval) + 1
         print("num_envs:", num_envs)
         print("frames_per_wdw:", frames_per_wdw)

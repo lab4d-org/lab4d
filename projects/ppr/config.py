@@ -9,6 +9,8 @@ opts = flags.FLAGS
 class PPRConfig:
     # configs related to ppr
     flags.DEFINE_string("urdf_template", "", "whether to use predefined skeleton")
+    flags.DEFINE_float("timestep", 1e-3, "time step of simulation")
+    flags.DEFINE_float("frame_interval", 0.1, "time between two frames")
     flags.DEFINE_float("ratio_phys_cycle", 0.2, "number of iterations per round")
     flags.DEFINE_float("secs_per_wdw", 2.4, "length of the physics opt window in secs")
     flags.DEFINE_string(

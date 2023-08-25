@@ -87,7 +87,7 @@ class IntrinsicsMLP(TimeMLP):
         """Compute camera intrinsics at the given frames.
 
         Args:
-            frame_id: (...,) Frame id. If None, compute at all frames
+            frame_id: (M,) Frame id. If None, compute at all frames
         Returns:
             intrinsics: (..., 4) Output camera intrinsics
         """
@@ -104,4 +104,10 @@ class IntrinsicsMLP(TimeMLP):
         focal[..., :] = (focal + focal.flip(-1)) / 2
         ppoint = base_ppoint.expand_as(focal)
         intrinsics = torch.cat([focal, ppoint], dim=-1)
+        return intrinsics
+
+    def get_intrinsics(self, inst_id):
+        raw_fid_to_vid = self.time_embedding.raw_fid_to_vid
+        frame_id = (raw_fid_to_vid == inst_id).nonzero()[:, 0]
+        intrinsics = self.get_vals(frame_id=frame_id)
         return intrinsics

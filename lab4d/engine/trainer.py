@@ -348,6 +348,7 @@ class Trainer:
         opts = self.opts
         torch.cuda.empty_cache()
         self.model.train()
+        self.optimizer.zero_grad()
 
         self.trainloader.sampler.set_epoch(round_count)  # necessary for shuffling
         for i, batch in enumerate(self.trainloader):

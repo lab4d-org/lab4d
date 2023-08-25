@@ -4,6 +4,7 @@ run-long.sh
 /database/processed
 /database/configs
 /database/raw
+/database/ama
 /logdir
 /tmp
 
