@@ -14,7 +14,7 @@ def sample_cam_rays(hxy, Kinv, near_far, n_depth=64, depth=None, perturb=False):
         near_far: (M,2) Location of near/far planes per frame
         n_depth (int): Number of points to sample along each ray
         depth: (M,N,D,1) If provided, use these Z-coordinates for each ray sample
-        perturb (bool): If True, use stratified sampling and perturb depth samples
+        perturb (bool): If True, perturb depth samples
     Returns:
         xyz: (M,N,D,3) Ray points in camera space
         dir: (M,N,D,3) Ray directions in camera space

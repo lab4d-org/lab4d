@@ -1,6 +1,6 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
 # python projects/ppr/eval/compute_metrics.py --pred_prefix "" --fps 10 --skip 3
-# python projects/ppr/eval/compute_metrics.py  --fps 30
+# python projects/ppr/eval/compute_metrics.py
 import sys, os
 import pdb
 import json
@@ -23,7 +23,7 @@ from lab4d.utils.mesh_render_utils import PyRenderWrapper
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument(
     "--testdir",
-    default="logdir/ama-samba-fg-urdf-cse/export_0000/",
+    default="logdir/ama-samba-4v-fg-urdf-cse/export_0000/",
     help="path to the directory with results",
 )
 parser.add_argument(

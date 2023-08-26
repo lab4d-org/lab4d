@@ -6,7 +6,7 @@ import imageio
 import numpy as np
 
 
-def extract_frames(in_path, out_path, desired_fps=10):
+def extract_frames(in_path, out_path, desired_fps=30):
     print("extracting frames: ", in_path)
     # Open the video file
     reader = imageio.get_reader(in_path)

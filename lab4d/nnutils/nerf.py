@@ -372,7 +372,7 @@ class NeRF(nn.Module):
         else:
             return self.aabb[None].repeat(len(inst_id), 1, 1)
 
-    def update_aabb(self, beta=0.9):
+    def update_aabb(self, beta=0.5):
         """Update axis-aligned bounding box by interpolating with the current
         proxy geometry's bounds
 
