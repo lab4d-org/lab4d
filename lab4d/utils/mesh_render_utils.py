@@ -16,7 +16,7 @@ os.environ["PYOPENGL_PLATFORM"] = "egl"
 
 
 class PyRenderWrapper:
-    def __init__(self, image_size) -> None:
+    def __init__(self, image_size=(1024, 1024)) -> None:
         # renderer
         self.image_size = image_size
         render_size = max(image_size)
@@ -25,7 +25,7 @@ class PyRenderWrapper:
             render_size, render_size, render_size / 2, render_size / 2
         )
         # light
-        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=6.0)
+        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
         self.light_pose = np.asarray(
             [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=float
         )

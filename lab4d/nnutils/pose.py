@@ -7,7 +7,7 @@ import trimesh
 
 from lab4d.nnutils.base import CondMLP, BaseMLP, ScaleLayer
 from lab4d.nnutils.time import TimeMLP
-from lab4d.utils.geom_utils import so3_to_exp_map, rot_angle
+from lab4d.utils.geom_utils import so3_to_exp_map, rot_angle, interpolate_slerp
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
@@ -198,8 +198,7 @@ class CameraMLP_so3(TimeMLP):
         )
 
         # camera pose: field to camera
-        self.base_quat = nn.Parameter(torch.zeros(self.time_embedding.num_vids, 4))
-        # self.base_quat2 = nn.Parameter(torch.zeros(num_frames, 4))
+        self.base_quat = nn.Parameter(torch.zeros(frame_info["frame_offset"][-1], 4))
         self.register_buffer(
             "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
         )
@@ -217,14 +216,9 @@ class CameraMLP_so3(TimeMLP):
     def base_init(self):
         """Initialize base camera rotations from initial camera trajectory"""
         rtmat = self.init_vals
-        frame_offset = self.get_frame_offset()
-        base_rmat = rtmat[frame_offset[:-1], :3, :3]
-        base_quat = matrix_to_quaternion(base_rmat)
-        self.base_quat.data = base_quat
 
-        # base_rmat = rtmat[:, :3, :3]
-        # base_quat = matrix_to_quaternion(base_rmat)
-        # self.base_quat2.data = base_quat
+        # initialize with corresponding frame rotation
+        self.base_quat.data = matrix_to_quaternion(rtmat[:, :3, :3])
 
     def mlp_init(self):
         """Initialize camera SE(3) transforms from external priors"""
@@ -262,55 +256,28 @@ class CameraMLP_so3(TimeMLP):
         """
         t_embed = self.time_embedding(frame_id)
         quat, trans = self.forward(t_embed)
-        if frame_id is None:
-            inst_id = self.time_embedding.frame_to_vid
-        else:
-            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
 
         # multiply with per-instance base rotation
-        base_quat = self.base_quat[inst_id]
+        if frame_id is None:
+            base_quat = self.base_quat
+        else:
+            base_quat = self.interpolate_base_quat(frame_id)
         base_quat = F.normalize(base_quat, dim=-1)
-
-        # if frame_id is None:
-        #     base_quat = self.base_quat2
-        # else:
-        #     base_quat = self.interpolate_base_quat(frame_id)
-
         quat = quaternion_mul(quat, base_quat)
         return quat, trans
 
-    # def interpolate_base_quat(self, frame_id):
-    #     # check if x has decimal part
-    #     if (frame_id - frame_id.long()).abs().sum() > 0:
-    #         has_decimal = True
-    #     else:
-    #         has_decimal = False
-
-    #     frame_idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
-
-    #     bs = frame_id.shape[0]
-    #     if has_decimal:
-    #         # interpolate se3
-    #         if frame_id.shape[-1] == 1:
-    #             frame_id = frame_id.squeeze(-1)
-    #         trans = interpolate_linear(self.se3[:, :3], frame_id)
-    #         rot = interpolate_slerp(self.se3[:, 3:7], frame_id)
-    #         frame_id = torch.cat([trans, rot], -1)
-    #     else:
-    #         frame_id = self.se3[frame_id.long()]  # bs B,x
-    #     rts = frame_id.view(-1, self.num_output)
-    #     B = rts.shape[0] // bs
-
-    #     tmat = rts[:, 0:3] * 0.1
-
-    #     if self.delta:
-    #         rot = rts[:, 3:6]
-    #         rmat = transforms.so3_exponential_map(rot)
-    #     else:
-    #         rquat = rts[:, 3:7]
-    #         rquat = F.normalize(rquat, 2, -1)
-    #         rmat = transforms.quaternion_to_matrix(rquat)
-    #     rmat = rmat.view(-1, 9)
+    def interpolate_base_quat(self, frame_id):
+        idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
+        idx_ceil = idx + 1
+        idx_ceil.clamp_(max=self.time_embedding.num_frames - 1)
+        t_len = (
+            self.time_embedding.frame_mapping[idx_ceil]
+            - self.time_embedding.frame_mapping[idx]
+        )
+        t_frac = frame_id - self.time_embedding.frame_mapping[idx]
+        t_frac = t_frac / (1e-6 + t_len)
+        base_quat = interpolate_slerp(self.base_quat, idx, idx + 1, t_frac)
+        return base_quat
 
 
 class ArticulationBaseMLP(TimeMLP):

@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 import trimesh
 from scipy.spatial.transform import Rotation as R
 from skimage import measure
@@ -106,6 +107,58 @@ def linear_blend_skinning(dual_quat, xyz, skin_prob):
     out = (out[..., 0] * skin_prob[..., None]).sum(-2)  # M,ND,B,3
     out = out.view(shape)
     return out
+
+
+def slerp(val, low, high, eps=1e-6):
+    """
+    Args:
+        val: (M,) Interpolation value
+        low: (M,4) Low quaternions
+        high: (M,4) High quaternions
+    Returns:
+        out: (M,4) Interpolated quaternions
+    """
+    # Normalize input quaternions.
+    low_norm = F.normalize(low, dim=1)
+    high_norm = F.normalize(high, dim=1)
+
+    # Compute cosine of angle between quaternions.
+    cos_angle = torch.clamp((low_norm * high_norm).sum(dim=1), -1.0 + eps, 1.0 - eps)
+    omega = torch.acos(cos_angle)
+
+    so = torch.sin(omega)
+    t1 = torch.sin((1.0 - val) * omega) / (so + eps)
+    t2 = torch.sin(val * omega) / (so + eps)
+    return t1.unsqueeze(-1) * low + t2.unsqueeze(-1) * high
+
+
+def interpolate_slerp(y, idx_floor, idx_ceil, t_frac):
+    """
+    Args:
+        y: (N,4) Quaternions
+        idx_floor: (M,) Floor indices
+        idx_ceil: (M,) Ceil indices
+        t_frac: (M,) Fractional indices (0-1)
+    Returns:
+        y_interpolated: (M,4) Interpolated quaternions
+    """
+    # Use integer parts to index y
+    idx_ceil.clamp_(max=len(y) - 1)
+    y_floor = y[idx_floor]
+    y_ceil = y[idx_ceil]
+
+    # Check dot product to ensure the shortest path
+    dp = torch.sum(y_floor * y_ceil, dim=-1, keepdim=True)
+    y_ceil = torch.where(dp < 0.0, -y_ceil, y_ceil)
+
+    # Normalize quaternions to be sure
+    y_floor_norm = F.normalize(y_floor, dim=1)
+    y_ceil_norm = F.normalize(y_ceil, dim=1)
+
+    # Compute interpolated quaternion
+    y_interpolated = slerp(t_frac, y_floor_norm, y_ceil_norm)
+    y_interpolated_norm = F.normalize(y_interpolated, dim=1)
+    return y_interpolated_norm
 
 
 def hat_map(v):

@@ -19,6 +19,7 @@ from lab4d.utils.mesh_render_utils import PyRenderWrapper
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
+parser.add_argument("--fps", default=30, type=int, help="fps of the video")
 args = parser.parse_args()
 
 
@@ -58,7 +59,13 @@ def main():
         )
         frames.append(color)
 
-    save_vid("%s/render" % args.testdir, frames, suffix=".mp4", upsample_frame=-1)
+    save_vid(
+        "%s/render" % args.testdir,
+        frames,
+        suffix=".mp4",
+        upsample_frame=-1,
+        fps=args.fps,
+    )
     print("saved to %s/render.mp4" % args.testdir)
 
 

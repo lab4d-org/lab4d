@@ -145,7 +145,7 @@ class Trainer:
             ".logsigma": lr_explicit,
             ".logscale": lr_explicit,
             ".log_gauss": 0.0,
-            ".base_quat": lr_explicit,
+            ".base_quat": 0.0,  # avoid updating the base_quat to stabilize training
             ".base_logfocal": lr_explicit,
             ".base_ppoint": lr_explicit,
             ".shift": lr_explicit,
@@ -614,7 +614,8 @@ class Trainer:
         if grad_norm > thresh:
             # clear gradients
             self.optimizer.zero_grad()
-            print("large grad: %.2f, clear gradients" % grad_norm)
+            if get_local_rank() == 0:
+                print("large grad: %.2f, clear gradients" % grad_norm)
             # load cached model from two rounds ago
             if self.model_cache[0] is not None:
                 if get_local_rank() == 0:
