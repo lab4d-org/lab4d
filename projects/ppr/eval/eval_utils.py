@@ -400,7 +400,7 @@ def align_seqs(all_verts_pred, all_verts_gt, correct_tra=False, verbose=False):
     frts = timeseries_iterative_closest_point(
         out_verts_pred,
         all_verts_gt,
-        estimate_scale=False,
+        estimate_scale=True,
         max_iterations=100,
         verbose=verbose,
     )

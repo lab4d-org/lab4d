@@ -25,7 +25,7 @@ class PyRenderWrapper:
             render_size, render_size, render_size / 2, render_size / 2
         )
         # light
-        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
+        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
         self.light_pose = np.asarray(
             [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -67,7 +67,7 @@ class PyRenderWrapper:
         mesh_obj.apply_transform(self.scene_to_cam)
         if force_gray:
             mesh_obj.visual.vertex_colors = np.ones_like(mesh_obj.visual.vertex_colors)
-            mesh_obj.visual.vertex_colors[:, :3] = 64
+            mesh_obj.visual.vertex_colors[:, :3] = 102
         mesh_pyrender = Mesh.from_trimesh(mesh_obj)
         mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))

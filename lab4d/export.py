@@ -104,7 +104,9 @@ def extract_deformation(field, mesh_rest, inst_id, render_length):
             samples_dict=samples_dict,
         )
         xyz_t = xyz_t[0, 0]
-        mesh_t = trimesh.Trimesh(vertices=xyz_t.cpu().numpy(), faces=mesh_rest.faces)
+        mesh_t = trimesh.Trimesh(
+            vertices=xyz_t.cpu().numpy(), faces=mesh_rest.faces, process=False
+        )
 
         field2cam[1][:] /= field.logscale.exp()  # to world scale
         motion_expl = MotionParamsExpl(

@@ -23,7 +23,7 @@ from lab4d.utils.mesh_render_utils import PyRenderWrapper
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument(
     "--testdir",
-    default="logdir/ama-samba-4v-fg-urdf-cse/export_0000/",
+    default="logdir/ama-samba-4v-fg-bob-2g-r120-cse/export_0000/",
     help="path to the directory with results",
 )
 parser.add_argument(
@@ -91,7 +91,7 @@ def main():
     renderer_gt = PyRenderWrapper(raw_size)
     renderer_pred = PyRenderWrapper(raw_size)
     frames = []
-    for fidx, mesh_obj in tqdm.tqdm(gt_mesh_dict.items()):
+    for fidx, mesh_obj in tqdm.tqdm(gt_mesh_dict.items(), desc=f"Rendering:"):
         renderer_gt.set_intrinsics(intrinsics_gt)
         color_gt = renderer_gt.render(mesh_obj, force_gray=True)[0]
         cd_gt = renderer_gt.render(gt_cd_dict[fidx])[0]

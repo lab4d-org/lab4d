@@ -43,7 +43,7 @@ class CameraMLP(TimeMLP):
         self,
         rtmat,
         frame_info=None,
-        D=5,
+        D=2,
         W=256,
         num_freq_t=6,
         skips=[],

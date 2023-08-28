@@ -37,7 +37,7 @@ def main():
     mesh_dict = {}
     for mesh_path in path_list:
         frame_idx = int(mesh_path.split("/")[-1].split("-")[1].split(".")[0])
-        mesh_dict[frame_idx] = trimesh.load(mesh_path)
+        mesh_dict[frame_idx] = trimesh.load(mesh_path, process=False)
 
     # render
     renderer = PyRenderWrapper(raw_size)
@@ -45,7 +45,7 @@ def main():
     for frame_idx, mesh_obj in tqdm.tqdm(mesh_dict.items()):
         # set camera translation
         renderer.set_intrinsics(intrinsics[frame_idx])
-        color = renderer.render(mesh_obj)[0]
+        color = renderer.render(mesh_obj, force_gray=True)[0]
         # add text
         color = color.astype(np.uint8)
         color = cv2.putText(
