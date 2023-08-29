@@ -417,12 +417,11 @@ class NeRF(nn.Module):
         """Compute eikonal loss
 
         Args:
-            xyz: (M,N,D,3) Input coordinates
+            xyz: (M,N,D,3) Input coordinates in canonical space
             inst_id: (M,) Instance id, or None to use the average instance
             sample_ratio (int): Fraction to subsample to make it more efficient
         Returns:
             eikonal_loss: (M,N,D,1) Squared magnitude of SDF gradient
-            normal: (M,N,D,3) Normal vector field
         """
         M, N, D, _ = xyz.shape
         xyz = xyz.reshape(-1, D, 3)
@@ -433,7 +432,6 @@ class NeRF(nn.Module):
             inst_id = inst_id[:, None].expand(-1, N)
             inst_id = inst_id.reshape(-1)
         eikonal_loss = torch.zeros_like(xyz[..., 0])
-        normal = torch.zeros_like(xyz)
 
         # subsample to make it more efficient
         if M * N > sample_size:
@@ -445,44 +443,88 @@ class NeRF(nn.Module):
         else:
             rand_inds = Ellipsis
 
-        g = self.gradient(xyz, inst_id=inst_id)[..., 0]
-
-        eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
-        normal[rand_inds] = g
-
-        eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
-        normal = normal.reshape(M, N, D, 3)
-        return eikonal_loss, normal
-
-    def gradient(self, xyz, inst_id=None):
-        """Compute gradient of signed distance wrt. input coordinates
-
-        Args:
-            xyz: (..., input_dim) Input coordinates
-            inst_id: (M,) instance id, or None to use the average instance
-        Returns:
-            gradients: (..., input_dim, output_dim)
-        """
         xyz = xyz.detach()
         with torch.enable_grad():
             xyz.requires_grad_(True)
             y = self.forward(xyz, inst_id=inst_id, get_density=False)
+            g = self.gradient(y, xyz)[..., 0]
 
-            # get gradient for each size-1 output
-            gradients = []
-            for i in range(y.shape[-1]):
-                y_sub = y[..., i : i + 1]
-                d_output = torch.ones_like(y_sub, requires_grad=False, device=y.device)
-                gradient = torch.autograd.grad(
-                    outputs=y_sub,
-                    inputs=xyz,
-                    grad_outputs=d_output,
-                    create_graph=True,
-                    retain_graph=True,
-                    only_inputs=True,
-                )[0]
-                gradients.append(gradient[..., None])
-            gradients = torch.cat(gradients, -1)  # ...,input-dim, output-dim
+        eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
+        eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
+        return eikonal_loss
+
+    def compute_normal(self, xyz_cam, dir_cam, field2cam, frame_id=None, inst_id=None, samples_dict={}):
+        """Compute eikonal loss and normals in camera space
+
+        Args:
+            xyz_cam: (M,N,D,3) Points along rays in camera space
+            dir_cam: (M,N,D,3) Ray directions in camera space
+            field2cam: (M,SE(3)) Object-to-camera SE(3) transform
+            frame_id: (M,) Frame id to query articulations, or None to use all frames
+            inst_id: (M,) Instance id, or None to use the average instance
+            samples_dict (Dict): Time-dependent bone articulations. Keys:
+                "rest_articulation": ((M,B,4), (M,B,4)) and
+                "t_articulation": ((M,B,4), (M,B,4))
+        Returns:
+            normal: (M,N,D,3) Normal vector field in camera space
+        """
+        M, N, D, _ = xyz_cam.shape
+
+        xyz_cam = xyz_cam.detach()
+        dir_cam = dir_cam.detach()
+        field2cam = (field2cam[0].detach(), field2cam[1].detach())
+        samples_dict = {
+            k: tuple(x.detach() for x in v) if isinstance(v, tuple) else v.detach()
+            for k, v in samples_dict.items()
+        }
+        with torch.enable_grad():
+            xyz_cam.requires_grad_(True)
+            xyz = self.backward_warp(
+                xyz_cam,
+                dir_cam,
+                field2cam,
+                frame_id=frame_id,
+                inst_id=inst_id,
+                samples_dict=samples_dict,
+            )["xyz"]
+            y = self.forward(xyz, inst_id=inst_id, get_density=False)
+            g = self.gradient(y, xyz_cam)[..., 0]
+
+        eikonal = (g.norm(2, dim=-1, keepdim=True) - 1) ** 2
+        normal = torch.nn.functional.normalize(g, dim=-1)
+
+        # Multiply by [1, -1, -1] to match normal conventions from ECON
+        # https://github.com/YuliangXiu/ECON/blob/d98e9cbc96c31ecaa696267a072cdd5ef78d14b8/apps/infer.py#L257
+        normal = normal * torch.tensor([1, -1, -1], device="cuda")
+
+        return eikonal, normal
+
+    def gradient(self, outputs, inputs):
+        """Compute gradient for each size-1 output
+
+        Args:
+            outputs (sequence of Tensor): Outputs of the differentiated function
+            inputs (sequence of Tensor): Inputs wrt. which the gradient will be
+                returned (and not accumulated into .grad)
+        Returns:
+            gradients: Gradients of outputs wrt. inputs
+        """
+        gradients = []
+        for i in range(outputs.shape[-1]):
+            outputs_sub = outputs[..., i : i + 1]
+            d_output = torch.ones_like(
+                outputs_sub, requires_grad=False, device=outputs.device
+            )
+            gradient = torch.autograd.grad(
+                outputs=outputs_sub,
+                inputs=inputs,
+                grad_outputs=d_output,
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True,
+            )[0]
+            gradients.append(gradient[..., None])
+        gradients = torch.cat(gradients, -1)  # ..., input_dim, output_dim
         return gradients
 
     @torch.no_grad()
@@ -660,7 +702,9 @@ class NeRF(nn.Module):
                 feat_dict[k] = cyc_dict[k]
 
         # jacobian
-        jacob_dict = self.compute_jacobian(xyz, inst_id, field2cam)
+        jacob_dict = self.compute_jacobian(
+            xyz, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
+        )
         feat_dict.update(jacob_dict)
 
         # canonical point
@@ -728,26 +772,33 @@ class NeRF(nn.Module):
 
         return xyz_cam, dir_cam, deltas, depth
 
-    @train_only_fields
-    def compute_jacobian(self, xyz, inst_id, field2cam):
+    def compute_jacobian(self, xyz, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict):
         """Compute eikonal and normal fields from Jacobian of SDF
 
         Args:
-            xyz: (M,N,D,3) Canonical field coordinates
+            xyz: (M,N,D,3) Points along rays in object canonical space. Only for training
+            xyz_cam: (M,N,D,3) Points along rays in camera space. Only for rendering
+            dir_cam: (M,N,D,3) Ray directions in camera space. Only for rendering
+            field2cam: (M,SE(3)) Object-to-camera SE(3) transform. Only for rendering
+            frame_id: (M,) Frame id to query articulations, or None to use all frames.
+                Only for rendering
             inst_id: (M,) Instance id. If None, compute for the average instance
-            field2cam: (M,SE(3)) Object-to-camera SE(3) transform
+            samples_dict (Dict): Time-dependent bone articulations. Only for rendering. Keys:
+                "rest_articulation": ((M,B,4), (M,B,4)) and
+                "t_articulation": ((M,B,4), (M,B,4))
         Returns:
-            jacob_dict (Dict): Jacobian fields. Keys: "eikonal" (M,N,D,1) and
-                "normal" (M,N,D,3)
+            jacob_dict (Dict): Jacobian fields. Keys: "eikonal" (M,N,D,1). Only when
+                rendering, "normal" (M,N,D,3)
         """
         jacob_dict = {}
-        jacob_dict["eikonal"], normal = self.compute_eikonal(xyz, inst_id=inst_id)
-        normal = quaternion_apply(
-            field2cam[0][:, None, None].expand(normal.shape[:-1] + (4,)).clone(), normal
-        )
-        jacob_dict["normal"] = normal / (
-            torch.norm(normal, dim=-1, keepdim=True) + 1e-6
-        )
+        if self.training:
+            # For efficiency, compute subsampled eikonal loss in canonical space
+            jacob_dict["eikonal"] = self.compute_eikonal(xyz, inst_id=inst_id)
+        else:
+            # For rendering, compute full eikonal loss and normals in camera space
+            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_normal(
+                xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
+            )
         return jacob_dict
 
     def query_nerf(self, xyz, dir, frame_id, inst_id, valid_idx=None):
