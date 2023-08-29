@@ -160,7 +160,7 @@ class SkinningField(nn.Module):
         log_gauss = log_gauss + self.logscale
         return log_gauss.exp()
 
-    def draw_gaussian(self, articulation, edges):
+    def draw_gaussian(self, articulation, edges, show_joints=True):
         """Visualize Gaussian bones as a mesh
 
         Args:
@@ -184,8 +184,10 @@ class SkinningField(nn.Module):
             for k, gauss in enumerate(gaussians):
                 ellips = sph.copy()
                 # make it smaller for visualization
-                ellips.vertices *= 5e-3
-                # ellips.vertices *= gauss[None]
+                if show_joints:
+                    ellips.vertices *= 5e-3
+                else:
+                    ellips.vertices *= gauss[None]
                 ellips.apply_transform(articulation[k])
                 meshes.append(ellips)
 

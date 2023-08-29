@@ -15,6 +15,7 @@ from lab4d.utils.quat_transform import (
     quaternion_translation_to_dual_quaternion,
     dual_quaternion_mul,
     quaternion_translation_to_se3,
+    dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.skel_utils import (
     fk_se3,
@@ -265,6 +266,10 @@ class CameraMLP_so3(TimeMLP):
         base_quat = F.normalize(base_quat, dim=-1)
         quat = quaternion_mul(quat, base_quat)
         return quat, trans
+
+    def update_base_quat(self):
+        """Update base camera rotations from current camera trajectory"""
+        self.base_quat.data = self.get_vals()[0]
 
     def interpolate_base_quat(self, frame_id):
         idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
@@ -736,11 +741,10 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         # bones_dq = self.forward(t_embed, None)
         # bones_pred = dual_quaternion_to_quaternion_translation(bones_dq)[1][0]  # B,3
 
-        # joints_gt = self.rest_joints * self.logscale.exp() + self.shift[None]
-        # bones_gt = shift_joints_to_bones(joints_gt, self.edges)
+        # bones_gt = self.shift_joints_to_bones(self.rest_joints)
+        # bones_gt = apply_root_offset(bones_gt, self.shift, self.orient)
 
         # loss = (bones_gt - bones_pred).norm(2, -1).mean()
-        # loss = loss * 0.2
         return loss
 
 

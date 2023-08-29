@@ -4,6 +4,7 @@ import torch
 import trimesh
 from torch import nn
 from torch.nn import functional as F
+from geomloss import SamplesLoss
 
 from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.warping import SkinningWarp, create_warp
@@ -205,7 +206,7 @@ class Deformable(FeatureNeRF):
         Returns:
             loss: (0,) Skinning consistency loss
         """
-        pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.25)
+        pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
 
         # match the gauss density to the reconstructed density
         density_gauss = self.warp.get_gauss_density(pts)  # (N,1)
@@ -213,17 +214,34 @@ class Deformable(FeatureNeRF):
             density = self.forward(pts, inst_id=None, get_density=True)
             density = density / self.logibeta.exp()  # (0,1)
 
-        # binary cross entropy loss to align gauss density to the reconstructed density
-        # weight the loss such that:
-        # wp lp = wn ln
-        # wp lp + wn ln = lp + ln
-        weight_pos = 0.5 / (1e-6 + density.mean())
-        weight_neg = 0.5 / (1e-6 + 1 - density).mean()
-        weight = density * weight_pos + (1 - density) * weight_neg
-        # loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
-        loss = F.binary_cross_entropy(
-            density_gauss, density.detach(), weight=weight.detach()
-        )
+        # optimal transport loss (larger kernel)
+        pts_gauss = self.warp.get_gauss_vis(show_joints=False)
+        pts_gauss = torch.tensor(pts_gauss.vertices, device=pts.device, dtype=pts.dtype)
+        pts_recon = pts[density[..., 0] > 0.5]
+        if len(pts_recon) == 0:
+            return torch.tensor(0.0, device=pts.device)
+
+        samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
+        scale_proxy = self.get_scale()  # to normalize pts to 1
+        loss = samploss(pts_gauss / scale_proxy, pts_recon / scale_proxy).mean()
+
+        # if get_local_rank() == 0:
+        #     mesh = trimesh.Trimesh(vertices=pts_recon.detach().cpu())
+        #     mesh.export("tmp/0.obj")
+        #     mesh = trimesh.Trimesh(vertices=pts_gauss.detach().cpu())
+        #     mesh.export("tmp/1.obj")
+
+        # # binary cross entropy loss to align gauss density to the reconstructed density
+        # # weight the loss such that:
+        # # wp lp = wn ln
+        # # wp lp + wn ln = lp + ln
+        # weight_pos = 0.5 / (1e-6 + density.mean())
+        # weight_neg = 0.5 / (1e-6 + 1 - density).mean()
+        # weight = density * weight_pos + (1 - density) * weight_neg
+        # # loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
+        # loss = F.binary_cross_entropy(
+        #     density_gauss, density.detach(), weight=weight.detach()
+        # )
 
         # if get_local_rank() == 0:
         #     is_inside = density > 0.5

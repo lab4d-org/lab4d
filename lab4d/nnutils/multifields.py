@@ -9,7 +9,7 @@ from torch import nn
 from lab4d.nnutils.deformable import Deformable
 from lab4d.nnutils.nerf import NeRF
 from lab4d.nnutils.bgnerf import BGNeRF
-from lab4d.nnutils.pose import ArticulationSkelMLP
+from lab4d.nnutils.pose import ArticulationSkelMLP, CameraMLP_so3
 from lab4d.nnutils.warping import ComposedWarp, SkinningWarp
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from lab4d.utils.vis_utils import draw_cams, mesh_cat
@@ -137,6 +137,10 @@ class MultiFields(nn.Module):
             field.update_proxy()
             field.update_aabb()
             field.update_near_far()
+
+            # update camera mlp base quat
+            if isinstance(field.camera_mlp, CameraMLP_so3):
+                field.camera_mlp.update_base_quat()
 
     def reset_geometry_aux(self):
         """Reset proxy geometry and bounds for all child fields"""

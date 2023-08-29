@@ -386,6 +386,27 @@ class SkinningWarp(IdentityWarp):
         sdf = sdf + bias
         return sdf
 
+    def get_xyz_bone_distance(self, xyz, bone2obj=None):
+        """
+        Args:
+            xyz: (N, 3) Points in object canonical space
+            bone2obj: ((M,B,4), (M,B,4)) Bone-to-object SE(3) transforms,
+        Returns:
+            dist2: (N,B) Squared distance to each bone
+        """
+        if isinstance(self.articulation, ArticulationURDFMLP):
+            # gauss bones + skinning
+            xyz = xyz[:, None, None]  # (N,1,1,3)
+            bone2obj = (
+                bone2obj[0][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
+                bone2obj[1][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
+            )  # (N,1,1,K,4)
+            dist2 = -self.skinning_model.forward(xyz, bone2obj, None, None)[0][:, 0, 0]
+        else:
+            dist2 = get_xyz_bone_distance(xyz, bone2obj)  # N,K
+            dist2 = dist2 / (0.01) ** 2  # assuming spheres of radius 0.01
+        return dist2
+
     def get_gauss_density(self, xyz, bone2obj=None):
         """Sample volumetric density at Gaussian bones
 
@@ -398,18 +419,7 @@ class SkinningWarp(IdentityWarp):
         """
         if bone2obj is None:
             bone2obj = self.articulation.get_mean_vals()  # 1,K,4,4
-
-        if isinstance(self.articulation, ArticulationURDFMLP):
-            # gauss bones + skinning
-            xyz = xyz[:, None, None]  # (N,1,1,3)
-            bone2obj = (
-                bone2obj[0][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-                bone2obj[1][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-            )  # (N,1,1,K,4)
-            dist2 = -self.skinning_model.forward(xyz, bone2obj, None, None)[0][:, 0, 0]
-        else:
-            dist2 = get_xyz_bone_distance(xyz, bone2obj)  # N,K
-            dist2 = dist2 / (0.01) ** 2  # assuming spheres of radius 0.01
+        dist2 = self.get_xyz_bone_distance(xyz, bone2obj)  # (N,K)
         score = (-0.5 * dist2).exp()  # (N,K)
 
         # hard selection
@@ -417,6 +427,21 @@ class SkinningWarp(IdentityWarp):
 
         density = density[..., None]
         return density
+
+    def get_gauss_vis(self, show_joints=True):
+        """Visualize Gaussians as meshes.
+
+        Args:
+            aabb: (2,3) Axis-aligned bounding box
+        Returns:
+            mesh_gauss (Trimesh): Gaussian density mesh
+        """
+        articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
+        articulation = (articulation[0][0], articulation[1][0])
+        mesh_gauss = self.skinning_model.draw_gaussian(
+            articulation, self.articulation.edges, show_joints=show_joints
+        )
+        return mesh_gauss
 
     def get_template_vis(self, aabb):
         """Visualize Gaussian density and SDF as meshes.
@@ -427,11 +452,7 @@ class SkinningWarp(IdentityWarp):
             mesh_gauss (Trimesh): Gaussian density mesh
             mesh_sdf (Trimesh): SDF mesh
         """
-        articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
-        articulation = (articulation[0][0], articulation[1][0])
-        mesh_gauss = self.skinning_model.draw_gaussian(
-            articulation, self.articulation.edges
-        )
+        mesh_gauss = self.get_gauss_vis()
 
         sdf_func = lambda xyz: self.get_gauss_sdf(xyz)
         mesh_sdf = marching_cubes(sdf_func, aabb, level=0.005)

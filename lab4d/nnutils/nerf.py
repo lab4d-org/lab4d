@@ -151,8 +151,8 @@ class NeRF(nn.Module):
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
-        # self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
-        self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
+        self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
+        # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
 
         # visibility mlp
         self.vis_mlp = VisField(self.num_inst, field_arch=field_arch)
@@ -371,6 +371,11 @@ class NeRF(nn.Module):
             return self.aabb
         else:
             return self.aabb[None].repeat(len(inst_id), 1, 1)
+
+    def get_scale(self):
+        """Get scale of the proxy geometry"""
+        aabb = self.get_aabb()
+        return (aabb[1] - aabb[0]).mean()
 
     def update_aabb(self, beta=0.5):
         """Update axis-aligned bounding box by interpolating with the current
