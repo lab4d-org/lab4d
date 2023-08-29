@@ -30,7 +30,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
-
+from lab4d.utils.torch_utils import compute_gradient
 
 class NeRF(nn.Module):
     """A static neural radiance field with an MLP backbone.
@@ -443,11 +443,8 @@ class NeRF(nn.Module):
         else:
             rand_inds = Ellipsis
 
-        xyz = xyz.detach()
-        with torch.enable_grad():
-            xyz.requires_grad_(True)
-            y = self.forward(xyz, inst_id=inst_id, get_density=False)
-            g = self.gradient(y, xyz)[..., 0]
+        fn_sdf = lambda x: self.forward(x, inst_id=inst_id, get_density=False)
+        g = compute_gradient(fn_sdf, xyz)[..., 0]
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
@@ -470,15 +467,7 @@ class NeRF(nn.Module):
         """
         M, N, D, _ = xyz_cam.shape
 
-        xyz_cam = xyz_cam.detach()
-        dir_cam = dir_cam.detach()
-        field2cam = (field2cam[0].detach(), field2cam[1].detach())
-        samples_dict = {
-            k: tuple(x.detach() for x in v) if isinstance(v, tuple) else v.detach()
-            for k, v in samples_dict.items()
-        }
-        with torch.enable_grad():
-            xyz_cam.requires_grad_(True)
+        def fn_sdf(xyz_cam):
             xyz = self.backward_warp(
                 xyz_cam,
                 dir_cam,
@@ -487,8 +476,10 @@ class NeRF(nn.Module):
                 inst_id=inst_id,
                 samples_dict=samples_dict,
             )["xyz"]
-            y = self.forward(xyz, inst_id=inst_id, get_density=False)
-            g = self.gradient(y, xyz_cam)[..., 0]
+            sdf = self.forward(xyz, inst_id=inst_id, get_density=False)
+            return sdf
+
+        g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
 
         eikonal = (g.norm(2, dim=-1, keepdim=True) - 1) ** 2
         normal = torch.nn.functional.normalize(g, dim=-1)
@@ -498,34 +489,6 @@ class NeRF(nn.Module):
         normal = normal * torch.tensor([1, -1, -1], device="cuda")
 
         return eikonal, normal
-
-    def gradient(self, outputs, inputs):
-        """Compute gradient for each size-1 output
-
-        Args:
-            outputs (sequence of Tensor): Outputs of the differentiated function
-            inputs (sequence of Tensor): Inputs wrt. which the gradient will be
-                returned (and not accumulated into .grad)
-        Returns:
-            gradients: Gradients of outputs wrt. inputs
-        """
-        gradients = []
-        for i in range(outputs.shape[-1]):
-            outputs_sub = outputs[..., i : i + 1]
-            d_output = torch.ones_like(
-                outputs_sub, requires_grad=False, device=outputs.device
-            )
-            gradient = torch.autograd.grad(
-                outputs=outputs_sub,
-                inputs=inputs,
-                grad_outputs=d_output,
-                create_graph=True,
-                retain_graph=True,
-                only_inputs=True,
-            )[0]
-            gradients.append(gradient[..., None])
-        gradients = torch.cat(gradients, -1)  # ..., input_dim, output_dim
-        return gradients
 
     @torch.no_grad()
     def get_valid_idx(self, xyz, xyz_t=None, vis_score=None, samples_dict={}):
