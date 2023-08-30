@@ -87,6 +87,7 @@ def construct_batch_from_opts(opts, model, data_info):
 
     # get cameras wrt each field
     with torch.no_grad():
+        frameid = torch.tensor(frameid, device=device)
         field2cam_fr = model.fields.get_cameras(frame_id=frameid)
         intrinsics_fr = model.intrinsics.get_vals(
             frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
