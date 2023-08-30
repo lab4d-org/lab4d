@@ -284,7 +284,7 @@ class NeRF(nn.Module):
             vis_loss = vis_loss * 0.01
 
             # evaluate eikonal loss
-            eikonal_loss = self.compute_eikonal(pts[:, None, None], inst_id=inst_id)[0]
+            eikonal_loss = self.compute_eikonal(pts[:, None, None], inst_id=inst_id)
             eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
             eikonal_loss = eikonal_loss * 1e-4
 
