@@ -255,7 +255,7 @@ class dvr_model(nn.Module):
         samples_dict = self.fields.get_samples(Kinv, batch)
         return samples_dict
 
-    def render_samples_chunk(self, samples_dict, flow_thresh=None, chunk_size=16384):
+    def render_samples_chunk(self, samples_dict, flow_thresh=None, chunk_size=8192):
         """Render outputs from all neural fields. Divide in chunks along pixel
         dimension N to avoid running out of memory.
 

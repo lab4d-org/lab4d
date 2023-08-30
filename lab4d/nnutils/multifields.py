@@ -407,7 +407,7 @@ class MultiFields(nn.Module):
             deltas = torch.gather(deltas, 2, z_idx.expand_as(deltas))
         return field_dict, deltas
 
-    def get_cameras(self, inst_id=None):
+    def get_cameras(self, frame_id=None):
         """Compute camera matrices in world units
 
         Returns:

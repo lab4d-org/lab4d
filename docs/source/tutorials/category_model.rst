@@ -18,14 +18,8 @@ First, download pre-processeed data (20G)::
 
   bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/c6lrg2aaabat4gu57avbq/human-48.zip?dl=0&rlkey=ezpc3k13qgm1yqzm4v897whcj"
 
-.. note::
-  
-  The command to pre-process the `human-48`` dataset is::
 
-    # Args: video name, quadruped category, on gpu 0-6
-    python scripts/run_preprocess.py human-48 human "0,1,2,3,4,5,6"
-
-  To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
+To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preprocessing.html>`_.
 
 .. note::
 

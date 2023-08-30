@@ -1,7 +1,3 @@
-[submodule "preprocess/third_party/MinVIS"]
-	path = preprocess/third_party/MinVIS
-	url = https://github.com/gengshan-y/MinVIS
-
 [submodule "preprocess/third_party/detectron2"]
 	path = preprocess/third_party/detectron2
 	url = https://github.com/facebookresearch/detectron2

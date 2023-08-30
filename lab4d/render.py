@@ -64,6 +64,7 @@ def construct_batch_from_opts(opts, model, data_info):
         if opts["noskip"]:
             # render all frames
             frameid_sub = np.arange(vid_length)
+            render_length = vid_length
         else:
             # render filtered frames
             frame_mapping = data_info["frame_info"]["frame_mapping"]
@@ -72,19 +73,21 @@ def construct_batch_from_opts(opts, model, data_info):
 
             frameid_start = data_info["frame_info"]["frame_offset_raw"][video_id]
             frameid_sub = frameid - frameid_start
+            render_length = len(frameid)
     elif opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
-        if opts["num_frames"] == -1:
+        if opts["num_frames"] <= 0:
             num_frames = vid_length
         else:
-            num_frames = 150
+            num_frames = opts["num_frames"]
         frameid_sub = np.asarray([opts["freeze_id"]] * num_frames)
     else:
         raise ValueError("frame id %d out of range" % opts["freeze_id"])
     print("rendering frames: %s from video %d" % (str(frameid_sub), video_id))
+    frameid = frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
 
     # get cameras wrt each field
     with torch.no_grad():
-        field2cam_fr = model.fields.get_cameras(inst_id=opts["inst_id"])
+        field2cam_fr = model.fields.get_cameras(frame_id=frameid)
         intrinsics_fr = model.intrinsics.get_vals(
             frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
         )
@@ -141,7 +144,7 @@ def construct_batch_from_opts(opts, model, data_info):
             bg2bev = camt0_to_bev @ field2cam_fr["bg"][:1]
             # push cameras away
             bg2bev[..., 2, 3] *= 3
-            field2cam = {"bg": np.tile(bg2bev, (vid_length, 1, 1))}
+            field2cam = {"bg": np.tile(bg2bev, (render_length, 1, 1))}
             if "fg" in field2cam_fr.keys():
                 # if both fg and bg
                 camt2bg = np.linalg.inv(field2cam_fr["bg"])
