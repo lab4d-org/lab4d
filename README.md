@@ -14,13 +14,13 @@
 **Lab4D** is a framework for 4D reconstruction from monocular videos. The software is licensed under the MIT license. 
 <p>
   <picture>
-  <img alt="logo" src="media/teaser.gif" width="810px" />
+  <img alt="logo" src="media/teaser.gif" width="480px" />
   </picture>
 </p>
 
 
 ## TODOs
-- [ ] more data and checkpoints
+- [x] more data and checkpoints
 - [ ] feedforward models
 - [ ] web viewer
 - [ ] evaluation and benchmarks
