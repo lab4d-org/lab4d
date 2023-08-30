@@ -67,6 +67,16 @@ class CameraMLP(TimeMLP):
             activation=activation,
         )
 
+        self.base_rot = BaseMLP(
+            D=D,
+            W=W,
+            in_channels=W,
+            out_channels=W,
+            skips=skips,
+            activation=activation,
+            final_act=True,
+        )
+
         # output layers
         self.trans = nn.Sequential(
             nn.Linear(W, W // 2),
@@ -124,7 +134,7 @@ class CameraMLP(TimeMLP):
         """
         t_feat = super().forward(t_embed)
         trans = self.trans(t_feat)
-        quat = self.quat(t_feat)
+        quat = self.quat(self.base_rot(t_embed))
         quat = F.normalize(quat, dim=-1)
         return quat, trans
 
@@ -722,29 +732,36 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         Returns:
             loss: (0,) Skeleton prior loss
         """
-        # get rest joint angles increment
-        device = self.parameters().__next__().device
-        t_embed = self.time_embedding.get_mean_embedding(device)
-        so3 = self.forward(t_embed, None, return_so3=True)  # 1, num_channels
-        loss_so3 = so3.pow(2).mean()
-
-        # get average log bone length increment
-        empty_feat = torch.zeros_like(so3[..., 0, :0])  # (1, 0)
-        log_bone_len_inc = self.log_bone_len(empty_feat, None)
-        loss_bone = 0.2 * log_bone_len_inc.pow(2).mean()
-
-        loss = loss_so3 + loss_bone
-
-        # # alternative: minimize joint location difference
+        # # get rest joint angles increment
         # device = self.parameters().__next__().device
         # t_embed = self.time_embedding.get_mean_embedding(device)
-        # bones_dq = self.forward(t_embed, None)
-        # bones_pred = dual_quaternion_to_quaternion_translation(bones_dq)[1][0]  # B,3
+        # so3 = self.forward(t_embed, None, return_so3=True)  # 1, num_channels
+        # loss_so3 = so3.pow(2).mean()
 
-        # bones_gt = self.shift_joints_to_bones(self.rest_joints)
-        # bones_gt = apply_root_offset(bones_gt, self.shift, self.orient)
+        # # get average log bone length increment
+        # empty_feat = torch.zeros_like(so3[..., 0, :0])  # (1, 0)
+        # log_bone_len_inc = self.log_bone_len(empty_feat, None)
+        # loss_bone = 0.2 * log_bone_len_inc.pow(2).mean()
 
-        # loss = (bones_gt - bones_pred).norm(2, -1).mean()
+        # loss = loss_so3 + loss_bone
+
+        # alternative: minimize joint location difference
+        device = self.parameters().__next__().device
+        t_embed = self.time_embedding.get_mean_embedding(device)
+        bones_dq = self.forward(t_embed, None)
+        bones_pred = dual_quaternion_to_quaternion_translation(bones_dq)[1][0]  # B,3
+
+        bones_dq = self.forward(
+            None,
+            None,
+            override_so3=torch.zeros(1, self.num_se3, 3, device=device),
+            override_log_bone_len=torch.zeros(1, self.num_se3, device=device),
+        )
+        bones_gt = dual_quaternion_to_quaternion_translation(bones_dq)[1][0]  # B,3
+
+        loss = (bones_gt - bones_pred).norm(2, -1).mean()
+        # trimesh.Trimesh(vertices=bones_pred.detach().cpu()).export("tmp/bones_pred.obj")
+        # trimesh.Trimesh(vertices=bones_gt.detach().cpu()).export("tmp/bones_gt.obj")
         return loss
 
 

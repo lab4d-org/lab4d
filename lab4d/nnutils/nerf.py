@@ -151,8 +151,8 @@ class NeRF(nn.Module):
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
-        self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
-        # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
+        # self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
+        self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
 
         # visibility mlp
         self.vis_mlp = VisField(self.num_inst, field_arch=field_arch)

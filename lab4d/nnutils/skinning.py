@@ -10,6 +10,7 @@ from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
 from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
     quaternion_to_matrix,
+    dual_quaternion_apply,
 )
 from lab4d.utils.transforms import get_bone_coords
 from lab4d.utils.vis_utils import get_colormap
@@ -160,6 +161,31 @@ class SkinningField(nn.Module):
         log_gauss = log_gauss + self.logscale
         return log_gauss.exp()
 
+    def get_gauss_pts(self, articulation):
+        """
+        Compute gaussian points (differentiable wrt articulation)
+        Args:
+            articulation: ((B,4), (B,4)) Bone-to-object SE(3) transforms,
+                written as dual quaternions
+        """
+        dev = articulation[0].device
+        gaussians = self.get_gauss()  # B,3
+
+        # append gaussians
+        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        pts = torch.tensor(sph.vertices, device=dev, dtype=torch.float32)
+        pts = pts[:, None] * gaussians[None]  # N,B,3
+
+        # apply articulation
+        articulation = (
+            articulation[0][None].repeat(pts.shape[0], 1, 1),
+            articulation[1][None].repeat(pts.shape[0], 1, 1),
+        )
+        pts = dual_quaternion_apply(articulation, pts)  # N,B,3
+        pts = pts.view(-1, 3)  # NB,3
+        return pts
+
+    @torch.no_grad()
     def draw_gaussian(self, articulation, edges, show_joints=True):
         """Visualize Gaussian bones as a mesh
 
@@ -169,43 +195,42 @@ class SkinningField(nn.Module):
             edges (Dict(int, int) or None): If given, a mapping from each joint
                 to its parent joint on an articulated skeleton
         """
-        with torch.no_grad():
-            meshes = []
-            gaussians = self.get_gauss().cpu().numpy()
+        meshes = []
+        gaussians = self.get_gauss().cpu().numpy()
 
-            qr, trans = dual_quaternion_to_quaternion_translation(articulation)
-            articulation = np.eye(4, 4)[None].repeat(len(qr), axis=0)
-            articulation[:, :3, :3] = quaternion_to_matrix(qr).cpu().numpy()
-            articulation[:, :3, 3] = trans.cpu().numpy()
+        qr, trans = dual_quaternion_to_quaternion_translation(articulation)
+        articulation = np.eye(4, 4)[None].repeat(len(qr), axis=0)
+        articulation[:, :3, :3] = quaternion_to_matrix(qr).cpu().numpy()
+        articulation[:, :3, 3] = trans.cpu().numpy()
 
-            # add bone center / joints
-            sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
-            colormap = get_colormap(self.num_coords, repeat=sph.vertices.shape[0])
-            for k, gauss in enumerate(gaussians):
-                ellips = sph.copy()
-                # make it smaller for visualization
-                if show_joints:
-                    ellips.vertices *= 5e-3
-                else:
-                    ellips.vertices *= gauss[None]
-                ellips.apply_transform(articulation[k])
-                meshes.append(ellips)
+        # add bone center / joints
+        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        colormap = get_colormap(self.num_coords, repeat=sph.vertices.shape[0])
+        for k, gauss in enumerate(gaussians):
+            ellips = sph.copy()
+            # make it smaller for visualization
+            if show_joints:
+                ellips.vertices *= 5e-3
+            else:
+                ellips.vertices *= gauss[None]
+            ellips.apply_transform(articulation[k])
+            meshes.append(ellips)
 
-            # add edges if any
-            if edges is not None:
-                # rad = gaussians.mean() * 0.1
-                rad = 5e-4
-                for idx, parent_idx in edges.items():
-                    if parent_idx == 0:
-                        continue
-                    parent_center = articulation[parent_idx - 1][:3, 3]
-                    child_center = articulation[idx - 1][:3, 3]
-                    cyl = np.stack([parent_center, child_center], 0)
-                    cyl = trimesh.creation.cylinder(rad, segment=cyl, sections=3)
-                    meshes.append(cyl)
+        # add edges if any
+        if edges is not None:
+            # rad = gaussians.mean() * 0.1
+            rad = 5e-4
+            for idx, parent_idx in edges.items():
+                if parent_idx == 0:
+                    continue
+                parent_center = articulation[parent_idx - 1][:3, 3]
+                child_center = articulation[idx - 1][:3, 3]
+                cyl = np.stack([parent_center, child_center], 0)
+                cyl = trimesh.creation.cylinder(rad, segment=cyl, sections=3)
+                meshes.append(cyl)
 
-            meshes = trimesh.util.concatenate(meshes)
-            colormap_pad = np.ones((meshes.vertices.shape[0] - colormap.shape[0], 3))
-            colormap = np.concatenate([colormap, 192 * colormap_pad], 0)
-            meshes.visual.vertex_colors = colormap
-            return meshes
+        meshes = trimesh.util.concatenate(meshes)
+        colormap_pad = np.ones((meshes.vertices.shape[0] - colormap.shape[0], 3))
+        colormap = np.concatenate([colormap, 192 * colormap_pad], 0)
+        meshes.visual.vertex_colors = colormap
+        return meshes

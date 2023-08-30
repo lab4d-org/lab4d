@@ -206,42 +206,60 @@ class Deformable(FeatureNeRF):
         Returns:
             loss: (0,) Skinning consistency loss
         """
-        pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
-
-        # match the gauss density to the reconstructed density
-        density_gauss = self.warp.get_gauss_density(pts)  # (N,1)
-        with torch.no_grad():
-            density = self.forward(pts, inst_id=None, get_density=True)
-            density = density / self.logibeta.exp()  # (0,1)
-
-        # optimal transport loss (larger kernel)
-        pts_gauss = self.warp.get_gauss_vis(show_joints=False)
-        pts_gauss = torch.tensor(pts_gauss.vertices, device=pts.device, dtype=pts.dtype)
-        pts_recon = pts[density[..., 0] > 0.5]
-        if len(pts_recon) == 0:
-            return torch.tensor(0.0, device=pts.device)
-
-        samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
-        scale_proxy = self.get_scale()  # to normalize pts to 1
-        loss = samploss(pts_gauss / scale_proxy, pts_recon / scale_proxy).mean()
+        # # optimal transport loss (larger kernel)
+        # device = self.parameters().__next__().device
+        # pts = self.get_proxy_geometry().vertices
+        # # sample 600 points from the proxy geometry
+        # pts = pts[np.random.choice(len(pts), 600)]
+        # pts = torch.tensor(pts, device=device, dtype=torch.float32)
+        # pts_gauss = self.warp.get_gauss_pts()
+        # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
+        # scale_proxy = self.get_scale()  # to normalize pts to 1
+        # loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
 
         # if get_local_rank() == 0:
-        #     mesh = trimesh.Trimesh(vertices=pts_recon.detach().cpu())
+        #     mesh = trimesh.Trimesh(vertices=pts.detach().cpu())
         #     mesh.export("tmp/0.obj")
         #     mesh = trimesh.Trimesh(vertices=pts_gauss.detach().cpu())
         #     mesh.export("tmp/1.obj")
 
-        # # binary cross entropy loss to align gauss density to the reconstructed density
-        # # weight the loss such that:
-        # # wp lp = wn ln
-        # # wp lp + wn ln = lp + ln
-        # weight_pos = 0.5 / (1e-6 + density.mean())
-        # weight_neg = 0.5 / (1e-6 + 1 - density).mean()
-        # weight = density * weight_pos + (1 - density) * weight_neg
-        # # loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
-        # loss = F.binary_cross_entropy(
-        #     density_gauss, density.detach(), weight=weight.detach()
-        # )
+        pts, frame_id, _ = self.sample_points_aabb(nsample, extend_factor=0.25)
+        inst_id = None
+        samples_dict = {}
+        (
+            samples_dict["t_articulation"],
+            samples_dict["rest_articulation"],
+        ) = self.warp.articulation.get_vals_and_mean(frame_id)
+
+        # match the gauss density to the reconstructed density
+        density_gauss = self.warp.get_gauss_density(
+            pts, bone2obj=samples_dict["t_articulation"]
+        )  # (N,1)
+
+        with torch.no_grad():
+            pts = self.warp(
+                pts[:, None, None],
+                frame_id,
+                inst_id,
+                backward=True,
+                samples_dict=samples_dict,
+                return_aux=False,
+            )[:, 0, 0]
+            density = self.forward(pts, inst_id=inst_id, get_density=True)
+            density = density / self.logibeta.exp()  # (0,1)
+
+        # loss = ((density_gauss - density).pow(2)).mean()
+        # binary cross entropy loss to align gauss density to the reconstructed density
+        # weight the loss such that:
+        # wp lp = wn ln
+        # wp lp + wn ln = lp + ln
+        weight_pos = 0.5 / (1e-6 + density.mean())
+        weight_neg = 0.5 / (1e-6 + 1 - density).mean()
+        weight = density * weight_pos + (1 - density) * weight_neg
+        # loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
+        loss = F.binary_cross_entropy(
+            density_gauss, density.detach(), weight=weight.detach()
+        )
 
         # if get_local_rank() == 0:
         #     is_inside = density > 0.5

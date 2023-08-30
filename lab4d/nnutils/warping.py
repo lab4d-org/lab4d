@@ -390,7 +390,7 @@ class SkinningWarp(IdentityWarp):
         """
         Args:
             xyz: (N, 3) Points in object canonical space
-            bone2obj: ((M,B,4), (M,B,4)) Bone-to-object SE(3) transforms,
+            bone2obj: ((1/N,B,4), (M,B,4)) Bone-to-object SE(3) transforms,
         Returns:
             dist2: (N,B) Squared distance to each bone
         """
@@ -398,8 +398,8 @@ class SkinningWarp(IdentityWarp):
             # gauss bones + skinning
             xyz = xyz[:, None, None]  # (N,1,1,3)
             bone2obj = (
-                bone2obj[0][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-                bone2obj[1][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
+                bone2obj[0][:, None, None].expand(xyz.shape[0], -1, -1, -1, -1),
+                bone2obj[1][:, None, None].expand(xyz.shape[0], -1, -1, -1, -1),
             )  # (N,1,1,K,4)
             dist2 = -self.skinning_model.forward(xyz, bone2obj, None, None)[0][:, 0, 0]
         else:
@@ -427,6 +427,13 @@ class SkinningWarp(IdentityWarp):
 
         density = density[..., None]
         return density
+
+    def get_gauss_pts(self):
+        """Sample points from Gaussian bones"""
+        articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
+        articulation = (articulation[0][0], articulation[1][0])
+        pts = self.skinning_model.get_gauss_pts(articulation)
+        return pts
 
     def get_gauss_vis(self, show_joints=True):
         """Visualize Gaussians as meshes.
