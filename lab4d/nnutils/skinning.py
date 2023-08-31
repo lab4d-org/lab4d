@@ -73,8 +73,8 @@ class SkinningField(nn.Module):
 
         if delta_skin:
             # position and direction embedding
-            self.pos_embedding = PosEmbedding(3 * num_coords, num_freq_xyz)
-            self.time_embedding = TimeEmbedding(num_freq_t, frame_info)
+            self.pos_embedding = PosEmbedding(4 * num_coords, num_freq_xyz)
+            # self.time_embedding = TimeEmbedding(num_freq_t, frame_info)
 
             # xyz encoding layers
             self.delta_field = CondMLP(
@@ -82,9 +82,10 @@ class SkinningField(nn.Module):
                 D=D,
                 W=W,
                 in_channels=self.pos_embedding.out_channels
-                + self.time_embedding.out_channels,
+                # + self.time_embedding.out_channels,
+                ,
                 inst_channels=inst_channels,
-                out_channels=num_coords,
+                out_channels=num_coords * 2,
                 skips=skips,
                 activation=activation,
                 final_act=False,
@@ -111,19 +112,23 @@ class SkinningField(nn.Module):
         dist2 = xyz_bone.pow(2).sum(dim=-1)
 
         if hasattr(self, "delta_field"):
+            xyz_bone = torch.cat([xyz_bone, xyz_bone.norm(2, -1)[..., None]], dim=-1)
             # modulate with t/inst
             xyz_embed = self.pos_embedding(xyz_bone.reshape(xyz.shape[:-1] + (-1,)))
-            if frame_id is None:
-                t_embed = self.time_embedding.get_mean_embedding(xyz.device)
-            else:
-                t_embed = self.time_embedding(frame_id)
-            t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
-            t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
-            xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
-            delta = self.delta_field(xyzt_embed, inst_id)
+            # if frame_id is None:
+            #     t_embed = self.time_embedding.get_mean_embedding(xyz.device)
+            # else:
+            #     t_embed = self.time_embedding(frame_id)
+            # t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
+            # t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
+            # xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
+            # delta = self.delta_field(xyzt_embed, inst_id)
+            delta = self.delta_field(xyz_embed, inst_id)
+            logscale, shift = torch.split(delta, delta.shape[-1] // 2, dim=-1)
             # delta = F.relu(delta) * 0.1
             # skin = -(dist2 + delta)
-            dist2 = dist2 * (0.1 * delta).exp()
+            dist2 = dist2 * (0.1 * logscale).exp()
+            dist2 = dist2 + F.relu(0.1 * shift)
             skin = -dist2
         else:
             skin = -dist2

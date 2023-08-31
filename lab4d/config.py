@@ -25,7 +25,7 @@ class TrainModelConfig:
         "reg_deform_cyc_wt", 0.01, "weight for deform cyc regularization"
     )
     flags.DEFINE_float("reg_delta_skin_wt", 5e-3, "weight for delta skinning reg")
-    flags.DEFINE_float("reg_skin_entropy_wt", 5e-4, "weight for delta skinning reg")
+    flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
     flags.DEFINE_float(
         "reg_gauss_skin_wt", 1e-3, "weight for gauss skinning consistency"
     )

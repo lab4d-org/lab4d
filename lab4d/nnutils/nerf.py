@@ -33,6 +33,7 @@ from lab4d.utils.quat_transform import (
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
 from lab4d.utils.torch_utils import compute_gradient
 
+
 class NeRF(nn.Module):
     """A static neural radiance field with an MLP backbone.
 
@@ -111,7 +112,7 @@ class NeRF(nn.Module):
         )
 
         # color
-        self.pos_embedding_color = PosEmbedding(3, num_freq_xyz + 2)
+        self.pos_embedding_color = PosEmbedding(3, 12)
         self.colorfield = field_arch(
             num_inst=self.num_inst,
             D=2,
@@ -302,7 +303,9 @@ class NeRF(nn.Module):
             vis_loss = vis_loss * 0.01
 
             # evaluate eikonal loss
-            eikonal_loss = self.compute_eikonal(pts[:, None, None], inst_id=inst_id)[0]
+            eikonal_loss = self.compute_eikonal(
+                pts[:, None, None], inst_id=inst_id, sample_ratio=1
+            )
             eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
             eikonal_loss = eikonal_loss * 1e-4
 
@@ -487,7 +490,9 @@ class NeRF(nn.Module):
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
         return eikonal_loss
 
-    def compute_normal(self, xyz_cam, dir_cam, field2cam, frame_id=None, inst_id=None, samples_dict={}):
+    def compute_normal(
+        self, xyz_cam, dir_cam, field2cam, frame_id=None, inst_id=None, samples_dict={}
+    ):
         """Compute eikonal loss and normals in camera space
 
         Args:
@@ -778,7 +783,9 @@ class NeRF(nn.Module):
 
         return xyz_cam, dir_cam, deltas, depth
 
-    def compute_jacobian(self, xyz, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict):
+    def compute_jacobian(
+        self, xyz, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
+    ):
         """Compute eikonal and normal fields from Jacobian of SDF
 
         Args:

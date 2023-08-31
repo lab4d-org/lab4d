@@ -422,8 +422,12 @@ class SkinningWarp(IdentityWarp):
         dist2 = self.get_xyz_bone_distance(xyz, bone2obj)  # (N,K)
         score = (-0.5 * dist2).exp()  # (N,K)
 
-        # hard selection
-        density = score.max(-1)[0]  # (N,)
+        # # hard selection
+        # density = score.max(-1)[0]  # (N,)
+
+        # soften the density selection
+        mix_prob = F.softmax(-dist2, -1)
+        density = (score * mix_prob).sum(-1)
 
         density = density[..., None]
         return density

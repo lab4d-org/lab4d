@@ -145,7 +145,7 @@ class Trainer:
             ".logsigma": lr_explicit,
             ".logscale": lr_explicit,
             ".log_gauss": 0.0,
-            ".base_quat": 0.0,  # avoid updating the base_quat to stabilize training
+            ".base_quat": lr_explicit,
             ".base_logfocal": lr_explicit,
             ".base_ppoint": lr_explicit,
             ".shift": lr_explicit,
@@ -363,12 +363,15 @@ class Trainer:
             # print(total_loss)
             # self.print_sum_params()
 
-            self.check_grad()
+            grad_dict = self.check_grad()
             self.optimizer.step()
             self.scheduler.step()
             self.optimizer.zero_grad()
 
             if get_local_rank() == 0:
+                # update scalar dict
+                loss_dict["loss/total"] = total_loss
+                loss_dict.update(grad_dict)
                 self.add_scalar(self.log, loss_dict, self.current_steps)
             self.current_steps += 1
 
@@ -604,11 +607,13 @@ class Trainer:
             thresh (float): Gradient clipping threshold
         """
         # parameters that are sensitive to large gradients
+        grad_dict = {}
         params_list = []
         for param_dict in self.params_ref_list:
             ((name, p),) = param_dict.items()
             if p.requires_grad:
                 params_list.append(p)
+                grad_dict["grad/" + name] = p.grad.reshape(-1).norm(2, -1)
 
         grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
         if grad_norm > thresh:
@@ -623,3 +628,5 @@ class Trainer:
                 self.model.load_state_dict(self.model_cache[0])
                 self.optimizer.load_state_dict(self.optimizer_cache[0])
                 self.scheduler.load_state_dict(self.scheduler_cache[0])
+
+        return grad_dict
