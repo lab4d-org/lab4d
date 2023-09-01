@@ -145,7 +145,7 @@ class Trainer:
             ".logsigma": lr_explicit,
             ".logscale": lr_explicit,
             ".log_gauss": 0.0,
-            ".base_quat": lr_explicit,
+            ".base_quat": 0.0,
             ".base_logfocal": lr_explicit,
             ".base_ppoint": lr_explicit,
             ".shift": lr_explicit,
@@ -600,7 +600,7 @@ class Trainer:
 
         return model, data_info, ref_dict
 
-    def check_grad(self, thresh=10.0):
+    def check_grad(self, thresh=5.0):
         """Check if gradients are above a threshold
 
         Args:
@@ -616,6 +616,7 @@ class Trainer:
                 grad_dict["grad/" + name] = p.grad.reshape(-1).norm(2, -1)
 
         grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
+        print("grad_norm: %.2f" % grad_norm)
         if grad_norm > thresh:
             # clear gradients
             self.optimizer.zero_grad()
