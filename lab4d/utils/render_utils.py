@@ -110,19 +110,19 @@ def compute_weights(density, deltas):
     alpha_p = 1 - torch.exp(-density)  # (M, N, D)
     alpha_p = torch.cat(
         [alpha_p, torch.ones_like(alpha_p[:, :, :1])], dim=-1
-    )  # (M, N, D), [a1,a2,a3,...,an,1]
+    )  # (M, N, D+1), [a1,a2,a3,...,an,1], adding a inf seg at the end
 
     transmit = torch.cumsum(density, dim=-1)
     transmit = torch.exp(-transmit)  # (M, N, D)
     transmit = torch.cat(
         [torch.ones_like(transmit[:, :, :1]), transmit], dim=-1
-    )  # (M, N, D), [1, (1-a1), (1-a1)(1-a2), ..., (1-a1)(1-a2)...(1-an)]
+    )  # (M, N, D+1), [1, (1-a1), (1-a1)(1-a2), ..., (1-a1)(1-a2)...(1-an)]
 
     # aggregate: sum to 1
     # [a1, (1-a1)a2, (1-a1)(1-a2)a3, ..., (1-a1)(1-a2)...(1-an)1]
     weights = alpha_p * transmit  # (M, N, D+1)
-    weights = weights[..., :-1]  # (M, N, D), only take the first D weights
-    transmit = transmit[..., 1:]  # (M, N, D), only take the first D transmits
+    weights = weights[..., :-1]  # (M, N, D), first D weights (might not sum up to 1)
+    transmit = transmit[..., 1:]  # (M, N, D)
     return weights, transmit
 
 
@@ -190,7 +190,7 @@ def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
     Sample @N_importance samples from @bins with distribution defined by @weights.
 
     Inputs:
-        bins: (N_rays, n_samples1) where n_samples is "the number of coarse samples per ray - 2"
+        bins: (N_rays, n_samples+1) where n_samples is "the number of coarse samples per ray - 2"
         weights: (N_rays, n_samples)
         N_importance: the number of samples to draw from the distribution
         det: deterministic or not

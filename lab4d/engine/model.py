@@ -107,11 +107,12 @@ class dvr_model(nn.Module):
         #     alpha = torch.tensor(alpha, device=self.device, dtype=torch.float32)
         #     self.fields.set_alpha(alpha)
 
-        # use 2k steps to warmup
-        if current_steps < 2000:
-            self.fields.set_importance_sampling(False)
-        else:
-            self.fields.set_importance_sampling(True)
+        # # use 2k steps to warmup
+        # if current_steps < 2000:
+        #     self.fields.set_importance_sampling(False)
+        # else:
+        #     self.fields.set_importance_sampling(True)
+        self.fields.set_importance_sampling(False)
 
         # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)

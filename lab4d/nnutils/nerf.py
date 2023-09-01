@@ -791,14 +791,38 @@ class NeRF(nn.Module):
             )  # (M, N, D, x)
             weights, _ = compute_weights(density, deltas)  # (M, N, D, 1)
             weights = weights.view(-1, n_depth // 2)[:, 1:-1]  # (M*N, D-2)
+            # modify the weights such that only do is when there is a clear surface (wt is high)
+            weights_fill = 1 - weights.sum(-1, keepdim=True)
+            weights = weights + weights_fill / (n_depth // 2 - 2)
+            # assert torch.allclose(weights.sum(-1), torch.ones_like(weights[:, 0]))
 
             depth_mid = 0.5 * (depth[:, :, :-1] + depth[:, :, 1:])  # (M, N, D-1)
             depth_mid = depth_mid.view(-1, n_depth // 2 - 1)  # (M*N, D-1)
 
-            depth_ = sample_pdf(depth_mid, weights, n_depth // 2, det=not self.training)
+            depth_ = sample_pdf(depth_mid, weights, n_depth // 2, det=True)
             depth_ = depth_.reshape(depth.shape)  # (M, N, D, 1)
 
             depth, _ = torch.sort(torch.cat([depth, depth_], -2), -2)  # (M, N, D, 1)
+
+            # # plot depth and depth_
+            # import matplotlib.pyplot as plt
+            # import pdb
+
+            # pdb.set_trace()
+
+            # valid_ind = weights.sum(-1) > 0
+            # plt.figure()
+            # depth_vis = depth[0, :, :, 0][valid_ind].cpu().numpy()
+
+            # plt.plot(depth_vis[::10].T)
+            # plt.show()
+            # plt.savefig("tmp/depth.png")
+
+            # plt.figure()
+            # weights_vis = weights[valid_ind].cpu().numpy()
+            # plt.plot(weights_vis[::10].T)
+            # plt.show()
+            # plt.savefig("tmp/weights.png")
 
         # sample camera space rays
         xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
