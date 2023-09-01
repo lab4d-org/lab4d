@@ -600,7 +600,7 @@ class Trainer:
 
         return model, data_info, ref_dict
 
-    def check_grad(self, thresh=5.0):
+    def check_grad(self, thresh=10.0):
         """Check if gradients are above a threshold
 
         Args:

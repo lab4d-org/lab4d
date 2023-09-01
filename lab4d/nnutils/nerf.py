@@ -65,7 +65,7 @@ class NeRF(nn.Module):
         self,
         data_info,
         D=5,
-        W=128,
+        W=256,
         num_freq_xyz=10,
         num_freq_dir=4,
         appr_channels=32,
@@ -170,6 +170,9 @@ class NeRF(nn.Module):
         field2world = torch.eye(4)[None].expand(self.num_inst, -1, -1)
         self.register_buffer("field2world", field2world, persistent=True)
 
+        # inverse sampling
+        self.use_importance_sampling = True
+
     def forward(self, xyz, dir=None, frame_id=None, inst_id=None, get_density=True):
         """
         Args:
@@ -267,7 +270,7 @@ class NeRF(nn.Module):
         self.register_buffer("aabb", torch.zeros(2, 3))
         self.update_aabb(beta=0)
 
-    def geometry_init(self, sdf_fn, nsample=256):
+    def geometry_init(self, sdf_fn, nsample=4096):
         """Initialize SDF using tsdf-fused geometry if radius is not given.
         Otherwise, initialize sdf using a unit sphere
 
@@ -287,7 +290,7 @@ class NeRF(nn.Module):
             inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
 
             # sample points
-            pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.25)
+            pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
 
             # get sdf from proxy geometry
             sdf_gt = sdf_fn(pts)
@@ -307,7 +310,7 @@ class NeRF(nn.Module):
                 pts[:, None, None], inst_id=inst_id, sample_ratio=1
             )
             eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
-            eikonal_loss = eikonal_loss * 1e-4
+            eikonal_loss = eikonal_loss * 1e-3
 
             total_loss = sdf_loss + vis_loss + eikonal_loss
             total_loss.backward()
@@ -483,6 +486,8 @@ class NeRF(nn.Module):
         else:
             rand_inds = Ellipsis
 
+        xyz = xyz.detach()
+        inst_id = inst_id.detach() if inst_id is not None else None
         fn_sdf = lambda x: self.forward(x, inst_id=inst_id, get_density=False)
         g = compute_gradient(fn_sdf, xyz)[..., 0]
 
@@ -508,6 +513,19 @@ class NeRF(nn.Module):
             normal: (M,N,D,3) Normal vector field in camera space
         """
         M, N, D, _ = xyz_cam.shape
+
+        xyz_cam = xyz_cam.detach()
+        dir_cam = dir_cam.detach()
+        field2cam = (field2cam[0].detach(), field2cam[1].detach())
+        frame_id = frame_id.detach() if frame_id is not None else None
+        inst_id = inst_id.detach() if inst_id is not None else None
+        samples_dict_copy = {}
+        for k, v in samples_dict.items():
+            if isinstance(v, tuple):
+                samples_dict_copy[k] = (v[0].detach(), v[1].detach())
+            else:
+                samples_dict_copy[k] = v.detach()
+        samples_dict = samples_dict_copy
 
         def fn_sdf(xyz_cam):
             xyz = self.backward_warp(
@@ -648,7 +666,7 @@ class NeRF(nn.Module):
         hxy = samples_dict["hxy"]  # (M,N,2)
 
         # sample camera space rays
-        if not self.training:
+        if self.use_importance_sampling:
             # importance sampling
             xyz_cam, dir_cam, deltas, depth = self.importance_sampling(
                 hxy,
@@ -658,10 +676,15 @@ class NeRF(nn.Module):
                 frame_id,
                 inst_id,
                 samples_dict,
+                n_depth=64,
             )
         else:
             xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-                hxy, Kinv, near_far, perturb=False
+                hxy,
+                Kinv,
+                near_far,
+                perturb=False,
+                n_depth=64,
             )  # (M, N, D, x)
 
         # backward warping
@@ -729,7 +752,6 @@ class NeRF(nn.Module):
         aux_dict = {}
         return feat_dict, deltas, aux_dict
 
-    @torch.no_grad()
     def importance_sampling(
         self,
         hxy,
@@ -744,37 +766,39 @@ class NeRF(nn.Module):
         """
         importance sampling coarse
         """
-        # sample camera space rays
-        xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-            hxy, Kinv, near_far, perturb=False, n_depth=n_depth // 2
-        )  # (M, N, D, x)
+        with torch.no_grad():
+            # sample camera space rays
+            xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
+                hxy, Kinv, near_far, perturb=False, n_depth=n_depth // 2
+            )  # (M, N, D, x)
 
-        # backward warping
-        xyz = self.backward_warp(
-            xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict=samples_dict
-        )["xyz"]
+            # backward warping
+            xyz = self.backward_warp(
+                xyz_cam,
+                dir_cam,
+                field2cam,
+                frame_id,
+                inst_id,
+                samples_dict=samples_dict,
+            )["xyz"]
 
-        # get pdf
-        density = self.forward(
-            xyz,
-            dir=None,
-            frame_id=frame_id,
-            inst_id=inst_id,
-        )  # (M, N, D, x)
-        weights, _ = compute_weights(density, deltas)  # (M, N, D, x)
+            # get pdf
+            density = self.forward(
+                xyz,
+                dir=None,
+                frame_id=frame_id,
+                inst_id=inst_id,
+            )  # (M, N, D, x)
+            weights, _ = compute_weights(density, deltas)  # (M, N, D, 1)
+            weights = weights.view(-1, n_depth // 2)[:, 1:-1]  # (M*N, D-2)
 
-        depth_mid = 0.5 * (depth[:, :, :-1] + depth[:, :, 1:])  # (M, N, D-1)
-        is_det = not self.training
-        depth_mid = depth_mid.view(-1, n_depth // 2 - 1)
-        weights = weights.view(-1, n_depth // 2)
+            depth_mid = 0.5 * (depth[:, :, :-1] + depth[:, :, 1:])  # (M, N, D-1)
+            depth_mid = depth_mid.view(-1, n_depth // 2 - 1)  # (M*N, D-1)
 
-        depth_ = sample_pdf(
-            depth_mid, weights[:, 1:-1], n_depth // 2, det=is_det
-        ).detach()
-        depth_ = depth_.reshape(depth.shape)
-        # detach so that grad doesn't propogate to weights_sampled from here
+            depth_ = sample_pdf(depth_mid, weights, n_depth // 2, det=not self.training)
+            depth_ = depth_.reshape(depth.shape)  # (M, N, D, 1)
 
-        depth, _ = torch.sort(torch.cat([depth, depth_], -2), -2)  # (M, N, D)
+            depth, _ = torch.sort(torch.cat([depth, depth_], -2), -2)  # (M, N, D, 1)
 
         # sample camera space rays
         xyz_cam, dir_cam, deltas, depth = sample_cam_rays(

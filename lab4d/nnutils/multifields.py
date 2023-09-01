@@ -120,6 +120,13 @@ class MultiFields(nn.Module):
             field.pos_embedding.set_alpha(alpha)
             field.pos_embedding_color.set_alpha(alpha)
 
+    def set_importance_sampling(self, use_importance_sampling):
+        """
+        Set inverse sampling for all child fields
+        """
+        for field in self.field_params.values():
+            field.use_importance_sampling = use_importance_sampling
+
     def set_beta_prob(self, beta_prob):
         """Set beta probability for all child fields. This determines the
         probability of instance code swapping

@@ -52,8 +52,7 @@ class PosEmbedding(nn.Module):
         else:
             freq_bands = torch.linspace(1, 2 ** (N_freqs - 1), N_freqs)
         self.register_buffer("freq_bands", freq_bands, persistent=False)
-
-        self.set_alpha(None)
+        self.register_buffer("alpha", torch.tensor(-1.0, dtype=torch.float32))
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -62,9 +61,9 @@ class PosEmbedding(nn.Module):
         """Set the alpha parameter for the annealing window
 
         Args:
-            alpha (float or None): 0 to 1
+            alpha (float): 0 to 1, -1 represents full frequency band
         """
-        self.alpha = alpha
+        self.alpha.data = alpha
 
     def forward(self, x):
         """Embeds x to (x, sin(2^k x), cos(2^k x), ...)
@@ -116,7 +115,7 @@ class PosEmbedding(nn.Module):
             out_bands: (..., N_freqs, nfuncs, in_channels) Frequency bands
         """
         device = out_bands.device
-        if self.alpha is not None:
+        if self.alpha >= 0:
             alpha_freq = self.alpha * self.N_freqs
             window = alpha_freq - torch.arange(self.N_freqs).to(device)
             window = torch.clamp(window, 0.0, 1.0)

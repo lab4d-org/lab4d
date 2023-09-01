@@ -96,15 +96,22 @@ class dvr_model(nn.Module):
         Args:
             current_steps (int): Number of optimization steps so far
         """
-        if self.config["use_freq_anneal"]:
-            # positional encoding annealing
-            anchor_x = (0, 4000)
-            anchor_y = (0.6, 1)
-            type = "linear"
-            alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
-            if alpha >= 1:
-                alpha = None
-            self.fields.set_alpha(alpha)
+        # if self.config["use_freq_anneal"]:
+        #     # positional encoding annealing
+        #     anchor_x = (0, 2000)
+        #     anchor_y = (0.6, 1)
+        #     type = "linear"
+        #     alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
+        #     if alpha >= 1:
+        #         alpha = -1
+        #     alpha = torch.tensor(alpha, device=self.device, dtype=torch.float32)
+        #     self.fields.set_alpha(alpha)
+
+        # use 2k steps to warmup
+        if current_steps < 2000:
+            self.fields.set_importance_sampling(False)
+        else:
+            self.fields.set_importance_sampling(True)
 
         # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)
@@ -122,9 +129,9 @@ class dvr_model(nn.Module):
 
         # reg_eikonal_wt: steps(0->24000, 1->100), range (1,100)
         loss_name = "reg_eikonal_wt"
-        anchor_x = (0, 4000)
-        anchor_y = (10, 20)
-        type = "log"
+        anchor_x = (0, 2000)
+        anchor_y = (1, 100)
+        type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # skel prior wt: steps(0->4000, 1->0), range (0,1)
