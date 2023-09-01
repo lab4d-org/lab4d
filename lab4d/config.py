@@ -30,7 +30,7 @@ class TrainModelConfig:
         "reg_gauss_skin_wt", 1e-3, "weight for gauss skinning consistency"
     )
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
-    flags.DEFINE_float("reg_skel_prior_wt", 0.1, "weight for skeleton regularization")
+    flags.DEFINE_float("reg_skel_prior_wt", 0.01, "weight for skeleton regularization")
     flags.DEFINE_float(
         "reg_gauss_mask_wt", 0.01, "weight for gauss mask regularization"
     )
