@@ -443,6 +443,8 @@ class NeRF(nn.Module):
         else:
             rand_inds = Ellipsis
 
+        xyz = xyz.detach()
+        inst_id = inst_id.detach() if inst_id is not None else None
         fn_sdf = lambda x: self.forward(x, inst_id=inst_id, get_density=False)
         g = compute_gradient(fn_sdf, xyz)[..., 0]
 
