@@ -1,6 +1,26 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
 import torch
 
+
+def flip_pair(tensor):
+    """Flip the tensor along the pair dimension
+
+    Args:
+        tensor: (M*2, ...) Inputs [x0, x1, x2, x3, ..., x_{2k}, x_{2k+1}]
+
+    Returns:
+        tensor: (M*2, ...) Outputs [x1, x0, x3, x2, ..., x_{2k+1}, x_{2k}]
+    """
+    if torch.is_tensor(tensor):
+        if len(tensor) < 2:
+            return tensor
+        return tensor.view(tensor.shape[0] // 2, 2, -1).flip(1).view(tensor.shape)
+    elif isinstance(tensor, tuple):
+        return tuple([flip_pair(t) for t in tensor])
+    elif isinstance(tensor, dict):
+        return {k: flip_pair(v) for k, v in tensor.items()}
+
+
 @torch.enable_grad()
 def compute_gradient(fn, x):
     """
@@ -25,6 +45,7 @@ def compute_gradient(fn, x):
         gradients.append(gradient[..., None])
     gradients = torch.cat(gradients, -1)  # ...,input-dim, output-dim
     return gradients
+
 
 def frameid_to_vid(fid, frame_offset):
     """Given absolute frame ids [0, ..., N], compute the video id of each frame.

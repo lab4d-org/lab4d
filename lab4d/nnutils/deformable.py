@@ -142,7 +142,7 @@ class Deformable(FeatureNeRF):
             xyz_t,
             frame_id,
             inst_id,
-            backward=True,
+            type="backward",
             samples_dict=samples_dict,
             return_aux=True,
         )
@@ -170,6 +170,34 @@ class Deformable(FeatureNeRF):
         xyz_next = self.warp(xyz, frame_id, inst_id, samples_dict=samples_dict)
         xyz_cam = self.field_to_cam(xyz_next, field2cam)
         return xyz_cam
+
+    def flow_warp(
+        self,
+        xyz_1,
+        field2cam_flip,
+        frame_id,
+        inst_id,
+        samples_dict={},
+    ):
+        """Warp points from camera space from time t1 to time t2
+
+        Args:
+            xyz_1: (M,N,D,3) Points along rays in canonical space at time t1
+            field2cam_flip: (M,SE(3)) Object-to-camera SE(3) transform at time t2
+            frame_id: (M,) Frame id. If None, warp for all frames
+            inst_id: (M,) Instance id. If None, warp for the average instance
+            samples_dict (Dict): Time-dependent bone articulations. Keys:
+                "rest_articulation": ((M,B,4), (M,B,4)) and
+                "t_articulation": ((M,B,4), (M,B,4))
+
+        Returns:
+            xyz_2: (M,N,D,3) Points along rays in camera space at time t2
+        """
+        xyz_2 = self.warp(
+            xyz_1, frame_id, inst_id, type="flow", samples_dict=samples_dict
+        )
+        xyz_2 = self.field_to_cam(xyz_2, field2cam_flip)
+        return xyz_2
 
     @train_only_fields
     def cycle_loss(self, xyz, xyz_t, frame_id, inst_id, samples_dict={}):
@@ -241,7 +269,7 @@ class Deformable(FeatureNeRF):
                 pts[:, None, None],
                 frame_id,
                 inst_id,
-                backward=True,
+                type="backward",
                 samples_dict=samples_dict,
                 return_aux=False,
             )[:, 0, 0]

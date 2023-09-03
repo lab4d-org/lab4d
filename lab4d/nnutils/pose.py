@@ -7,6 +7,7 @@ import trimesh
 
 from lab4d.nnutils.base import CondMLP, BaseMLP, ScaleLayer
 from lab4d.nnutils.time import TimeMLP
+from lab4d.nnutils.embedding import TimeEmbedding
 from lab4d.utils.geom_utils import so3_to_exp_map, rot_angle, interpolate_slerp
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
@@ -67,6 +68,13 @@ class CameraMLP(TimeMLP):
             activation=activation,
         )
 
+        self.time_embedding_rot = TimeEmbedding(
+            num_freq_t,
+            frame_info,
+            out_channels=W,
+            time_scale=1,
+        )
+
         self.base_rot = BaseMLP(
             D=D,
             W=W,
@@ -124,7 +132,7 @@ class CameraMLP(TimeMLP):
         #     rtmat_pred = quaternion_translation_to_se3(quat, trans)
         #     draw_cams(rtmat_pred.cpu()).export("tmp/cameras_pred.obj")
 
-    def forward(self, t_embed):
+    def forward(self, t_embed, t_embed_rot):
         """
         Args:
             t_embed: (M, self.W) Input Fourier time embeddings
@@ -134,7 +142,7 @@ class CameraMLP(TimeMLP):
         """
         t_feat = super().forward(t_embed)
         trans = self.trans(t_feat)
-        quat = self.quat(self.base_rot(t_embed))
+        quat = self.quat(self.base_rot(t_embed_rot))
         quat = F.normalize(quat, dim=-1)
         return quat, trans
 
@@ -148,7 +156,8 @@ class CameraMLP(TimeMLP):
             trans: (M, 3) Output camera translations
         """
         t_embed = self.time_embedding(frame_id)
-        quat, trans = self.forward(t_embed)
+        t_embed_rot = self.time_embedding_rot(frame_id)
+        quat, trans = self.forward(t_embed, t_embed_rot)
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:

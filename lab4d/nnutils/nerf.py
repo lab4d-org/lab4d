@@ -31,7 +31,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
-from lab4d.utils.torch_utils import compute_gradient
+from lab4d.utils.torch_utils import compute_gradient, flip_pair
 
 
 class NeRF(nn.Module):
@@ -1022,25 +1022,6 @@ class NeRF(nn.Module):
         }
         return cyc_dict
 
-    @staticmethod
-    def flip_pair(tensor):
-        """Flip the tensor along the pair dimension
-
-        Args:
-            tensor: (M*2, ...) Inputs [x0, x1, x2, x3, ..., x_{2k}, x_{2k+1}]
-
-        Returns:
-            tensor: (M*2, ...) Outputs [x1, x0, x3, x2, ..., x_{2k+1}, x_{2k}]
-        """
-        if torch.is_tensor(tensor):
-            if len(tensor) < 2:
-                return tensor
-            return tensor.view(tensor.shape[0] // 2, 2, -1).flip(1).view(tensor.shape)
-        elif isinstance(tensor, tuple):
-            return tuple([NeRF.flip_pair(t) for t in tensor])
-        elif isinstance(tensor, dict):
-            return {k: NeRF.flip_pair(v) for k, v in tensor.items()}
-
     @train_only_fields
     def compute_flow(
         self,
@@ -1058,7 +1039,7 @@ class NeRF(nn.Module):
 
         Args:
             hxy: (M,N,D,3) Homogeneous pixel coordinates on the image plane
-            xyz: (M,N,D,3) Canonical field coordinates
+            xyz_t: (M,N,D,3) Canonical field coordinates at time t
             Kinv: (M,3,3) Inverse of camera intrinsics
             flow_thresh (float): Threshold for flow magnitude
 
@@ -1066,15 +1047,18 @@ class NeRF(nn.Module):
             flow: (M,N,D,2) Optical flow proposal
         """
         # flip the frame id
-        frame_id_next = self.flip_pair(frame_id)
-        field2cam_next = (self.flip_pair(field2cam[0]), self.flip_pair(field2cam[1]))
-        Kinv_next = self.flip_pair(Kinv)
-        samples_dict_next = self.flip_pair(samples_dict)
+        frame_id_next = flip_pair(frame_id)
+        field2cam_next = (flip_pair(field2cam[0]), flip_pair(field2cam[1]))
+        Kinv_next = flip_pair(Kinv)
+        samples_dict_next = flip_pair(samples_dict)
 
         # forward warp points to camera space
         xyz_cam_next = self.forward_warp(
             xyz, field2cam_next, frame_id_next, inst_id, samples_dict=samples_dict_next
         )
+        # xyz_cam_next = self.flow_warp(
+        #     xyz_t, field2cam_next, frame_id, inst_id, samples_dict
+        # )
 
         # project to next camera image plane
         Kmat_next = Kmatinv(Kinv_next)  # (M,1,1,3,3) @ (M,N,D,3) = (M,N,D,3)

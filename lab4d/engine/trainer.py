@@ -124,6 +124,8 @@ class Trainer:
         self.optimizer_cache = [None, None]
         self.scheduler_cache = [None, None]
 
+        self.grad_queue = {}
+
     def get_lr_dict(self):
         """Return the learning rate for each category of trainable parameters
 
@@ -611,12 +613,32 @@ class Trainer:
         params_list = []
         for param_dict in self.params_ref_list:
             ((name, p),) = param_dict.items()
-            if p.requires_grad:
+            if p.requires_grad and p.grad is not None:
                 params_list.append(p)
-                grad_dict["grad/" + name] = p.grad.reshape(-1).norm(2, -1)
+                grad = p.grad.reshape(-1).norm(2, -1)
+                grad_dict["grad/" + name] = grad
+
+                # maintain a queue of grad norm, and clip outlier grads
+                queue_length = 10
+                scale_threshold = 5.0
+                if name not in self.grad_queue:
+                    self.grad_queue[name] = []
+                if len(self.grad_queue[name]) > queue_length:
+                    # check the gradient norm
+                    med_grad = torch.stack(self.grad_queue[name][:-1]).median()
+                    grad_dict["grad_med/" + name] = med_grad
+                    if grad > scale_threshold * med_grad:
+                        # clear grad for this parameter and load cached model
+                        torch.nn.utils.clip_grad_norm_(p, med_grad)
+                        # if get_local_rank() == 0:
+                        #     print("large grad: %.2f, clear %s" % (grad, name))
+                    else:
+                        self.grad_queue[name].append(grad)
+                        self.grad_queue[name].pop(0)
+                else:
+                    self.grad_queue[name].append(grad)
 
         grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
-        print("grad_norm: %.2f" % grad_norm)
         if grad_norm > thresh:
             # clear gradients
             self.optimizer.zero_grad()
