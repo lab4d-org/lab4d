@@ -103,6 +103,8 @@ class PosEmbedding(nn.Module):
 
             self.apply_annealing(out_bands)
 
+            # TODO get sin/cos column, then compute the cross term, then concat
+
             out = out.view(out_shape)
         else:
             out = x

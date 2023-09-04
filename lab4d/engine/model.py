@@ -96,6 +96,8 @@ class dvr_model(nn.Module):
         Args:
             current_steps (int): Number of optimization steps so far
         """
+        self.current_steps = current_steps
+        config = self.config
         # if self.config["use_freq_anneal"]:
         #     # positional encoding annealing
         #     anchor_x = (0, 2000)
@@ -131,16 +133,17 @@ class dvr_model(nn.Module):
         # reg_eikonal_wt: steps(0->24000, 1->100), range (1,100)
         loss_name = "reg_eikonal_wt"
         anchor_x = (800, 2000)
-        anchor_y = (1, 100)
+        anchor_y = (1, config["reg_eikonal_scale_max"])
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
-        # skel prior wt: steps(0->4000, 1->0), range (0,1)
-        loss_name = "reg_skel_prior_wt"
-        anchor_x = (800, 2000)
-        anchor_y = (1, 0.05)
-        type = "log"
-        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # # skel prior wt: steps(0->4000, 1->0), range (0,1)
+        # loss_name = "reg_skel_prior_wt"
+        # anchor_x = (800, 2000)
+        # # anchor_y = (5, 0.05)
+        # anchor_y = (0.05, 0.05)
+        # type = "log"
+        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # # gauss mask wt: steps(0->4000, 1->0), range (0,1)
         # loss_name = "reg_gauss_mask_wt"
@@ -411,7 +414,7 @@ class dvr_model(nn.Module):
         """
         config = self.config
         loss_dict = {}
-        self.compute_recon_loss(loss_dict, results, batch, config)
+        self.compute_recon_loss(loss_dict, results, batch, config, self.current_steps)
         self.mask_losses(loss_dict, batch, config)
         self.compute_reg_loss(loss_dict, results)
         self.apply_loss_weights(loss_dict, config)
@@ -441,7 +444,7 @@ class dvr_model(nn.Module):
         return mask_balance_wt
 
     @staticmethod
-    def compute_recon_loss(loss_dict, results, batch, config):
+    def compute_recon_loss(loss_dict, results, batch, config, current_steps):
         """Compute reconstruction losses.
 
         Args:
@@ -515,9 +518,15 @@ class dvr_model(nn.Module):
 
         # consistency between rendered mask and gauss mask
         if "gauss_mask" in rendered.keys():
-            loss_dict["reg_gauss_mask"] = (
-                aux_dict["fg"]["gauss_mask"] - rendered_fg_mask.detach()
-            ).pow(2)
+            if current_steps < 2000:
+                # supervise with a fixed target
+                loss_dict["reg_gauss_mask"] = (
+                    aux_dict["fg"]["gauss_mask"] - batch["mask"].float()
+                ).pow(2)
+            else:
+                loss_dict["reg_gauss_mask"] = (
+                    aux_dict["fg"]["gauss_mask"] - rendered_fg_mask.detach()
+                ).pow(2)
 
     def compute_reg_loss(self, loss_dict, results):
         """Compute regularization losses.
@@ -540,7 +549,7 @@ class dvr_model(nn.Module):
             loss_dict["reg_delta_skin"] = aux_dict["fg"]["delta_skin"]
             loss_dict["reg_skin_entropy"] = aux_dict["fg"]["skin_entropy"]
         loss_dict["reg_soft_deform"] = self.fields.soft_deform_loss()
-        loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
+        # loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
 

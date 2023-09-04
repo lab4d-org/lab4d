@@ -20,6 +20,7 @@ from lab4d.utils.mesh_render_utils import PyRenderWrapper
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
 parser.add_argument("--fps", default=30, type=int, help="fps of the video")
+parser.add_argument("--type", default="shape", type=str, help="{shape, bone}")
 args = parser.parse_args()
 
 
@@ -35,17 +36,32 @@ def main():
     print("rendering %d meshes to %s" % (len(path_list), args.testdir))
 
     mesh_dict = {}
+    bone_dict = {}
     for mesh_path in path_list:
         frame_idx = int(mesh_path.split("/")[-1].split("-")[1].split(".")[0])
-        mesh_dict[frame_idx] = trimesh.load(mesh_path, process=False)
+        mesh = trimesh.load(mesh_path, process=False)
+        mesh.visual.vertex_colors = mesh.visual.vertex_colors  # visual.kind = 'vertex'
+        mesh_dict[frame_idx] = mesh
+
+        if args.type == "bone":
+            # load bone
+            bone_path = mesh_path.replace("mesh", "bone")
+            bone = trimesh.load(bone_path, process=False)
+            bone.visual.vertex_colors = bone.visual.vertex_colors
+            bone_dict[frame_idx] = bone
 
     # render
     renderer = PyRenderWrapper(raw_size)
     frames = []
     for frame_idx, mesh_obj in tqdm.tqdm(mesh_dict.items()):
+        # input dict
+        input_dict = {}
+        input_dict["shape"] = mesh_obj
+        if args.type == "bone":
+            input_dict["bone"] = bone_dict[frame_idx]
         # set camera translation
         renderer.set_intrinsics(intrinsics[frame_idx])
-        color = renderer.render(mesh_obj, force_gray=True)[0]
+        color = renderer.render(input_dict)[0]
         # add text
         color = color.astype(np.uint8)
         color = cv2.putText(

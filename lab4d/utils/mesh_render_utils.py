@@ -30,7 +30,7 @@ class PyRenderWrapper:
             [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=float
         )
         self.material = MetallicRoughnessMaterial(
-            roughnessFactor=0.75, metallicFactor=0.75
+            roughnessFactor=0.75, metallicFactor=0.75, alphaMode="BLEND"
         )
         self.init_camera()
 
@@ -60,15 +60,32 @@ class PyRenderWrapper:
             intrinsics[0], intrinsics[1], intrinsics[2], intrinsics[3]
         )
 
-    def render(self, mesh_obj, force_gray=False):
+    def render(self, input_dict):
+        """
+        Args:
+            input_dict: Dict of trimesh objects. Keys: shape, bone
+        Returns:
+            color: (H,W,3)
+            depth: (H,W)
+        """
         scene = Scene(ambient_light=0.1 * np.asarray([1.0, 1.0, 1.0, 1.0]))
 
-        # add object / camera
-        mesh_obj.apply_transform(self.scene_to_cam)
-        if force_gray:
-            mesh_obj.visual.vertex_colors = np.ones_like(mesh_obj.visual.vertex_colors)
-            mesh_obj.visual.vertex_colors[:, :3] = 102
-        mesh_pyrender = Mesh.from_trimesh(mesh_obj)
+        # add shape / camera
+        input_dict["shape"].apply_transform(self.scene_to_cam)
+        if "bone" in input_dict:
+            # add bone
+            input_dict["bone"].apply_transform(self.scene_to_cam)
+            mesh_pyrender = Mesh.from_trimesh(input_dict["bone"])
+            mesh_pyrender.primitives[0].material = self.material
+            scene.add_node(Node(mesh=mesh_pyrender))
+
+            # make shape transparent and gray
+            input_dict["shape"].visual.vertex_colors[:] = 102
+        else:
+            # make shape gray
+            input_dict["shape"].visual.vertex_colors[:, :3] = 102
+
+        mesh_pyrender = Mesh.from_trimesh(input_dict["shape"])
         mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))
 
@@ -82,7 +99,7 @@ class PyRenderWrapper:
         color, depth = self.r.render(
             scene,
             flags=pyrender.RenderFlags.SHADOWS_DIRECTIONAL
-            | pyrender.RenderFlags.SKIP_CULL_FACES,
+            # | pyrender.RenderFlags.SKIP_CULL_FACES,
         )
         color = color[: self.image_size[0], : self.image_size[1]]
         depth = depth[: self.image_size[0], : self.image_size[1]]

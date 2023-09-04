@@ -167,7 +167,7 @@ class NeRF(nn.Module):
             "near_far", torch.zeros(frame_offset_raw[-1], 2), persistent=False
         )
 
-        field2world = torch.eye(4)[None].expand(self.num_inst, -1, -1)
+        field2world = torch.eye(4)[None].expand(self.num_inst, -1, -1).clone()
         self.register_buffer("field2world", field2world, persistent=True)
 
         # inverse sampling
@@ -753,6 +753,7 @@ class NeRF(nn.Module):
 
         # canonical point
         feat_dict["xyz"] = xyz
+        feat_dict["xyz_t"] = xyz_t
         feat_dict["xyz_cam"] = xyz_cam
 
         # depth
