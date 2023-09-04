@@ -457,7 +457,7 @@ class NeRF(nn.Module):
         return loss
 
     def compute_eikonal(self, xyz, inst_id=None, sample_ratio=16):
-        """Compute eikonal loss
+        """Compute eikonal loss and normal in the canonical space
 
         Args:
             xyz: (M,N,D,3) Input coordinates in canonical space
@@ -475,6 +475,7 @@ class NeRF(nn.Module):
             inst_id = inst_id[:, None].expand(-1, N)
             inst_id = inst_id.reshape(-1)
         eikonal_loss = torch.zeros_like(xyz[..., 0])
+        normal = torch.zeros_like(xyz)
 
         # subsample to make it more efficient
         if M * N > sample_size:
@@ -487,15 +488,16 @@ class NeRF(nn.Module):
             rand_inds = Ellipsis
 
         xyz = xyz.detach()
-        inst_id = inst_id.detach() if inst_id is not None else None
         fn_sdf = lambda x: self.forward(x, inst_id=inst_id, get_density=False)
         g = compute_gradient(fn_sdf, xyz)[..., 0]
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
-        return eikonal_loss
+        normal[rand_inds] = self.grad_to_normal(g)
+        normal = normal.reshape(M, N, D, 3)
+        return eikonal_loss, normal
 
-    def compute_normal(
+    def compute_eikonal_view(
         self, xyz_cam, dir_cam, field2cam, frame_id=None, inst_id=None, samples_dict={}
     ):
         """Compute eikonal loss and normals in camera space
@@ -517,8 +519,6 @@ class NeRF(nn.Module):
         xyz_cam = xyz_cam.detach()
         dir_cam = dir_cam.detach()
         field2cam = (field2cam[0].detach(), field2cam[1].detach())
-        frame_id = frame_id.detach() if frame_id is not None else None
-        inst_id = inst_id.detach() if inst_id is not None else None
         samples_dict_copy = {}
         for k, v in samples_dict.items():
             if isinstance(v, tuple):
@@ -542,13 +542,23 @@ class NeRF(nn.Module):
         g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
 
         eikonal = (g.norm(2, dim=-1, keepdim=True) - 1) ** 2
-        normal = torch.nn.functional.normalize(g, dim=-1)
+        normal = self.grad_to_normal(g)
+        return eikonal, normal
+
+    @staticmethod
+    def grad_to_normal(g):
+        """
+        Args:
+            g: (...,3) Gradient of sdf
+        Returns:
+            normal: (...,3) Normal vector field
+        """
+        normal = F.normalize(g, dim=-1)
 
         # Multiply by [1, -1, -1] to match normal conventions from ECON
         # https://github.com/YuliangXiu/ECON/blob/d98e9cbc96c31ecaa696267a072cdd5ef78d14b8/apps/infer.py#L257
         normal = normal * torch.tensor([1, -1, -1], device="cuda")
-
-        return eikonal, normal
+        return normal
 
     @torch.no_grad()
     def get_valid_idx(self, xyz, xyz_t=None, vis_score=None, samples_dict={}):
@@ -854,11 +864,16 @@ class NeRF(nn.Module):
         jacob_dict = {}
         if self.training:
             # For efficiency, compute subsampled eikonal loss in canonical space
-            jacob_dict["eikonal"] = self.compute_eikonal(xyz, inst_id=inst_id)
+            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
+                xyz, inst_id=inst_id
+            )
         else:
             # For rendering, compute full eikonal loss and normals in camera space
-            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_normal(
-                xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
+            # jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal_view(
+            #     xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
+            # )
+            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
+                xyz, inst_id=inst_id, sample_ratio=1.0
             )
         return jacob_dict
 
