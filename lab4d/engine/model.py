@@ -138,7 +138,7 @@ class dvr_model(nn.Module):
         # skel prior wt: steps(0->4000, 1->0), range (0,1)
         loss_name = "reg_skel_prior_wt"
         anchor_x = (800, 2000)
-        anchor_y = (1, 0.1)
+        anchor_y = (1, 0.05)
         type = "log"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 

@@ -306,7 +306,7 @@ class NeRF(nn.Module):
             vis_loss = vis_loss * 0.01
 
             # evaluate eikonal loss
-            eikonal_loss = self.compute_eikonal(
+            eikonal_loss, _ = self.compute_eikonal(
                 pts[:, None, None], inst_id=inst_id, sample_ratio=1
             )
             eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
@@ -869,12 +869,12 @@ class NeRF(nn.Module):
             )
         else:
             # For rendering, compute full eikonal loss and normals in camera space
-            # jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal_view(
-            #     xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
-            # )
-            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
-                xyz, inst_id=inst_id, sample_ratio=1.0
+            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal_view(
+                xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
             )
+            # jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
+            #     xyz, inst_id=inst_id, sample_ratio=1.0
+            # )
         return jacob_dict
 
     def query_nerf(self, xyz, dir, frame_id, inst_id, valid_idx=None):

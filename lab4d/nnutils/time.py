@@ -31,7 +31,7 @@ class TimeMLP(BaseMLP):
         skips=[],
         activation=nn.ReLU(True),
         time_scale=1.0,
-        bottleneck_dim=16,
+        bottleneck_dim=None,
     ):
         if bottleneck_dim is None:
             bottleneck_dim = W
