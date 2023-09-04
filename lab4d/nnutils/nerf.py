@@ -469,6 +469,15 @@ class NeRF(nn.Module):
         """
         M, N, D, _ = xyz_cam.shape
 
+        xyz_cam = xyz_cam.detach()
+        dir_cam = dir_cam.detach()
+        field2cam = tuple(x.detach() for x in field2cam)
+        frame_id = frame_id.detach() if frame_id is not None else None
+        inst_id = inst_id.detach() if inst_id is not None else None
+        samples_dict = {
+            k: tuple(x.detach() for x in v) if isinstance(v, tuple) else v.detach()
+            for k, v in samples_dict.items()
+        }
         def fn_sdf(xyz_cam):
             xyz = self.backward_warp(
                 xyz_cam,

@@ -12,6 +12,9 @@ class _Quaternion_mul_backward(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
     def forward(ctx, grad, inputs_1, inputs_2):
+        inputs_1 = inputs_1.contiguous()
+        inputs_2 = inputs_2.contiguous()
+
         B = inputs_1.shape[0] # batch size, coord dim
         D1 = inputs_1.shape[1]
         D2 = inputs_2.shape[1]  
@@ -25,8 +28,10 @@ class _Quaternion_mul_backward(Function):
     @staticmethod
     @once_differentiable
     @custom_bwd  
-    def backward(ctx, *grad_outputs):
-        grad_out_1, grad_out_2 = grad_outputs
+    def backward(ctx, grad_out_1, grad_out_2):
+        grad_out_1 = grad_out_1.contiguous()
+        grad_out_2 = grad_out_2.contiguous()
+
         grad, inputs_1, inputs_2 = ctx.saved_tensors
         B = inputs_1.shape[0] # batch size, coord dim
         D1 = inputs_1.shape[1]
@@ -115,7 +120,7 @@ class _Quaternion_conjugate(torch.autograd.Function):
     @staticmethod
     @custom_bwd
     def backward(ctx, grad):
-        return _Quaternion_conjugate.apply(grad)
+        return _Quaternion_conjugate.apply(grad.contiguous())
 
 
 quaternion_conjugate = _Quaternion_conjugate.apply

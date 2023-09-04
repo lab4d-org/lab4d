@@ -104,13 +104,16 @@ def _quaternion_3D_mul_4D(a_xyz: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def quaternion_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    output_shape = a.shape[:-1] + (4,)
+    a = a.reshape(-1, a.shape[-1])
+    b = b.reshape(-1, b.shape[-1])
     if a.is_cuda:
-        ouput_shape = list(a.shape[:-1]) + [4]
-        return _quaternion_mul_cuda(
-            a.view(-1, a.shape[-1]), b.view(-1, b.shape[-1])
-        ).view(ouput_shape)
-    else:
-        return _quaternion_mul(a, b)
+        return _quaternion_mul_cuda(a, b).view(output_shape)
+    if a.shape[-1] == 3:
+        return _quaternion_3D_mul_4D(a, b).view(output_shape)
+    if b.shape[-1] == 3:
+        return _quaternion_4D_mul_3D(a, b).view(output_shape)
+    return _quaternion_mul(a, b).view(output_shape)
 
 
 def _axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
