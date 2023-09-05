@@ -80,7 +80,6 @@ class MultiFields(nn.Module):
             nerf = Deformable(
                 self.fg_motion,
                 data_info,
-                num_freq_xyz=8,
                 num_freq_dir=-1,
                 appr_channels=32,
                 num_inst=1 if self.single_inst else num_inst,

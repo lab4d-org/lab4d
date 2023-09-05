@@ -716,3 +716,61 @@ def se3_inv(rtmat):
     rtmat[..., :3, :3] = rmat
     rtmat[..., :3, 3] = tmat[..., 0]
     return rtmat
+
+
+def rotation_over_plane(N, dim1, dim2, angle):
+    """
+    Create an N x N rotation matrix for a rotation over the plane defined by
+    the two dimensions dim1 and dim2.
+
+    Parameters:
+    - N (int): The dimensionality.
+    - dim1/2 (int): The axis around which to rotate (0-based index).
+    - angle (float): The rotation angle in degrees.
+
+    Returns:
+    - ndarray: The rotation matrix.
+    """
+
+    # Basic error check
+    if N == 1:
+        return np.eye(1)
+    if dim1 >= N or dim1 < 0 or dim2 >= N or dim2 < 0:
+        raise ValueError("The axis index i is out of bounds for dimensionality N.")
+
+    # Calculate cosine and sine values for the rotation angle
+    c = np.cos(angle)
+    s = np.sin(angle)
+
+    # Create the 2D rotation block
+    R_2D = np.array([[c, -s], [s, c]])
+
+    # Insert the 2D rotation block into the top-left
+    R_ND = np.eye(N)
+    R_ND[:2, :2] = R_2D
+
+    # If dim is not 0, create the permutation matrix and apply the axis swapping
+    P = np.eye(N)
+    P[0], P[dim1] = P[dim1].copy(), P[0].copy()  # Swap rows
+    P[1], P[dim2] = P[dim2].copy(), P[1].copy()  # Swap columns
+    R_ND = P @ R_ND @ P.T  # Apply permutation to the base rotation matrix
+
+    return R_ND
+
+
+def get_pre_rotation(in_channels):
+    """Get the pre-rotation matrix for the input coordinates in positional encoding
+
+    Args:
+        in_channels (int): Number of input channels
+
+    Returns:
+        rot_mat (ndarray): Rotation matrix
+    """
+    rot_mat = [np.eye(in_channels)]
+    angle = np.pi / 4
+    for dim1 in range(in_channels):
+        for dim2 in range(dim1):
+            rot_mat.append(rotation_over_plane(in_channels, dim1, dim2, angle))
+    rot_mat = np.concatenate(rot_mat, axis=0)
+    return rot_mat

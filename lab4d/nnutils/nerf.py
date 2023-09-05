@@ -94,7 +94,7 @@ class NeRF(nn.Module):
         self.num_inst = num_inst
 
         # position and direction embedding
-        self.pos_embedding = PosEmbedding(3, num_freq_xyz)
+        self.pos_embedding = PosEmbedding(3, num_freq_xyz, pre_rotate=True)
         self.dir_embedding = PosEmbedding(3, num_freq_dir)
 
         # xyz encoding layers

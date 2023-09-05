@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from lab4d.utils.torch_utils import frameid_to_vid
+from lab4d.utils.geom_utils import get_pre_rotation
 
 
 def get_fourier_embed_dim(in_channels, N_freqs):
@@ -31,12 +32,19 @@ class PosEmbedding(nn.Module):
         in_channels (int): Number of input channels (3 for both xyz, direction)
         N_freqs (int): Number of frequency bands
         logscale (bool): If True, construct frequency bands in log-space
+        pre_rotate (bool): If True, pre-rotate the input along each plane
     """
 
-    def __init__(self, in_channels, N_freqs, logscale=True):
+    def __init__(self, in_channels, N_freqs, logscale=True, pre_rotate=False):
         super().__init__()
         self.N_freqs = N_freqs
         self.in_channels = in_channels
+
+        if pre_rotate:
+            # rotate along each dimension for 45 degrees
+            rot_mat = get_pre_rotation(in_channels)
+            rot_mat = torch.tensor(rot_mat, dtype=torch.float32)
+            self.register_buffer("rot_mat", rot_mat, persistent=False)
 
         # no embedding
         if N_freqs == -1:
@@ -91,20 +99,27 @@ class PosEmbedding(nn.Module):
             out = torch.empty(x.shape[0], output_dim, dtype=x.dtype, device=device)
             out[:, :input_dim] = x
 
+            if hasattr(self, "rot_mat"):
+                x = x @ self.rot_mat.T
+                x = x.view(x.shape[0], input_dim, -1)
+
             # assign fourier features to the remaining channels
             out_bands = out[:, input_dim:].view(
                 -1, self.N_freqs, self.nfuncs, input_dim
             )
             for i, func in enumerate(self.funcs):
                 # (B, nfreqs, input_dim) = (1, nfreqs, 1) * (B, 1, input_dim)
-                out_bands[:, :, i] = func(
-                    self.freq_bands[None, :, None] * x[:, None, :]
-                )
+                if hasattr(self, "rot_mat"):
+                    signal = self.freq_bands[None, :, None, None] * x[:, None]
+                    response = func(signal)
+                    response = response.view(-1, self.N_freqs, input_dim, x.shape[-1])
+                    response = response.mean(-1)
+                else:
+                    signal = self.freq_bands[None, :, None] * x[:, None, :]
+                    response = func(signal)
+                out_bands[:, :, i] = response
 
             self.apply_annealing(out_bands)
-
-            # TODO get sin/cos column, then compute the cross term, then concat
-
             out = out.view(out_shape)
         else:
             out = x
