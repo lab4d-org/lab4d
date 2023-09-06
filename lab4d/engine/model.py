@@ -137,13 +137,12 @@ class dvr_model(nn.Module):
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
-        # # skel prior wt: steps(0->4000, 1->0), range (0,1)
-        # loss_name = "reg_skel_prior_wt"
-        # anchor_x = (800, 2000)
-        # # anchor_y = (5, 0.05)
-        # anchor_y = (0.05, 0.05)
-        # type = "log"
-        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # skel prior wt: steps(0->4000, 1->0), to discouage large changes when shape is not good
+        loss_name = "reg_skel_prior_wt"
+        anchor_x = (200, 400)
+        anchor_y = (10, 1)
+        type = "log"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # # gauss mask wt: steps(0->4000, 1->0), range (0,1)
         # loss_name = "reg_gauss_mask_wt"
@@ -152,17 +151,19 @@ class dvr_model(nn.Module):
         # type = "log"
         # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
+        # delta skin wt: steps(0->2000, 1->0.1), to make skinning more flexible
         loss_name = "reg_delta_skin_wt"
         anchor_x = (0, 2000)
         anchor_y = (1, 0.01)
         type = "log"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
-        # loss_name = "reg_gauss_skin_wt"
-        # anchor_x = (0, 2000)
-        # anchor_y = (1, 0.1)
-        # type = "log"
-        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
+        loss_name = "reg_gauss_skin_wt"
+        anchor_x = (0, 1000)
+        anchor_y = (1, 0)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
     def set_loss_weight(
         self, loss_name, anchor_x, anchor_y, current_steps, type="linear"
@@ -417,7 +418,9 @@ class dvr_model(nn.Module):
         self.compute_recon_loss(loss_dict, results, batch, config, self.current_steps)
         self.mask_losses(loss_dict, batch, config)
         self.compute_reg_loss(loss_dict, results)
-        self.apply_loss_weights(loss_dict, config)
+        motion_scale = torch.tensor(self.data_info["motion_scales"], device=self.device)
+        motion_scale = motion_scale[batch["dataid"]]
+        self.apply_loss_weights(loss_dict, config, motion_scale)
         return loss_dict
 
     @staticmethod
@@ -518,14 +521,14 @@ class dvr_model(nn.Module):
 
         # consistency between rendered mask and gauss mask
         if "gauss_mask" in rendered.keys():
-            if current_steps < 2000:
+            if current_steps < 4000:
                 # supervise with a fixed target
                 loss_dict["reg_gauss_mask"] = (
                     aux_dict["fg"]["gauss_mask"] - batch["mask"].float()
                 ).pow(2)
             else:
                 loss_dict["reg_gauss_mask"] = (
-                    aux_dict["fg"]["gauss_mask"] - rendered_fg_mask.detach()
+                    aux_dict["fg"]["gauss_mask"] - (rendered_fg_mask > 0.5).float()
                 ).pow(2)
 
     def compute_reg_loss(self, loss_dict, results):
@@ -549,7 +552,8 @@ class dvr_model(nn.Module):
             loss_dict["reg_delta_skin"] = aux_dict["fg"]["delta_skin"]
             loss_dict["reg_skin_entropy"] = aux_dict["fg"]["skin_entropy"]
         loss_dict["reg_soft_deform"] = self.fields.soft_deform_loss()
-        # loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
+        if self.config["reg_gauss_skin_wt"] > 0:
+            loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
 
@@ -610,7 +614,7 @@ class dvr_model(nn.Module):
                 loss_dict[k] = v * batch["is_detected"].float()[:, None, None]
 
     @staticmethod
-    def apply_loss_weights(loss_dict, config):
+    def apply_loss_weights(loss_dict, config, motion_scale):
         """Weigh each loss term according to command-line configs
 
         Args:
@@ -623,9 +627,15 @@ class dvr_model(nn.Module):
                 "reg_cam_prior" (0,), and "reg_skel_prior" (0,). Modified in
                 place to multiply each term with a scalar weight.
             config (Dict): Command-line options
+            motion_scale (Tensor): Motion magnitude for each data sample (M,)
         """
-        px_unit_keys = ["flow", "feat_reproj"]
+        px_unit_keys = ["feat_reproj"]
+        motion_unit_keys = ["flow"]
         for k, v in loss_dict.items():
+            # scale with motion magnitude
+            if k in motion_unit_keys:
+                loss_dict[k] /= motion_scale.view(-1, 1, 1)
+
             # average over non-zero pixels
             v = v[v > 0]
             if v.numel() > 0:

@@ -298,7 +298,7 @@ class Deformable(FeatureNeRF):
         weight_pos = 0.5 / (1e-6 + density.mean())
         weight_neg = 0.5 / (1e-6 + 1 - density).mean()
         weight = density * weight_pos + (1 - density) * weight_neg
-        loss = 100 * ((density_gauss - density).pow(2) * weight.detach()).mean()
+        loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
         # loss = F.binary_cross_entropy(
         #     density_gauss, density.detach(), weight=weight.detach()
         # )

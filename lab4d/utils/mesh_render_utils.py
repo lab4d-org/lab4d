@@ -81,9 +81,9 @@ class PyRenderWrapper:
 
             # make shape transparent and gray
             input_dict["shape"].visual.vertex_colors[:] = 102
-        else:
-            # make shape gray
-            input_dict["shape"].visual.vertex_colors[:, :3] = 102
+        # else:
+        #     # make shape gray
+        #     input_dict["shape"].visual.vertex_colors[:, :3] = 102
 
         mesh_pyrender = Mesh.from_trimesh(input_dict["shape"])
         mesh_pyrender.primitives[0].material = self.material

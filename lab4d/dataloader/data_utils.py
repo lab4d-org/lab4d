@@ -232,6 +232,7 @@ def get_data_info(loader):
     intrinsics = []
     raw_size = []
     feature_pxs = []
+    motion_scales = []
 
     for dataset in dataset_list:
         frame_info = FrameInfo(dataset.dict_list["ref"])
@@ -251,10 +252,18 @@ def get_data_info(loader):
         num_skip = max(1, len(feature_array) // 1000)
         feature_pxs.append(feature_array[::num_skip])
 
+        # compute motion magnitude
+        flow = dataset.mmap_list["flowfw"][1][..., :2]
+        motion_scale = np.linalg.norm(flow, 2, -1).mean()
+        motion_scales.append(motion_scale)
+
     # compute PCA on non-zero features
     feature_pxs = np.concatenate(feature_pxs, 0)
     feature_pxs = feature_pxs[np.linalg.norm(feature_pxs, 2, -1) > 0]
     data_info["apply_pca_fn"] = pca_numpy(feature_pxs, n_components=3)
+
+    # store motion magnitude
+    data_info["motion_scales"] = motion_scales
 
     frame_info = {}
     frame_info["frame_offset"] = np.asarray(frame_offset).cumsum()

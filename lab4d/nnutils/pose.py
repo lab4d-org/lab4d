@@ -8,7 +8,12 @@ import trimesh
 from lab4d.nnutils.base import CondMLP, BaseMLP, ScaleLayer
 from lab4d.nnutils.time import TimeMLP
 from lab4d.nnutils.embedding import TimeEmbedding
-from lab4d.utils.geom_utils import so3_to_exp_map, rot_angle, interpolate_slerp
+from lab4d.utils.geom_utils import (
+    so3_to_exp_map,
+    rot_angle,
+    interpolate_slerp,
+    interpolate_linear,
+)
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
@@ -209,6 +214,24 @@ class CameraMLP_so3(TimeMLP):
             skips=skips,
             activation=activation,
         )
+
+        self.time_embedding_rot = TimeEmbedding(
+            num_freq_t,
+            frame_info,
+            out_channels=W,
+            time_scale=1,
+        )
+
+        self.base_rot = BaseMLP(
+            D=D,
+            W=W,
+            in_channels=W,
+            out_channels=W,
+            skips=skips,
+            activation=activation,
+            final_act=True,
+        )
+
         # output layers
         self.trans = nn.Sequential(
             nn.Linear(W, 3),
@@ -218,7 +241,10 @@ class CameraMLP_so3(TimeMLP):
         )
 
         # camera pose: field to camera
-        self.base_quat = nn.Parameter(torch.zeros(frame_info["frame_offset"][-1], 4))
+        base_quat = torch.zeros(frame_info["frame_offset"][-1], 4)
+        base_trans = torch.zeros(frame_info["frame_offset"][-1], 3)
+        self.register_buffer("base_quat", base_quat)
+        self.register_buffer("base_trans", base_trans)
         self.register_buffer(
             "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
         )
@@ -238,7 +264,15 @@ class CameraMLP_so3(TimeMLP):
         rtmat = self.init_vals
 
         # initialize with corresponding frame rotation
-        self.base_quat.data = matrix_to_quaternion(rtmat[:, :3, :3])
+        # self.base_quat.data = matrix_to_quaternion(rtmat[:, :3, :3])
+        self.base_trans.data = rtmat[:, :3, 3]
+
+        # initialize with per-sequence pose
+        frame_offset = self.get_frame_offset()
+        for i in range(len(frame_offset) - 1):
+            base_rmat = rtmat[frame_offset[i], :3, :3]
+            base_quat = matrix_to_quaternion(base_rmat)
+            self.base_quat.data[frame_offset[i] : frame_offset[i + 1]] = base_quat
 
     def mlp_init(self):
         """Initialize camera SE(3) transforms from external priors"""
@@ -251,7 +285,7 @@ class CameraMLP_so3(TimeMLP):
         #     rtmat_pred = quaternion_translation_to_se3(quat, trans)
         #     draw_cams(rtmat_pred.cpu()).export("tmp/cameras_pred.obj")
 
-    def forward(self, t_embed):
+    def forward(self, t_embed, t_embed_rot):
         """
         Args:
             t_embed: (M, self.W) Input Fourier time embeddings
@@ -261,7 +295,7 @@ class CameraMLP_so3(TimeMLP):
         """
         t_feat = super().forward(t_embed)
         trans = self.trans(t_feat)
-        so3 = self.so3(t_feat)
+        so3 = self.so3(self.base_rot(t_embed_rot))
         quat = axis_angle_to_quaternion(so3)
         return quat, trans
 
@@ -275,22 +309,25 @@ class CameraMLP_so3(TimeMLP):
             trans: (M, 3) Output camera translations
         """
         t_embed = self.time_embedding(frame_id)
-        quat, trans = self.forward(t_embed)
+        t_embed_rot = self.time_embedding_rot(frame_id)
+        quat, trans = self.forward(t_embed, t_embed_rot)
 
         # multiply with per-instance base rotation
         if frame_id is None:
             base_quat = self.base_quat
+            base_trans = self.base_trans
         else:
-            base_quat = self.interpolate_base_quat(frame_id)
+            base_quat, base_trans = self.interpolate_base(frame_id)
         base_quat = F.normalize(base_quat, dim=-1)
         quat = quaternion_mul(quat, base_quat)
+        trans = trans + base_trans
         return quat, trans
 
     def update_base_quat(self):
         """Update base camera rotations from current camera trajectory"""
-        self.base_quat.data = self.get_vals()[0]
+        self.base_quat.data, self.base_trans.data = self.get_vals()
 
-    def interpolate_base_quat(self, frame_id):
+    def interpolate_base(self, frame_id):
         idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
         idx_ceil = idx + 1
         idx_ceil.clamp_(max=self.time_embedding.num_frames - 1)
@@ -301,7 +338,8 @@ class CameraMLP_so3(TimeMLP):
         t_frac = frame_id - self.time_embedding.frame_mapping[idx]
         t_frac = t_frac / (1e-6 + t_len)
         base_quat = interpolate_slerp(self.base_quat, idx, idx + 1, t_frac)
-        return base_quat
+        base_trans = interpolate_linear(self.base_trans, idx, idx + 1, t_frac)
+        return base_quat, base_trans
 
 
 class ArticulationBaseMLP(TimeMLP):

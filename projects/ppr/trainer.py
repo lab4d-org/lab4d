@@ -128,6 +128,9 @@ class PPRTrainer(Trainer):
         if self.opts["load_path_bg"] != "":
             _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
         super().load_checkpoint_train()
+        # this loads the intrinsics from bg model
+        if self.opts["load_path_bg"] != "":
+            _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
 
     def get_lr_dict(self):
         """Return the learning rate for each category of trainable parameters
@@ -189,7 +192,12 @@ class PPRTrainer(Trainer):
 
         # eval
         if self.current_round_phys == 0:
-            self.phys_model.correct_foot_position()
+            frame_offset_raw = self.phys_model.frame_offset_raw
+            vid_frames = []
+            for vidid in opts["phys_vid"]:
+                vid_frame = range(frame_offset_raw[vidid + 1] - frame_offset_raw[vidid])
+                vid_frames += vid_frame
+            self.phys_model.correct_foot_position(vid_frames)
             self.run_phys_visualization(tag="kinematics")
 
         # train

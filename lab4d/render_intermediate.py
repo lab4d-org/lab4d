@@ -56,7 +56,8 @@ def main():
     # render
     frames = []
     for batch_idx, mesh_obj in tqdm.tqdm(mesh_dict.items()):
-        color = renderer.render(mesh_obj)[0]
+        input_dict = {"shape": mesh_obj}
+        color = renderer.render(input_dict)[0]
         # add text
         color = color.astype(np.uint8)
         color = cv2.putText(

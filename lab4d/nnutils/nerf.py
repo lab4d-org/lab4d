@@ -152,8 +152,8 @@ class NeRF(nn.Module):
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
-        # self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
-        self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
+        self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
+        # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
 
         # visibility mlp
         self.vis_mlp = VisField(self.num_inst, field_arch=field_arch)
@@ -283,7 +283,7 @@ class NeRF(nn.Module):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
 
         # optimize
-        for i in range(500):
+        for i in range(1000):
             optimizer.zero_grad()
 
             # sample points and gt sdf

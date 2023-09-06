@@ -161,6 +161,26 @@ def interpolate_slerp(y, idx_floor, idx_ceil, t_frac):
     return y_interpolated_norm
 
 
+def interpolate_linear(y, idx_floor, idx_ceil, t_frac):
+    """
+    Args:
+        y: (N,4) translation
+        idx_floor: (M,) Floor indices
+        idx_ceil: (M,) Ceil indices
+        t_frac: (M,) Fractional indices (0-1)
+    Returns:
+        y_interpolated: (M,4) Interpolated translation
+    """
+    # Use integer parts to index y
+    idx_ceil.clamp_(max=len(y) - 1)
+    y_floor = y[idx_floor]
+    y_ceil = y[idx_ceil]
+
+    # Compute interpolated quaternion
+    y_interpolated = y_floor + t_frac[..., None] * (y_ceil - y_floor)
+    return y_interpolated
+
+
 def hat_map(v):
     """Returns the skew-symmetric matrix corresponding to the last dimension of
     a PyTorch tensor.
