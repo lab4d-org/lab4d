@@ -191,7 +191,7 @@ class SkinningField(nn.Module):
         return pts
 
     @torch.no_grad()
-    def draw_gaussian(self, articulation, edges, show_joints=True):
+    def draw_gaussian(self, articulation, edges, show_joints=False):
         """Visualize Gaussian bones as a mesh
 
         Args:

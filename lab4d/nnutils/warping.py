@@ -471,7 +471,7 @@ class SkinningWarp(IdentityWarp):
         pts = self.skinning_model.get_gauss_pts(articulation)
         return pts
 
-    def get_gauss_vis(self, show_joints=True):
+    def get_gauss_vis(self, show_joints=False):
         """Visualize Gaussians as meshes.
 
         Args:

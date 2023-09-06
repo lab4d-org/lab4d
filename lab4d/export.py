@@ -54,26 +54,34 @@ class MotionParamsExpl(NamedTuple):
     bone_t: trimesh.Trimesh  # bone center at time t
 
 
-def extract_deformation(field, mesh_rest, inst_id, frame_ids):
+def extract_deformation(field, mesh_rest, inst_id):
+    # get corresponding frame ids
+    frame_mapping = field.camera_mlp.time_embedding.frame_mapping
+    frame_offset = field.frame_offset
+    frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
+    start_id = frame_ids[0]
+    print("Extracting motion parameters for inst id:", inst_id)
+    print("Frame ids with the video:", frame_ids - start_id)
+
     device = next(field.parameters()).device
     xyz = torch.tensor(mesh_rest.vertices, dtype=torch.float32, device=device)
     inst_id = torch.tensor([inst_id], dtype=torch.long, device=device)
 
     motion_tuples = {}
     for frame_id in frame_ids:
-        frame_id_torch = torch.tensor([frame_id], dtype=torch.long, device=device)
-        field2cam = field.camera_mlp.get_vals(frame_id_torch)
+        frame_id = frame_id[None]
+        field2cam = field.camera_mlp.get_vals(frame_id)
 
         samples_dict = {}
         if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
             (
                 samples_dict["t_articulation"],
                 samples_dict["rest_articulation"],
-            ) = field.warp.articulation.get_vals_and_mean(frame_id_torch)
+            ) = field.warp.articulation.get_vals_and_mean(frame_id)
             t_articulation = samples_dict["t_articulation"]
 
             if isinstance(field.warp.articulation, ArticulationSkelMLP):
-                so3 = field.warp.articulation.get_vals(frame_id_torch, return_so3=True)
+                so3 = field.warp.articulation.get_vals(frame_id, return_so3=True)
             else:
                 so3 = None
 
@@ -95,7 +103,7 @@ def extract_deformation(field, mesh_rest, inst_id, frame_ids):
         xyz_t = field.forward_warp(
             xyz[None, None],
             field2cam,
-            frame_id_torch,
+            frame_id,
             inst_id,
             samples_dict=samples_dict,
         )
@@ -112,7 +120,8 @@ def extract_deformation(field, mesh_rest, inst_id, frame_ids):
             mesh_t=mesh_t,
             bone_t=mesh_bones_t,
         )
-        motion_tuples[frame_id] = motion_expl
+        frame_id_sub = (frame_id[0] - start_id).cpu()
+        motion_tuples[frame_id_sub] = motion_expl
 
     if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
         # modify rest mesh based on instance morphological changes on bones
@@ -188,16 +197,12 @@ def extract_motion_params(model, opts, data_info):
 
     # get absolute frame ids
     inst_id = opts["inst_id"]
-    frame_mapping = data_info["frame_info"]["frame_mapping"]
-    frame_offset = data_info["frame_info"]["frame_offset"]
-    frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
-    print("Extracting motion parameters for frame ids:", frame_ids)
 
     # get deformation
     motion_tuples = {}
     for cate, field in model.fields.field_params.items():
         meshes_rest[cate], motion_tuples[cate] = extract_deformation(
-            field, meshes_rest[cate], opts["inst_id"], frame_ids=frame_ids
+            field, meshes_rest[cate], opts["inst_id"]
         )
     return meshes_rest, motion_tuples
 
@@ -224,7 +229,7 @@ def export(opts):
     print("Saved to %s" % save_dir)
 
     # mesh rendering
-    os.system("python lab4d/render_mesh.py --testdir %s --type bone" % (save_dir))
+    os.system("python lab4d/render_mesh.py --testdir %s" % (save_dir))
 
 
 def main(_):

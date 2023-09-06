@@ -192,12 +192,12 @@ class PPRTrainer(Trainer):
 
         # eval
         if self.current_round_phys == 0:
-            frame_offset_raw = self.phys_model.frame_offset_raw
-            vid_frames = []
-            for vidid in opts["phys_vid"]:
-                vid_frame = range(frame_offset_raw[vidid + 1] - frame_offset_raw[vidid])
-                vid_frames += vid_frame
-            self.phys_model.correct_foot_position(vid_frames)
+            # frame_offset_raw = self.phys_model.frame_offset_raw
+            # vid_frames = []
+            # for vidid in opts["phys_vid"]:
+            #     vid_frame = range(frame_offset_raw[vidid + 1] - frame_offset_raw[vidid])
+            #     vid_frames += vid_frame
+            # self.phys_model.correct_foot_position(vid_frames)
             self.run_phys_visualization(tag="kinematics")
 
         # train
@@ -231,7 +231,7 @@ class PPRTrainer(Trainer):
             self.phys_model.reinit_envs(1, frames_per_wdw=vid_frame, is_eval=True)
             frame_start = torch.zeros(1) + frame_offset_raw[vidid]
             _ = self.phys_model(frame_start=frame_start.to(self.device))
-            img_size = tuple(self.data_info["raw_size"][vidid][::-1])
+            img_size = tuple(self.data_info["raw_size"][vidid])
             img_size = img_size + (0.5,)  # scale
             data = self.phys_model.query(img_size=img_size)
             self.phys_visualizer.show(

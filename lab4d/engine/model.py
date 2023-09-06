@@ -158,12 +158,12 @@ class dvr_model(nn.Module):
         type = "log"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
-        # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
-        loss_name = "reg_gauss_skin_wt"
-        anchor_x = (0, 1000)
-        anchor_y = (1, 0)
-        type = "linear"
-        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
+        # loss_name = "reg_gauss_skin_wt"
+        # anchor_x = (0, 1000)
+        # anchor_y = (1, 0)
+        # type = "linear"
+        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
     def set_loss_weight(
         self, loss_name, anchor_x, anchor_y, current_steps, type="linear"
@@ -634,7 +634,7 @@ class dvr_model(nn.Module):
         for k, v in loss_dict.items():
             # scale with motion magnitude
             if k in motion_unit_keys:
-                loss_dict[k] /= motion_scale.view(-1, 1, 1)
+                loss_dict[k] /= motion_scale.clamp(1, 20).view(-1, 1, 1)
 
             # average over non-zero pixels
             v = v[v > 0]

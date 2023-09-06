@@ -20,7 +20,7 @@ from lab4d.utils.mesh_render_utils import PyRenderWrapper
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
 parser.add_argument("--fps", default=30, type=int, help="fps of the video")
-parser.add_argument("--type", default="shape", type=str, help="{shape, bone}")
+parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 args = parser.parse_args()
 
 
@@ -33,7 +33,13 @@ def main():
     if len(path_list) == 0:
         print("no mesh found that matches %s*" % (args.testdir))
         return
-    print("rendering %d meshes to %s" % (len(path_list), args.testdir))
+    if args.mode != "":
+        mode = args.mode
+    elif os.path.exists("%s/bone" % args.testdir):
+        mode = "bone"
+    else:
+        mode = "shape"
+    print("[mode= %s] rendering %d meshes to %s" % (mode, len(path_list), args.testdir))
 
     mesh_dict = {}
     bone_dict = {}
@@ -43,7 +49,7 @@ def main():
         mesh.visual.vertex_colors = mesh.visual.vertex_colors  # visual.kind = 'vertex'
         mesh_dict[frame_idx] = mesh
 
-        if args.type == "bone":
+        if mode == "bone":
             # load bone
             bone_path = mesh_path.replace("mesh", "bone")
             bone = trimesh.load(bone_path, process=False)
@@ -57,7 +63,7 @@ def main():
         # input dict
         input_dict = {}
         input_dict["shape"] = mesh_obj
-        if args.type == "bone":
+        if mode == "bone":
             input_dict["bone"] = bone_dict[frame_idx]
         # set camera translation
         renderer.set_intrinsics(intrinsics[frame_idx])

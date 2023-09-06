@@ -569,7 +569,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
-        self.orient = nn.Parameter(torch.tensor([1.0, 0.0, 0.0, 0.0]))
+        self.register_buffer("orient", torch.tensor([1.0, 0.0, 0.0, 0.0]))
 
         # instance bone length
         num_inst = len(frame_info["frame_offset"]) - 1
@@ -885,7 +885,7 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
         elif urdf_name == "quad":
             offset = torch.tensor([0.0, -0.02, 0.02])
             orient = torch.tensor([1.0, -0.8, 0.0, 0.0])
-            scale_factor = torch.tensor([0.05])
+            scale_factor = torch.tensor([0.1])
         else:
             raise NotImplementedError
         orient = F.normalize(orient, dim=-1)

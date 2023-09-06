@@ -26,9 +26,9 @@ class PyRenderWrapper:
         )
         # light
         self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
-        self.light_pose = np.asarray(
-            [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=float
-        )
+        # top down light, slightly closer to the camera
+        self.light_pose = np.eye(4)
+        self.light_pose[:3, :3] = cv2.Rodrigues(np.asarray([-np.pi * 2 / 3, 0, 0]))[0]
         self.material = MetallicRoughnessMaterial(
             roughnessFactor=0.75, metallicFactor=0.75, alphaMode="BLEND"
         )
@@ -36,20 +36,25 @@ class PyRenderWrapper:
 
     def init_camera(self):
         # cv to gl coords
-        self.cam_pose = -np.eye(4)
-        self.cam_pose[0, 0] = 1
-        self.cam_pose[-1, -1] = 1
-        self.scene_to_cam = np.eye(4)
+        self.flip_pose = -np.eye(4)
+        self.flip_pose[0, 0] = 1
+        self.flip_pose[-1, -1] = 1
+        self.set_camera(np.eye(4))
 
-    def set_camera_bev(self, depth):
+    def set_camera_bev(self, depth, gl=False):
         # object to camera transforms
-        rot = cv2.Rodrigues(np.asarray([np.pi / 2, 0, 0]))[0]
-        self.scene_to_cam[:3, :3] = rot
-        self.scene_to_cam[2, 3] = depth
+        if gl:
+            rot = cv2.Rodrigues(np.asarray([-np.pi / 2, 0, 0]))[0]
+        else:
+            rot = cv2.Rodrigues(np.asarray([np.pi / 2, 0, 0]))[0]
+        scene_to_cam = np.eye(4)
+        scene_to_cam[:3, :3] = rot
+        scene_to_cam[2, 3] = depth
+        self.scene_to_cam = self.flip_pose @ scene_to_cam
 
     def set_camera(self, scene_to_cam):
         # object to camera transforms
-        self.scene_to_cam = scene_to_cam
+        self.scene_to_cam = self.flip_pose @ scene_to_cam
 
     def set_intrinsics(self, intrinsics):
         """
@@ -59,6 +64,12 @@ class PyRenderWrapper:
         self.intrinsics = IntrinsicsCamera(
             intrinsics[0], intrinsics[1], intrinsics[2], intrinsics[3]
         )
+
+    def get_cam_to_scene(self):
+        cam_to_scene = np.eye(4)
+        cam_to_scene[:3, :3] = self.scene_to_cam[:3, :3].T
+        cam_to_scene[:3, 3] = -self.scene_to_cam[:3, :3].T @ self.scene_to_cam[:3, 3]
+        return cam_to_scene
 
     def render(self, input_dict):
         """
@@ -71,11 +82,9 @@ class PyRenderWrapper:
         scene = Scene(ambient_light=0.1 * np.asarray([1.0, 1.0, 1.0, 1.0]))
 
         # add shape / camera
-        input_dict["shape"].apply_transform(self.scene_to_cam)
         if "bone" in input_dict:
             # add bone
-            input_dict["bone"].apply_transform(self.scene_to_cam)
-            mesh_pyrender = Mesh.from_trimesh(input_dict["bone"])
+            mesh_pyrender = Mesh.from_trimesh(input_dict["bone"], smooth=False)
             mesh_pyrender.primitives[0].material = self.material
             scene.add_node(Node(mesh=mesh_pyrender))
 
@@ -85,12 +94,12 @@ class PyRenderWrapper:
         #     # make shape gray
         #     input_dict["shape"].visual.vertex_colors[:, :3] = 102
 
-        mesh_pyrender = Mesh.from_trimesh(input_dict["shape"])
+        mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
         mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))
 
         # camera
-        scene.add(self.intrinsics, pose=self.cam_pose)
+        scene.add(self.intrinsics, pose=self.get_cam_to_scene())
 
         # light
         scene.add(self.direc_l, pose=self.light_pose)
@@ -104,3 +113,6 @@ class PyRenderWrapper:
         color = color[: self.image_size[0], : self.image_size[1]]
         depth = depth[: self.image_size[0], : self.image_size[1]]
         return color, depth
+
+    def delete(self):
+        self.r.delete()

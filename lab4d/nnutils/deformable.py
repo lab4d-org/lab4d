@@ -4,6 +4,10 @@ import torch
 import trimesh
 from torch import nn
 from torch.nn import functional as F
+import sys
+import os
+
+os.environ["CUDA_PATH"] = sys.prefix  # needed for geomloss
 from geomloss import SamplesLoss
 
 from lab4d.nnutils.feature import FeatureNeRF
