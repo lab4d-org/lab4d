@@ -226,31 +226,30 @@ class Deformable(FeatureNeRF):
         cyc_dict.update(warp_dict)
         return cyc_dict
 
-    def gauss_skin_consistency_loss(self, nsample=4096):
-        """Enforce consistency between the NeRF's SDF and the SDF of Gaussian bones
+    def gauss_skin_consistency_loss(self, type="optimal_transport"):
+        """Enforce consistency between the NeRF's SDF and the SDF of Gaussian bones,
+
+        Args:
+            type (str): "optimal_transport" or "density"
+        Returns:
+            loss: (0,) Skinning consistency loss
+        """
+        if type == "optimal_transport":
+            return self.gauss_optimal_transport_loss()
+        elif type == "density":
+            return self.gauss_skin_density_loss()
+        else:
+            raise NotImplementedError
+
+    def gauss_skin_density_loss(self, nsample=4096):
+        """Enforce consistency between the NeRF's SDF and the SDF of Gaussian bones,
+        based on density.
 
         Args:
             nsample (int): Number of samples to take from both distance fields
         Returns:
             loss: (0,) Skinning consistency loss
         """
-        # # optimal transport loss (larger kernel)
-        # device = self.parameters().__next__().device
-        # pts = self.get_proxy_geometry().vertices
-        # # sample 600 points from the proxy geometry
-        # pts = pts[np.random.choice(len(pts), 600)]
-        # pts = torch.tensor(pts, device=device, dtype=torch.float32)
-        # pts_gauss = self.warp.get_gauss_pts()
-        # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
-        # scale_proxy = self.get_scale()  # to normalize pts to 1
-        # loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
-
-        # if get_local_rank() == 0:
-        #     mesh = trimesh.Trimesh(vertices=pts.detach().cpu())
-        #     mesh.export("tmp/0.obj")
-        #     mesh = trimesh.Trimesh(vertices=pts_gauss.detach().cpu())
-        #     mesh.export("tmp/1.obj")
-
         pts, frame_id, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
         inst_id = None
         samples_dict = {}
@@ -310,6 +309,34 @@ class Deformable(FeatureNeRF):
 
         #     is_inside = density_gauss > 0.5
         #     mesh = trimesh.Trimesh(vertices=pts[is_inside[..., 0]].detach().cpu())
+        #     mesh.export("tmp/1.obj")
+        return loss
+
+    def gauss_optimal_transport_loss(self, nsample=1024):
+        """Enforce consistency between the NeRF's proxy rest shape
+         and the gaussian bones, based on optimal transport.
+
+        Args:
+            nsample (int): Number of samples to take from proxy geometry
+        Returns:
+            loss: (0,) Gaussian optimal transport loss
+        """
+        # optimal transport loss
+        device = self.parameters().__next__().device
+        pts = self.get_proxy_geometry().vertices
+        # sample points from the proxy geometry
+        pts = pts[np.random.choice(len(pts), nsample)]
+        pts = torch.tensor(pts, device=device, dtype=torch.float32)
+        pts_gauss = self.warp.get_gauss_pts()
+        samploss = SamplesLoss(
+            loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1
+        )
+        scale_proxy = self.get_scale()  # to normalize pts to 1
+        loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
+        # if get_local_rank() == 0:
+        #     mesh = trimesh.Trimesh(vertices=pts.detach().cpu())
+        #     mesh.export("tmp/0.obj")
+        #     mesh = trimesh.Trimesh(vertices=pts_gauss.detach().cpu())
         #     mesh.export("tmp/1.obj")
         return loss
 

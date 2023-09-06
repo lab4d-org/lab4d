@@ -223,6 +223,9 @@ def export(opts):
     save_rendered(ref_dict, save_dir, raw_size, data_info["apply_pca_fn"])
     print("Saved to %s" % save_dir)
 
+    # mesh rendering
+    os.system("python lab4d/render_mesh.py --testdir %s --type bone" % (save_dir))
+
 
 def main(_):
     opts = get_config()

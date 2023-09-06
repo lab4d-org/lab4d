@@ -72,6 +72,7 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
     sign = (torch.gather(qr, 2, anchor) * qr).sum(-1) > 0  # M, ND, B
     sign = sign[..., None].float() * 2 - 1
     qr = sign * qr
+    qd = sign * qd
 
     qr_w = torch.einsum("bnk,bnkl->bnl", skin, qr)
     qd_w = torch.einsum("bnk,bnkl->bnl", skin, qd)
