@@ -25,10 +25,9 @@ class PyRenderWrapper:
             render_size, render_size, render_size / 2, render_size / 2
         )
         # light
-        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
-        # top down light, slightly closer to the camera
         self.light_pose = np.eye(4)
-        self.light_pose[:3, :3] = cv2.Rodrigues(np.asarray([-np.pi * 2 / 3, 0, 0]))[0]
+        self.set_light_topdown()
+        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
         self.material = MetallicRoughnessMaterial(
             roughnessFactor=0.75, metallicFactor=0.75, alphaMode="BLEND"
         )
@@ -55,6 +54,14 @@ class PyRenderWrapper:
     def set_camera(self, scene_to_cam):
         # object to camera transforms
         self.scene_to_cam = self.flip_pose @ scene_to_cam
+
+    def set_light_topdown(self, gl=False):
+        # top down light, slightly closer to the camera
+        if gl:
+            rot = cv2.Rodrigues(np.asarray([-np.pi / 3, 0, 0]))[0]
+        else:
+            rot = cv2.Rodrigues(np.asarray([np.pi / 3, 0, 0]))[0]
+        self.light_pose[:3, :3] = rot
 
     def set_intrinsics(self, intrinsics):
         """

@@ -111,6 +111,7 @@ class PPRTrainer(Trainer):
         model_dict["object_field"] = self.model.fields.field_params["fg"]
         model_dict["intrinsics"] = self.model.intrinsics
         model_dict["frame_interval"] = opts["frame_interval"]
+        model_dict["frame_info"] = self.data_info["frame_info"]
 
         # define phys model
         self.phys_model = phys_interface(opts, model_dict, dt=opts["timestep"])
@@ -175,7 +176,7 @@ class PPRTrainer(Trainer):
         opts = self.opts
         # to use the same amount memory as DR
         total_timesteps = opts["secs_per_wdw"] / opts["timestep"]
-        num_envs = int(128000 / total_timesteps)
+        num_envs = int(96000 / total_timesteps)
         frames_per_wdw = int(opts["secs_per_wdw"] / self.phys_model.frame_interval) + 1
         print("num_envs:", num_envs)
         print("frames_per_wdw:", frames_per_wdw)
@@ -216,7 +217,8 @@ class PPRTrainer(Trainer):
         """Run physics optimization"""
         phys_aux = self.phys_model()
         self.phys_model.backward(phys_aux["total_loss"])
-        self.phys_model.update()
+        grad_dict = self.phys_model.update()
+        phys_aux.update(grad_dict)
         if get_local_rank() == 0:
             del phys_aux["total_loss"]
             self.add_scalar(self.log, phys_aux, self.current_steps_phys)

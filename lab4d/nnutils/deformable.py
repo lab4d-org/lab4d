@@ -14,8 +14,6 @@ from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.warping import SkinningWarp, create_warp
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import extend_aabb, check_inside_aabb
-from lab4d.utils.loss_utils import align_vectors
-from lab4d.engine.train_utils import get_local_rank
 
 
 class Deformable(FeatureNeRF):

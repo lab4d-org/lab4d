@@ -197,12 +197,17 @@ class TimeEmbedding(nn.Module):
 
         # a function, make it more/less senstiive to time
         def frame_to_tid_fn(frame_id):
-            if not torch.is_tensor(frame_id):
-                frame_id = torch.tensor(frame_id).to(self.frame_to_vid.device)
+            if torch.is_tensor(frame_id):
+                device = frame_id.device
+            else:
+                frame_id = torch.tensor(frame_id)
+                device = "cpu"
+            frame_id = frame_id.to(self.frame_to_vid.device)
             vid_len = self.raw_fid_to_vidlen[frame_id.long()]
             tid_sub = frame_id - self.raw_fid_to_vstart[frame_id.long()]
             tid = (tid_sub - vid_len / 2) / max_ts * 2  # [-1, 1]
             tid = tid * time_scale
+            tid = tid.to(device)
             return tid
 
         self.frame_to_tid = frame_to_tid_fn

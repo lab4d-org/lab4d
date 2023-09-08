@@ -17,6 +17,7 @@ class PPRConfig:
         "phys_vid", "0", "whether to optimize selected videos, e.g., 0,1,2"
     )
     flags.DEFINE_integer("phys_vis_interval", 100, "visualization interval")
+    flags.DEFINE_float("phys_learning_rate", 5e-4, "learning rate")
 
     # weights
     flags.DEFINE_float("traj_wt", 0.01, "weight for traj matching loss")

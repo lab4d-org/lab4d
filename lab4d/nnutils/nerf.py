@@ -22,7 +22,7 @@ from lab4d.utils.geom_utils import (
     check_inside_aabb,
     compute_rectification_se3,
 )
-from lab4d.utils.loss_utils import align_vectors
+from lab4d.utils.loss_utils import align_tensors
 from lab4d.utils.quat_transform import (
     quaternion_apply,
     quaternion_translation_inverse,
@@ -297,7 +297,7 @@ class NeRF(nn.Module):
 
             # evaluate sdf loss
             sdf = self.forward(pts, inst_id=inst_id, get_density=False)
-            scale = align_vectors(sdf, sdf_gt)
+            scale = align_tensors(sdf, sdf_gt)
             sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
 
             # evaluate visibility loss

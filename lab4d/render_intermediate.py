@@ -71,8 +71,9 @@ def main():
         )
         frames.append(color)
 
-    save_vid("%s/fg" % outdir, frames, suffix=".mp4", upsample_frame=-1)
-    print("saved to %s/fg.mp4" % outdir)
+    save_path = "%s/%s" % (outdir, args.data_class)
+    save_vid(save_path, frames, suffix=".mp4", upsample_frame=-1)
+    print("saved to %s.mp4" % (save_path))
 
 
 if __name__ == "__main__":

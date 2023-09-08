@@ -98,16 +98,16 @@ class dvr_model(nn.Module):
         """
         self.current_steps = current_steps
         config = self.config
-        # if self.config["use_freq_anneal"]:
-        #     # positional encoding annealing
-        #     anchor_x = (0, 2000)
-        #     anchor_y = (0.6, 1)
-        #     type = "linear"
-        #     alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
-        #     if alpha >= 1:
-        #         alpha = -1
-        #     alpha = torch.tensor(alpha, device=self.device, dtype=torch.float32)
-        #     self.fields.set_alpha(alpha)
+        if self.config["use_freq_anneal"]:
+            # positional encoding annealing
+            anchor_x = (0, 2000)
+            anchor_y = (0.6, 1)
+            type = "linear"
+            alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
+            if alpha >= 1:
+                alpha = -1
+            alpha = torch.tensor(alpha, device=self.device, dtype=torch.float32)
+            self.fields.set_alpha(alpha)
 
         # # use 2k steps to warmup
         # if current_steps < 2000:
@@ -500,9 +500,7 @@ class dvr_model(nn.Module):
             ).norm(2, -1, keepdim=True)
 
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
-        loss_dict["depth"] = (
-            (rendered["depth"] - batch["depth"]).norm(2, -1, keepdim=True).clone()
-        )
+        loss_dict["depth"] = (rendered["depth"] - batch["depth"]).pow(2)
         loss_dict["flow"] = (rendered["flow"] - batch["flow"]).norm(2, -1, keepdim=True)
 
         # visibility: supervise on fg and bg separately
