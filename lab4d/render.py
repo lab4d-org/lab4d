@@ -95,7 +95,7 @@ def construct_batch_from_opts(opts, model, data_info):
         intrinsics_fr = model.intrinsics.get_vals(
             frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
         )
-        aabb = model.fields.get_aabb()
+        aabb = model.fields.get_aabb(inst_id=opts["inst_id"])
     # convert to numpy
     for k, v in field2cam_fr.items():
         field2cam_fr[k] = v.cpu().numpy()
@@ -118,7 +118,7 @@ def construct_batch_from_opts(opts, model, data_info):
         elev, max_angle = [int(val) for val in opts["viewpoint"].split("-")[1:]]
 
         # bg_to_cam
-        obj_size = (aabb["fg"][1, :] - aabb["fg"][0, :]).max()
+        obj_size = (aabb["fg"][0, 1, :] - aabb["fg"][0, 0, :]).max()
         cam_traj = get_rotating_cam(
             len(frameid_sub), distance=obj_size * 2.5, max_angle=max_angle
         )

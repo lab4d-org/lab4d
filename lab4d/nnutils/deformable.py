@@ -283,7 +283,7 @@ class Deformable(FeatureNeRF):
 
             # check whether the point is inside the aabb
             aabb = self.get_aabb()
-            aabb = extend_aabb(aabb)[None]
+            aabb = extend_aabb(aabb)
             inside_aabb = check_inside_aabb(pts, aabb)
 
             density[inside_aabb] = self.forward(

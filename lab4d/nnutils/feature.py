@@ -8,7 +8,12 @@ from lab4d.nnutils.base import BaseMLP
 from lab4d.nnutils.embedding import PosEmbedding
 from lab4d.nnutils.nerf import NeRF
 from lab4d.utils.decorator import train_only_fields
-from lab4d.utils.geom_utils import Kmatinv, pinhole_projection
+from lab4d.utils.geom_utils import (
+    Kmatinv,
+    pinhole_projection,
+    extend_aabb,
+    check_inside_aabb,
+)
 
 
 class FeatureNeRF(NeRF):
@@ -147,6 +152,14 @@ class FeatureNeRF(NeRF):
         # sample canonical points
         feature = feature.view(-1, feature.shape[-1])  # (M*N*D, feature_channels)
         xyz = xyz.view(-1, 3)  # (M*N*D, 3)
+
+        # remove points outsize aabb
+        aabb = self.get_aabb()
+        aabb = extend_aabb(aabb, 0.1)
+        inside_aabb = check_inside_aabb(xyz, aabb)
+        feature = feature[inside_aabb]
+        xyz = xyz[inside_aabb]
+
         num_candidates = min(num_candidates, feature.shape[0])
         idx = torch.randperm(feature.shape[0])[: num_candidates // 2]
         feature = feature[idx]  # (num_candidates, feature_channels)

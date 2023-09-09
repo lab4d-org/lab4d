@@ -427,13 +427,19 @@ class MultiFields(nn.Module):
             field2cam[cate] = quaternion_translation_to_se3(quat, trans)
         return field2cam
 
-    def get_aabb(self):
+    def get_aabb(self, inst_id=None):
         """Compute axis aligned bounding box
+        Args:
+            inst_id (int or tensor): Instance id. If None, return aabb for all instances
 
         Returns:
-            aabb (Dict): Maps field names ("fg" or "bg") to (2,3) aabb
+            aabb (Dict): Maps field names ("fg" or "bg") to (1/N,2,3) aabb
         """
+        if inst_id is not None:
+            if not torch.is_tensor(inst_id):
+                inst_id = torch.tensor(inst_id, dtype=torch.long)
+            inst_id = inst_id.view(-1)
         aabb = {}
         for cate, field in self.field_params.items():
-            aabb[cate] = field.get_aabb() / field.logscale.exp()
+            aabb[cate] = field.get_aabb(inst_id=inst_id) / field.logscale.exp()
         return aabb

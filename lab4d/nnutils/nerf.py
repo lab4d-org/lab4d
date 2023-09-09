@@ -305,14 +305,14 @@ class NeRF(nn.Module):
             vis_loss = -F.logsigmoid(vis).mean()
             vis_loss = vis_loss * 0.01
 
-            # evaluate eikonal loss
-            eikonal_loss, _ = self.compute_eikonal(
-                pts[:, None, None], inst_id=inst_id, sample_ratio=1
-            )
-            eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
-            eikonal_loss = eikonal_loss * 1e-3
+            # # evaluate eikonal loss
+            # eikonal_loss, _ = self.compute_eikonal(
+            #     pts[:, None, None], inst_id=inst_id, sample_ratio=1
+            # )
+            # eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
+            # eikonal_loss = eikonal_loss * 1e-3
 
-            total_loss = sdf_loss + vis_loss + eikonal_loss
+            total_loss = sdf_loss + vis_loss  #  + eikonal_loss
             total_loss.backward()
             optimizer.step()
             if i % 100 == 0:
@@ -349,7 +349,7 @@ class NeRF(nn.Module):
         """
         if inst_id is not None:
             inst_id = torch.tensor([inst_id], device=next(self.parameters()).device)
-            aabb = self.get_aabb(inst_id=inst_id)[0]  # 2,3
+            aabb = self.get_aabb(inst_id=inst_id)  # 2,3
         else:
             aabb = self.get_aabb()
         sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id, get_density=False)
@@ -358,7 +358,7 @@ class NeRF(nn.Module):
             aabb = extend_aabb(aabb, factor=0.5)
         mesh = marching_cubes(
             sdf_func,
-            aabb,
+            aabb[0],
             visibility_func=vis_func if use_visibility else None,
             grid_size=grid_size,
             level=level,
@@ -374,13 +374,14 @@ class NeRF(nn.Module):
             aabb: (2,3) Axis-aligned bounding box if inst_id is None, (N,2,3) otherwise
         """
         if inst_id is None:
-            return self.aabb
+            return self.aabb[None]
         else:
             return self.aabb[None].repeat(len(inst_id), 1, 1)
 
     def get_scale(self):
         """Get scale of the proxy geometry"""
-        aabb = self.get_aabb()
+        assert self.category == "fg"
+        aabb = self.get_aabb()[0]
         return (aabb[1] - aabb[0]).mean()
 
     def update_aabb(self, beta=0.5):

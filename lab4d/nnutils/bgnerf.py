@@ -80,11 +80,12 @@ class BGNeRF(NeRF):
         Args:
             inst_id: (N,) Instance id
         Returns:
-            aabb: (2,3) Axis-aligned bounding box if inst_id is None, (N,2,3) otherwise
+            aabb: (1,2,3) Axis-aligned bounding box if inst_id is None, (N,2,3) otherwise
         """
         if inst_id is None:
-            return self.aabb.mean(0)
-        return self.aabb[inst_id]
+            return self.aabb.mean(0, keepdim=True)
+        else:
+            return self.aabb[inst_id]
 
     def update_aabb(self, beta=0.9):
         """Update axis-aligned bounding box by interpolating with the current
