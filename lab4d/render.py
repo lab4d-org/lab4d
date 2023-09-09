@@ -74,6 +74,9 @@ def construct_batch_from_opts(opts, model, data_info):
             frameid_start = data_info["frame_info"]["frame_offset_raw"][video_id]
             frameid_sub = frameid - frameid_start
             render_length = len(frameid)
+        # remove last frame to be consistent with flow
+        frameid_sub = frameid_sub[:-1]
+        render_length = render_length - 1
     elif opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
         if opts["num_frames"] <= 0:
             num_frames = vid_length
@@ -192,6 +195,9 @@ def render(opts, construct_batch_func):
     opts["logroot"] = sys.argv[1].split("=")[1].rsplit("/", 2)[0]
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     batch, raw_size = construct_batch_func(opts, model, data_info)
+    # # TODO: make eval_res and render_res consistent
+    # feature = ref_dict["ref_feature"].reshape(-1, opts["eval_res"] ** 2, 16)
+    # batch["feature"] = torch.tensor(feature, device="cuda")
     save_dir = make_save_dir(
         opts, sub_dir="renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
     )

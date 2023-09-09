@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import cv2
 import torch
 from torch.utils.data import Dataset
 
@@ -66,6 +67,7 @@ class VidDataset(Dataset):
         self.ks = ks
         self.raw_size = raw_size
         self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
+        self.res = (opts["eval_res"], opts["eval_res"])
         self.load_data_list(self.dict_list)
 
         self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
@@ -272,7 +274,9 @@ class VidDataset(Dataset):
         """
         rgb = self.mmap_list["rgb"][im0idx]
         shape = rgb.shape
-        if rand_xy is not None:
+        if rand_xy is None:
+            rgb = cv2.resize(rgb.astype(np.float32), self.res)
+        else:
             rgb = rgb[rand_xy[:, 1], rand_xy[:, 0]]  # N,3
 
         if len(shape) == 2:  # gray image
@@ -294,7 +298,10 @@ class VidDataset(Dataset):
                 from cropped (H,W) image to raw image, (fx, fy, cx, cy)
         """
         mask = self.mmap_list["mask"][im0idx]
-        if rand_xy is not None:
+        if rand_xy is None:
+            mask = mask.astype(int)
+            mask = cv2.resize(mask, self.res, interpolation=cv2.INTER_NEAREST)
+        else:
             mask = mask[rand_xy[:, 1], rand_xy[:, 0]]  # N,3
 
         vis2d = mask[..., 1:]
@@ -314,7 +321,9 @@ class VidDataset(Dataset):
             depth (np.array): (H,W,1) or (N,1) Depth map, float16
         """
         depth = self.mmap_list["depth"][im0idx]
-        if rand_xy is not None:
+        if rand_xy is None:
+            depth = cv2.resize(depth.astype(np.float32), self.res)
+        else:
             depth = depth[rand_xy[:, 1], rand_xy[:, 0]]
 
         return depth[..., None]
@@ -329,7 +338,9 @@ class VidDataset(Dataset):
             feat (np.array): (112,112,16) or (N,16) Feature map, float32
         """
         feat = self.mmap_list["feature"][im0idx]  # (112,112,16)
-        if rand_xy is not None:
+        if rand_xy is None:
+            feat = cv2.resize(feat.astype(np.float32), self.res)
+        else:
             rand_xy = rand_xy / self.img_size[0] * 112
             feat = bilinear_interp(feat, rand_xy)
         feat = feat.astype(np.float32)
@@ -351,7 +362,11 @@ class VidDataset(Dataset):
             flow = self.mmap_list["flowfw"][delta][im0idx // delta]
         else:
             flow = self.mmap_list["flowbw"][delta][im0idx // delta - 1]
-        if rand_xy is not None:
+        if rand_xy is None:
+            flow = cv2.resize(flow.astype(np.float32), self.res)
+            flow[..., 0] *= self.res[1] / self.img_size[1]
+            flow[..., 1] *= self.res[0] / self.img_size[0]
+        else:
             flow = flow[rand_xy[:, 1], rand_xy[:, 0]]
 
         flow = flow.astype(np.float32)

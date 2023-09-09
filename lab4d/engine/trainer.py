@@ -130,7 +130,7 @@ class Trainer:
             "module.fields.field_params.fg.warp.articulation": 10.0,
         }
 
-    def get_lr_dict(self):
+    def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters
 
         Returns:
@@ -157,6 +157,18 @@ class Trainer:
             ".shift": lr_explicit,
             ".orient": lr_explicit,
         }
+
+        if pose_correction:
+            del param_lr_with[".logscale"]
+            del param_lr_with[".log_gauss"]
+            param_lr_with_pose_correction = {
+                "module.fields.field_params.fg.basefield.": 0.0,
+                "module.fields.field_params.fg.sdf.": 0.0,
+                "module.fields.field_params.fg.feature_field": 0.0,
+                "module.fields.field_params.fg.warp.skinning_model": 0.0,
+            }
+            param_lr_with.update(param_lr_with_pose_correction)
+
         return param_lr_startwith, param_lr_with
 
     def optimizer_init(self, is_resumed=False):
@@ -203,7 +215,9 @@ class Trainer:
             params_list (List): List of params
             lr_list (List): List of learning rates
         """
-        param_lr_startwith, param_lr_with = self.get_lr_dict()
+        param_lr_startwith, param_lr_with = self.get_lr_dict(
+            pose_correction=self.opts["pose_correction"]
+        )
         params_ref_list = []
         params_list = []
         lr_list = []
@@ -396,6 +410,7 @@ class Trainer:
         opts_dict["load_pair"] = True
         opts_dict["data_prefix"] = "%s-%d" % (opts["data_prefix"], opts["train_res"])
         opts_dict["feature_type"] = opts["feature_type"]
+        opts_dict["eval_res"] = opts["eval_res"]
         opts_dict["dataset_constructor"] = dataset_constructor
 
         if is_eval:

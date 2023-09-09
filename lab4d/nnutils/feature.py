@@ -119,6 +119,7 @@ class FeatureNeRF(NeRF):
         # global matching
         if "feature" in samples_dict and "feature" in feat_dict:
             feature = feat_dict["feature"]
+            feature, xyz = self.propose_matches(feature, xyz)
             xyz_matches = self.global_match(samples_dict["feature"], feature, xyz)
             xy_reproj, xyz_reproj = self.forward_project(
                 xyz_matches,
@@ -133,7 +134,33 @@ class FeatureNeRF(NeRF):
             aux_dict["xy_reproj"] = xy_reproj
         return feat_dict, deltas, aux_dict
 
-    @train_only_fields
+    def propose_matches(self, feature, xyz, num_candidates=8196):
+        """Sample canonical points for global matching
+        Args:
+            feature: (M,N,D,feature_channels) Pixel features
+            xyz: (M,N,D,3) Points in field coordinates
+            num_candidates: Number of candidates to sample
+        Returns:
+            feature: (num_candidates, feature_channels) Canonical features
+            xyz: (num_candidates, 3) Points in field coordinates
+        """
+        # sample canonical points
+        feature = feature.view(-1, feature.shape[-1])  # (M*N*D, feature_channels)
+        xyz = xyz.view(-1, 3)  # (M*N*D, 3)
+        num_candidates = min(num_candidates, feature.shape[0])
+        idx = torch.randperm(feature.shape[0])[: num_candidates // 2]
+        feature = feature[idx]  # (num_candidates, feature_channels)
+        xyz = xyz[idx]  # (num_candidates, 3)
+
+        # sample additional points
+        rand_xyz, _, _ = self.sample_points_aabb(num_candidates // 2, extend_factor=0.1)
+        feat_field_dict = self.compute_feat(rand_xyz)
+
+        # combine
+        feature = torch.cat([feature, feat_field_dict["feature"]], dim=0)
+        xyz = torch.cat([xyz, rand_xyz], dim=0)
+        return feature, xyz
+
     def compute_feat(self, xyz):
         """Render feature field
 
@@ -154,7 +181,6 @@ class FeatureNeRF(NeRF):
         feat_px,
         feat_canonical,
         xyz_canonical,
-        num_candidates=1024,
         num_grad=128,
     ):
         """Match pixel features to canonical features, which combats local
@@ -162,39 +188,26 @@ class FeatureNeRF(NeRF):
 
         Args:
             feat: (M,N,feature_channels) Pixel features
-            feat_canonical: (M,N,D,feature_channels) Canonical features
-            xyz_canonical: (M,N,D,3) Canonical points
+            feat_canonical: (...,feature_channels) Canonical features
+            xyz_canonical: (...,3) Canonical points
         Returns:
             xyz_matched: (M,N,3) Matched xyz
         """
         shape = feat_px.shape
         feat_px = feat_px.view(-1, shape[-1])  # (M*N, feature_channels)
-        feat_canonical = feat_canonical.view(-1, shape[-1])  # (M*N*D, feature_channels)
-        xyz_canonical = xyz_canonical.view(-1, 3)  # (M*N*D, 3)
-
-        # sample canonical points
-        num_candidates = min(num_candidates, feat_canonical.shape[0])
-        idx = torch.randperm(feat_canonical.shape[0])[:num_candidates]
-        feat_canonical = feat_canonical[idx]  # (num_candidates, feature_channels)
-        xyz_canonical = xyz_canonical[idx]  # (num_candidates, 3)
 
         # compute similarity
         score = torch.matmul(feat_px, feat_canonical.t())  # (M*N, num_candidates)
 
-        # # find top K candidates
-        # num_grad = min(num_grad, score.shape[1])
-        # score, idx = torch.topk(score, num_grad, dim=1, largest=True)
-        # score = score * self.logsigma.exp()  # temperature
+        # find top K candidates
+        num_grad = min(num_grad, score.shape[1])
+        score, idx = torch.topk(score, num_grad, dim=1, largest=True)
+        xyz_canonical = xyz_canonical[idx]
 
-        # # soft argmin
-        # prob = torch.softmax(score, dim=1)
-        # xyz_matched = torch.sum(prob.unsqueeze(-1) * xyz_canonical[idx], dim=1)
-
-        # use all candidates
+        # soft argmin
         score = score * self.logsigma.exp()  # temperature
         prob = torch.softmax(score, dim=1)
         xyz_matched = torch.sum(prob.unsqueeze(-1) * xyz_canonical, dim=1)
-
         xyz_matched = xyz_matched.view(shape[:-1] + (-1,))
         return xyz_matched
 

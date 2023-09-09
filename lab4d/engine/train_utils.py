@@ -44,7 +44,7 @@ def match_param_name(name, param_lr, type):
     elif len(matched_param) == 1:
         return True, matched_lr[0]
     else:
-        raise ValueError("multiple matches found")
+        raise ValueError("multiple matches found", matched_param)
 
 
 class DataParallelPassthrough(torch.nn.parallel.DistributedDataParallel):

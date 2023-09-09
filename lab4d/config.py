@@ -14,7 +14,7 @@ class TrainModelConfig:
     flags.DEFINE_float("flow_wt", 5e-3, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
     flags.DEFINE_float("feature_wt", 1e-2, "weight for feature reconstruction loss")
-    flags.DEFINE_float("feat_reproj_wt", 5e-2, "weight for feature reprojection loss")
+    flags.DEFINE_float("feat_reproj_wt", 0.1, "weight for feature reprojection loss")
 
     # weights of regularization terms
     flags.DEFINE_float(
@@ -57,7 +57,7 @@ class TrainOptConfig:
     flags.DEFINE_string("feature_type", "dinov2", "{dinov2, cse}")
     flags.DEFINE_string("load_path", "", "path to load pretrained model")
 
-    # accuracy-related
+    # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")
     flags.DEFINE_integer("num_rounds", 20, "number of rounds to train")
     flags.DEFINE_integer("iters_per_round", 200, "number of iterations per round")
@@ -71,6 +71,7 @@ class TrainOptConfig:
         True,
         "reset steps of loss scheduling, set to False if resuming training",
     )
+    flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

@@ -591,11 +591,11 @@ class ComposedWarp(SkinningWarp):
         Returns:
             dist2: (M, ...) Squared soft deformation distance
         """
-        xyz_t = self.post_warp.forward(xyz, frame_id, inst_id, backward=False)
+        xyz_t = self.post_warp.forward(xyz, frame_id, inst_id, type="forward")
         dist2 = (xyz_t - xyz).pow(2).sum(-1)
 
         # additional cycle consistency regularization for soft deformation
         if isinstance(self.post_warp, DenseWarp):
-            xyz_back = self.post_warp.forward(xyz_t, frame_id, inst_id, backward=True)
+            xyz_back = self.post_warp.forward(xyz_t, frame_id, inst_id, type="backward")
             dist2 = (dist2 + (xyz_t - xyz_back).pow(2).sum(-1)) * 0.5
         return dist2

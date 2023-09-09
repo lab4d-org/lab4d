@@ -223,7 +223,7 @@ class dvr_model(nn.Module):
 
         # blend with mask: render = render * mask + 0*(1-mask)
         for k, v in rendered.items():
-            if "mask" in k:
+            if "mask" in k or "xyz_matches" in k or "xyz_reproj" in k:
                 continue
             else:
                 rendered[k] = rendered[k] * rendered["mask"]
@@ -296,14 +296,12 @@ class dvr_model(nn.Module):
         """
         # get chunk size
         category = list(samples_dict.keys())[0]
-        total_pixels = (
-            samples_dict[category]["hxy"].shape[0]
-            * samples_dict[category]["hxy"].shape[1]
-        )
+        num_imgs, num_pixels, _ = samples_dict[category]["hxy"].shape
+        total_pixels = num_imgs * num_pixels
         num_chunks = int(np.ceil(total_pixels / chunk_size))
-        chunk_size_n = int(
-            np.ceil(chunk_size // samples_dict[category]["hxy"].shape[0])
-        )  # at n dimension
+
+        # break into chunks at pixel dimension
+        chunk_size_px = int(np.ceil(chunk_size // num_imgs))
 
         results = {
             "rendered": defaultdict(list),
@@ -315,10 +313,14 @@ class dvr_model(nn.Module):
             for category, category_v in samples_dict.items():
                 samples_dict_chunk[category] = defaultdict(list)
                 for k, v in category_v.items():
-                    if k == "hxy":
-                        samples_dict_chunk[category][k] = v[
-                            :, i * chunk_size_n : (i + 1) * chunk_size_n
-                        ]
+                    # only break for pixel-ish elements
+                    if (
+                        isinstance(v, torch.Tensor)
+                        and v.ndim == 3
+                        and v.shape[1] == num_pixels
+                    ):
+                        chunk_px = v[:, i * chunk_size_px : (i + 1) * chunk_size_px]
+                        samples_dict_chunk[category][k] = chunk_px.clone()
                     else:
                         samples_dict_chunk[category][k] = v
 
@@ -498,6 +500,8 @@ class dvr_model(nn.Module):
             loss_dict["feat_reproj"] = (
                 aux_dict["fg"]["xy_reproj"] - batch["hxy"][..., :2]
             ).norm(2, -1, keepdim=True)
+            valid_feat = batch["feature"].norm(2, -1, keepdim=True) > (0.99)
+            loss_dict["feat_reproj"] = loss_dict["feat_reproj"] * valid_feat.float()
 
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
         loss_dict["depth"] = (rendered["depth"] - batch["depth"]).pow(2)
