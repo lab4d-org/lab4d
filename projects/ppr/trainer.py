@@ -133,7 +133,7 @@ class PPRTrainer(Trainer):
         if self.opts["load_path_bg"] != "":
             _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
 
-    def get_lr_dict(self):
+    def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters
 
         Returns:
@@ -141,7 +141,9 @@ class PPRTrainer(Trainer):
             param_lr_with (Dict(str, float)): Learning rate for explicit params
         """
         # define a dict for (tensor_name, learning) pair
-        param_lr_startwith, param_lr_with = super().get_lr_dict()
+        param_lr_startwith, param_lr_with = super().get_lr_dict(
+            pose_correction=pose_correction
+        )
         opts = self.opts
 
         param_lr_with.update(

@@ -101,6 +101,12 @@ class PyRenderWrapper:
         #     # make shape gray
         #     input_dict["shape"].visual.vertex_colors[:, :3] = 102
 
+        if "scene" in input_dict:
+            # add scene
+            mesh_pyrender = Mesh.from_trimesh(input_dict["scene"], smooth=False)
+            mesh_pyrender.primitives[0].material = self.material
+            scene.add_node(Node(mesh=mesh_pyrender))
+
         mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
         mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))

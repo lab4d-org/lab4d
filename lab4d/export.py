@@ -73,6 +73,8 @@ def extract_deformation(field, mesh_rest, inst_id):
         field2cam = field.camera_mlp.get_vals(frame_id)
 
         samples_dict = {}
+        se3_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])[0]
+        se3_mat = se3_mat.cpu().numpy()
         if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
             (
                 samples_dict["t_articulation"],
@@ -81,7 +83,8 @@ def extract_deformation(field, mesh_rest, inst_id):
             t_articulation = samples_dict["t_articulation"]
 
             if isinstance(field.warp.articulation, ArticulationSkelMLP):
-                so3 = field.warp.articulation.get_vals(frame_id, return_so3=True)
+                so3 = field.warp.articulation.get_vals(frame_id, return_so3=True)[0]
+                so3 = so3.cpu().numpy()
             else:
                 so3 = None
 
@@ -93,28 +96,27 @@ def extract_deformation(field, mesh_rest, inst_id):
                 ),
                 field.warp.articulation.edges,
             )
-            se3_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])[0]
-            mesh_bones_t.apply_transform(se3_mat.cpu().numpy())
+            # 1,K,4,4
+            t_articulation = dual_quaternion_to_se3(t_articulation)[0]
+            t_articulation = t_articulation.cpu().numpy()
         else:
             t_articulation = None
             so3 = None
             mesh_bones_t = None
 
-        xyz_t = field.forward_warp(
-            xyz[None, None],
-            field2cam,
-            frame_id,
-            inst_id,
-            samples_dict=samples_dict,
-        )
-        xyz_t = xyz_t[0, 0]
-        mesh_t = trimesh.Trimesh(
-            vertices=xyz_t.cpu().numpy(), faces=mesh_rest.faces, process=False
-        )
+        if hasattr(field, "warp"):
+            # warp mesh
+            xyz_t = field.warp(
+                xyz[None, None], frame_id, inst_id, samples_dict=samples_dict
+            )[0, 0]
+            mesh_t = trimesh.Trimesh(
+                vertices=xyz_t.cpu().numpy(), faces=mesh_rest.faces, process=False
+            )
+        else:
+            mesh_t = mesh_rest.copy()
 
-        field2cam[1][:] /= field.logscale.exp()  # to world scale
         motion_expl = MotionParamsExpl(
-            field2cam=field2cam,
+            field2cam=se3_mat,
             t_articulation=t_articulation,
             so3=so3,
             mesh_t=mesh_t,
@@ -143,44 +145,55 @@ def extract_deformation(field, mesh_rest, inst_id):
         xyz_i = xyz_i[0, 0]
         mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces)
 
+    # rescale to world scale
+    field_scale = field.logscale.exp().cpu().numpy()
+    mesh_rest = mesh_rest.apply_scale(1.0 / field_scale)
+    rescale_motion_tuples(motion_tuples, field_scale)
     return mesh_rest, motion_tuples
+
+
+def rescale_motion_tuples(motion_tuples, field_scale):
+    """
+    rescale motion tuples to world scale
+    """
+    for frame_id, motion_tuple in motion_tuples.items():
+        motion_tuple.field2cam[:3, 3] /= field_scale
+        motion_tuple.mesh_t.apply_scale(1.0 / field_scale)
+        if motion_tuple.bone_t is not None:
+            motion_tuple.bone_t.apply_scale(1.0 / field_scale)
+        if motion_tuple.t_articulation is not None:
+            motion_tuple.t_articulation[1][:] /= field_scale
+    return
 
 
 def save_motion_params(meshes_rest, motion_tuples, save_dir):
     for cate, mesh_rest in meshes_rest.items():
         mesh_rest.export("%s/%s-mesh.obj" % (save_dir, cate))
         motion_params = {"field2cam": [], "t_articulation": [], "joint_so3": []}
-        os.makedirs("%s/mesh" % save_dir, exist_ok=True)
-        os.makedirs("%s/bone" % save_dir, exist_ok=True)
+        os.makedirs("%s/fg/mesh/" % save_dir, exist_ok=True)
+        os.makedirs("%s/bg/mesh/" % save_dir, exist_ok=True)
+        os.makedirs("%s/fg/bone/" % save_dir, exist_ok=True)
         for frame_id, motion_expl in motion_tuples[cate].items():
             # save mesh
             motion_expl.mesh_t.export(
-                "%s/mesh/%s-%05d.obj" % (save_dir, cate, frame_id)
+                "%s/%s/mesh/%05d.obj" % (save_dir, cate, frame_id)
             )
             if motion_expl.bone_t is not None:
                 motion_expl.bone_t.export(
-                    "%s/bone/%s-%05d.obj" % (save_dir, cate, frame_id)
+                    "%s/%s/bone/%05d.obj" % (save_dir, cate, frame_id)
                 )
 
             # save motion params
-            field2cam = quaternion_translation_to_se3(
-                motion_expl.field2cam[0], motion_expl.field2cam[1]
-            )  # 1,4,4
-            motion_params["field2cam"].append(field2cam.cpu().numpy()[0].tolist())
+            motion_params["field2cam"].append(motion_expl.field2cam.tolist())
 
             if motion_expl.t_articulation is not None:
-                t_articulation = dual_quaternion_to_se3(
-                    motion_expl.t_articulation
-                )  # 1,K,4,4
                 motion_params["t_articulation"].append(
-                    t_articulation.cpu().numpy()[0].tolist()
+                    motion_expl.t_articulation.tolist()
                 )
             if motion_expl.so3 is not None:
-                motion_params["joint_so3"].append(
-                    motion_expl.so3.cpu().numpy()[0].tolist()
-                )  # K,3
+                motion_params["joint_so3"].append(motion_expl.so3.tolist())  # K,3
 
-        with open("%s/%s-motion.json" % (save_dir, cate), "w") as fp:
+        with open("%s/%s/motion.json" % (save_dir, cate), "w") as fp:
             json.dump(motion_params, fp)
 
 
@@ -194,9 +207,6 @@ def extract_motion_params(model, opts, data_info):
         use_visibility=opts["use_visibility"],
         use_extend_aabb=False,
     )
-
-    # get absolute frame ids
-    inst_id = opts["inst_id"]
 
     # get deformation
     motion_tuples = {}
@@ -229,7 +239,9 @@ def export(opts):
     print("Saved to %s" % save_dir)
 
     # mesh rendering
-    os.system("python lab4d/render_mesh.py --testdir %s" % (save_dir))
+    cmd = "python lab4d/render_mesh.py --testdir %s" % (save_dir)
+    print("Running: %s" % cmd)
+    os.system(cmd)
 
 
 def main(_):
