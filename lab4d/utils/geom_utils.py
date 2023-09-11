@@ -56,11 +56,20 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
     shape = pts.shape
     bs, B, _ = dual_quat[0].shape
     pts = pts.view(bs, -1, 3)
-    skin = skin.view(bs, -1, B)
+    skin = skin.view(bs, -1, B)  # M, N*D, B
     N = pts.shape[1]
 
+    # (M, ND, B, 4)
     qr = dual_quat[0][:, None].repeat(1, N, 1, 1)
     qd = dual_quat[1][:, None].repeat(1, N, 1, 1)
+
+    # make sure to blend in the same hemisphere
+    anchor = skin.argmax(-1).view(shape[0], -1, 1, 1).repeat(1, 1, 1, 4)  # M, ND, 1, 4
+    sign = (torch.gather(qr, 2, anchor) * qr).sum(-1) > 0  # M, ND, B
+    sign = sign[..., None].float() * 2 - 1
+    qr = sign * qr
+    qd = sign * qd
+
     qr_w = torch.einsum("bnk,bnkl->bnl", skin, qr)
     qd_w = torch.einsum("bnk,bnkl->bnl", skin, qd)
 
