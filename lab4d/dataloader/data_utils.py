@@ -253,7 +253,16 @@ def get_data_info(loader):
         feature_pxs.append(feature_array[::num_skip])
 
         # compute motion magnitude
-        flow = dataset.mmap_list["flowfw"][1][..., :2]
+        mask = dataset.mmap_list["mask"][:-1, ..., 0].copy()
+        if dataset.field_type == "bg":
+            mask = np.logical_not(mask)
+        elif dataset.field_type == "fg":
+            pass
+        elif dataset.field_type == "comp":
+            mask[:] = True
+        else:
+            raise ValueError("Unknown field type: %s" % dataset.field_type)
+        flow = dataset.mmap_list["flowfw"][1][mask, :2]
         motion_scale = np.linalg.norm(flow, 2, -1).mean()
         motion_scales.append(motion_scale)
 
@@ -264,6 +273,7 @@ def get_data_info(loader):
 
     # store motion magnitude
     data_info["motion_scales"] = motion_scales
+    # print("motion scales: ", motion_scales)
 
     frame_info = {}
     frame_info["frame_offset"] = np.asarray(frame_offset).cumsum()

@@ -128,6 +128,9 @@ class Trainer:
         self.param_clip_startwith = {
             "module.fields.field_params.fg.camera_mlp": 10.0,
             "module.fields.field_params.fg.warp.articulation": 10.0,
+            "module.fields.field_params.bg.camera_mlp": 10.0,
+            "module.fields.field_params.bg.basefield": 10.0,
+            "module.fields.field_params.bg.sdf": 10.0,
         }
 
     def get_lr_dict(self, pose_correction=False):
@@ -410,6 +413,7 @@ class Trainer:
         opts_dict["load_pair"] = True
         opts_dict["data_prefix"] = "%s-%d" % (opts["data_prefix"], opts["train_res"])
         opts_dict["feature_type"] = opts["feature_type"]
+        opts_dict["field_type"] = opts["field_type"]
         opts_dict["eval_res"] = opts["eval_res"]
         opts_dict["dataset_constructor"] = dataset_constructor
 
@@ -490,7 +494,7 @@ class Trainer:
         """
         ref_dict = defaultdict(list)
         batch_aggr = defaultdict(list)
-        ref_keys = ["rgb", "mask", "depth", "feature", "vis2d"]
+        ref_keys = ["rgb", "mask", "depth", "feature", "vis2d", "normal"]
         batch_keys = ["dataid", "frameid_sub", "crop2raw"]
         for fid in fids:
             batch = dataset[fid]

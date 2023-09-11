@@ -494,7 +494,7 @@ class NeRF(nn.Module):
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
-        normal[rand_inds] = self.grad_to_normal(g)
+        normal[rand_inds] = g  # self.grad_to_normal(g)
         normal = normal.reshape(M, N, D, 3)
         return eikonal_loss, normal
 
@@ -543,7 +543,7 @@ class NeRF(nn.Module):
         g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
 
         eikonal = (g.norm(2, dim=-1, keepdim=True) - 1) ** 2
-        normal = self.grad_to_normal(g)
+        normal = g  # self.grad_to_normal(g)
         return eikonal, normal
 
     @staticmethod

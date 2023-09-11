@@ -64,6 +64,7 @@ class VidDataset(Dataset):
         self.pixels_per_image = opts["pixels_per_image"]
         self.dataid = dataid
         self.load_pair = opts["load_pair"]
+        self.field_type = opts["field_type"]
         self.ks = ks
         self.raw_size = raw_size
         self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
@@ -90,6 +91,7 @@ class VidDataset(Dataset):
         flowfw_path = rgb_path.replace("JPEGImages", "FlowFW")
         flowbw_path = rgb_path.replace("JPEGImages", "FlowBW")
         depth_path = rgb_path.replace("JPEGImages", "Depth")
+        normal_path = rgb_path.replace("JPEGImages", "Normal")
         feature_path = str(
             Path(rgb_path.replace("JPEGImages", "Features")).parent
         ) + "/%s-%s-01.npy" % (prefix, feature_type)
@@ -117,6 +119,7 @@ class VidDataset(Dataset):
             "flowfw": flowfw_path,
             "flowbw": flowbw_path,
             "depth": depth_path,
+            "normal": normal_path,
             "feature": feature_path,
             "crop2raw": crop2raw_path,
             "is_detected": is_detected_path,
@@ -230,12 +233,13 @@ class VidDataset(Dataset):
             delta (int): Distance to other frame id in the pair
             rand_xy (array or None): (N, 2) pixels to load, if given
         Returns:
-            data_dict (Dict): Dict with keys "rgb", "mask", "depth", "feature",
+            data_dict (Dict): Dict with keys "rgb", "mask", "depth", "normal", "feature",
                 "flow", "vis2d", "crop2raw", "dataid", "frameid_sub", "hxy"
         """
         rgb = self.read_rgb(im0idx, rand_xy=rand_xy)
         mask, vis2d, crop2raw, is_detected = self.read_mask(im0idx, rand_xy=rand_xy)
         depth = self.read_depth(im0idx, rand_xy=rand_xy)
+        normal = self.read_normal(im0idx, rand_xy=rand_xy)
         flow = self.read_flow(im0idx, delta, rand_xy=rand_xy)
         feature = self.read_feature(im0idx, rand_xy=rand_xy)
 
@@ -252,6 +256,7 @@ class VidDataset(Dataset):
         data_dict["rgb"] = rgb
         data_dict["mask"] = mask
         data_dict["depth"] = depth
+        data_dict["normal"] = normal
         data_dict["feature"] = feature
         data_dict["flow"] = flow[..., :2]
         data_dict["flow_uct"] = flow[..., 2:]
@@ -327,6 +332,22 @@ class VidDataset(Dataset):
             depth = depth[rand_xy[:, 1], rand_xy[:, 0]]
 
         return depth[..., None]
+
+    def read_normal(self, im0idx, rand_xy=None):
+        """Read surface normal map for a single frame
+
+        Args:
+            im0idx (int): Frame id to load
+            rand_xy (np.array or None): (N,2) Pixels to load, if given
+        Returns:
+            normal (np.array): (H,W,3) or (N,3) Surface normal map, float16
+        """
+        normal = self.mmap_list["normal"][im0idx]
+        if rand_xy is None:
+            normal = cv2.resize(normal.astype(np.float32), self.res)
+        else:
+            normal = normal[rand_xy[:, 1], rand_xy[:, 0]]
+        return normal
 
     def read_feature(self, im0idx, rand_xy=None):
         """Read feature map for a single frame

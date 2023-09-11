@@ -16,3 +16,4 @@ __pycache__/
 preprocess/third_party/vcnplus/vcn_rob.pth
 preprocess/third_party/viewpoint/human.pth
 preprocess/third_party/viewpoint/quad.pth
+preprocess/third_party/omnivision/*.ckpt

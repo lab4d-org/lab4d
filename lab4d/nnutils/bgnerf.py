@@ -6,7 +6,7 @@ import trimesh
 from pysdf import SDF
 
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
-from lab4d.utils.geom_utils import get_near_far
+from lab4d.utils.geom_utils import get_near_far, extend_aabb
 from lab4d.nnutils.base import MixMLP, MultiMLP, CondMLP, DictMLP
 from lab4d.nnutils.visibility import VisField
 
@@ -99,6 +99,7 @@ class BGNeRF(NeRF):
             bounds = self.proxy_geometry[inst_id].bounds
             if bounds is not None:
                 aabb = torch.tensor(bounds, dtype=torch.float32, device=device)
+                aabb = extend_aabb(aabb, factor=0.2)  # 1.4x larger
                 self.aabb[inst_id] = self.aabb[inst_id] * beta + aabb * (1 - beta)
 
     def update_near_far(self, beta=0.9):

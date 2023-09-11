@@ -505,6 +505,12 @@ class dvr_model(nn.Module):
 
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
         loss_dict["depth"] = (rendered["depth"] - batch["depth"]).pow(2)
+        loss_dict["normal"] = (rendered["normal"] - batch["normal"]).pow(2)
+        # remove pixels not sampled to render normals
+        loss_dict["normal"] = (
+            loss_dict["normal"]
+            * (rendered["normal"].norm(2, -1, keepdim=True) > 0).float()
+        )
         loss_dict["flow"] = (rendered["flow"] - batch["flow"]).norm(2, -1, keepdim=True)
 
         # visibility: supervise on fg and bg separately
@@ -582,7 +588,7 @@ class dvr_model(nn.Module):
         # always mask-out non-object pixels
         keys_fg = ["feature", "feat_reproj"]
         # field type specific keys
-        keys_type_specific = ["rgb", "depth", "flow", "vis"]
+        keys_type_specific = ["rgb", "depth", "flow", "vis", "normal"]
 
         # type-specific masking rules
         vis2d = batch["vis2d"].float()

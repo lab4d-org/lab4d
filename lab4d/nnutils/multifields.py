@@ -87,8 +87,11 @@ class MultiFields(nn.Module):
             )
             # no directional encoding
         elif category == "bg":
-            # nerf = NeRF(
-            nerf = BGNeRF(
+            if self.single_inst:
+                bg_arch = NeRF
+            else:
+                bg_arch = BGNeRF
+            nerf = bg_arch(
                 data_info,
                 num_freq_xyz=6,
                 num_freq_dir=0,
