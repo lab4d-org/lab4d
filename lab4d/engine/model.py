@@ -33,6 +33,7 @@ class dvr_model(nn.Module):
             field_type=config["field_type"],
             fg_motion=config["fg_motion"],
             single_inst=config["single_inst"],
+            single_scene=config["single_scene"],
         )
         self.intrinsics = IntrinsicsMLP(
             self.data_info["intrinsics"],
@@ -325,6 +326,9 @@ class dvr_model(nn.Module):
                         samples_dict_chunk[category][k] = v
 
             # get chunk output
+            if not self.training:
+                # clear cache for evaluation
+                torch.cuda.empty_cache()
             results_chunk = self.render_samples(
                 samples_dict_chunk, flow_thresh=flow_thresh
             )
@@ -504,7 +508,7 @@ class dvr_model(nn.Module):
             loss_dict["feat_reproj"] = loss_dict["feat_reproj"] * valid_feat.float()
 
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
-        loss_dict["depth"] = (rendered["depth"] - batch["depth"]).pow(2)
+        loss_dict["depth"] = (rendered["depth"] - batch["depth"]).abs()
         loss_dict["normal"] = (rendered["normal"] - batch["normal"]).pow(2)
         # remove pixels not sampled to render normals
         loss_dict["normal"] = (

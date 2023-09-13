@@ -128,6 +128,8 @@ class Trainer:
         self.param_clip_startwith = {
             "module.fields.field_params.fg.camera_mlp": 10.0,
             "module.fields.field_params.fg.warp.articulation": 10.0,
+            "module.fields.field_params.fg.basefield": 10.0,
+            "module.fields.field_params.fg.sdf": 10.0,
             "module.fields.field_params.bg.camera_mlp": 10.0,
             "module.fields.field_params.bg.basefield": 10.0,
             "module.fields.field_params.bg.sdf": 10.0,
@@ -339,6 +341,9 @@ class Trainer:
             model_states = remove_ddp_prefix(model_states)
         model.load_state_dict(model_states, strict=False)
 
+        # reset near_far
+        model.fields.reset_geometry_aux()
+
         # if optimizer is not None:
         #     # use the new param_groups that contains the learning rate
         #     checkpoint["optimizer"]["param_groups"] = optimizer.state_dict()[
@@ -358,9 +363,6 @@ class Trainer:
         if not self.opts["reset_steps"]:
             self.current_steps = checkpoint["current_steps"]
             self.current_round = checkpoint["current_round"]
-
-        # reset near_far
-        self.model.fields.reset_geometry_aux()
 
     def train_one_round(self, round_count):
         """Train a single round (going over mini-batches)

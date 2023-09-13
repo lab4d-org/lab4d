@@ -24,10 +24,8 @@ class MultiFields(nn.Module):
         field_type (str): Field type ("comp", "fg", or "bg")
         fg_motion (str): Foreground motion type ("rigid", "dense", "bob",
             "skel-{human,quad}", or "comp_skel-{human,quad}_{bob,dense}")
-        num_inst (int): Number of distinct object instances. If --nosingle_inst
-            is passed, this is equal to the number of videos, as we assume each
-            video captures a different instance. Otherwise, we assume all videos
-            capture the same instance and set this to 1.
+        single_inst (bool): If True, assume the same morphology over videos
+        single_scene (bool): If True, assume the same scene over videos
     """
 
     def __init__(
@@ -36,6 +34,7 @@ class MultiFields(nn.Module):
         field_type="bg",
         fg_motion="rigid",
         single_inst=True,
+        single_scene=True,
     ):
         vis_info = data_info["vis_info"]
 
@@ -44,6 +43,7 @@ class MultiFields(nn.Module):
         self.field_type = field_type
         self.fg_motion = fg_motion
         self.single_inst = single_inst
+        self.single_scene = single_scene
 
         # specify field type
         if field_type == "comp":
@@ -87,12 +87,13 @@ class MultiFields(nn.Module):
             )
             # no directional encoding
         elif category == "bg":
-            if self.single_inst:
+            if self.single_scene:
                 bg_arch = NeRF
             else:
                 bg_arch = BGNeRF
             nerf = bg_arch(
                 data_info,
+                D=8,
                 num_freq_xyz=6,
                 num_freq_dir=0,
                 appr_channels=0,
@@ -155,6 +156,7 @@ class MultiFields(nn.Module):
     def reset_geometry_aux(self):
         """Reset proxy geometry and bounds for all child fields"""
         for field in self.field_params.values():
+            print("resetting geometry aux for %s" % field.category)
             field.update_proxy()
             field.update_aabb(beta=0)
             field.update_near_far(beta=0)

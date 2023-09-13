@@ -73,7 +73,8 @@ def render_pixel(field_dict, deltas):
 
     # auxiliary outputs
     if "eikonal" in field_dict:
-        rendered["eikonal"] = field_dict["eikonal"].mean(dim=(-1, -2))  # (M, N)
+        # rendered["eikonal"] = field_dict["eikonal"].mean(dim=(-1, -2))  # (M, N)
+        rendered["eikonal"] = (field_dict["eikonal"][..., 0] * weights.detach()).sum(-1)
 
     if "delta_skin" in field_dict:
         rendered["delta_skin"] = field_dict["delta_skin"].mean(dim=(-1, -2))

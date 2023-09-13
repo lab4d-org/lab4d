@@ -108,9 +108,9 @@ def main():
         if scene_mode == "scene":
             input_dict["scene"] = scene_dict[frame_idx]
         # set camera extrinsics
-        # renderer.set_camera(extr_dict[frame_idx])
-        # bev
-        renderer.set_camera_bev(3)
+        renderer.set_camera(extr_dict[frame_idx])
+        # # bev
+        # renderer.set_camera_bev(3)
         # set camera intrinsics
         renderer.set_intrinsics(intrinsics[frame_idx])
         color = renderer.render(input_dict)[0]

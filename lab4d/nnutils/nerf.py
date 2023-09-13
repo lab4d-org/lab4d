@@ -305,14 +305,14 @@ class NeRF(nn.Module):
             vis_loss = -F.logsigmoid(vis).mean()
             vis_loss = vis_loss * 0.01
 
-            # # evaluate eikonal loss
-            # eikonal_loss, _ = self.compute_eikonal(
-            #     pts[:, None, None], inst_id=inst_id, sample_ratio=1
-            # )
-            # eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
-            # eikonal_loss = eikonal_loss * 1e-3
+            # evaluate eikonal loss
+            eikonal_loss, _ = self.compute_eikonal(
+                pts[:, None, None], inst_id=inst_id, sample_ratio=1
+            )
+            eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
+            eikonal_loss = eikonal_loss * 1e-3
 
-            total_loss = sdf_loss + vis_loss  #  + eikonal_loss
+            total_loss = sdf_loss + vis_loss + eikonal_loss
             total_loss.backward()
             optimizer.step()
             if i % 100 == 0:
@@ -395,6 +395,7 @@ class NeRF(nn.Module):
         bounds = self.proxy_geometry.bounds
         if bounds is not None:
             aabb = torch.tensor(bounds, dtype=torch.float32, device=device)
+            # aabb = extend_aabb(aabb, factor=0.2)  # 1.4x larger
             self.aabb = self.aabb * beta + aabb * (1 - beta)
 
     def update_near_far(self, beta=0.9):

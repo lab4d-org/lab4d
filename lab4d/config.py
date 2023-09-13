@@ -10,7 +10,7 @@ class TrainModelConfig:
     # weights of reconstruction terms
     flags.DEFINE_float("mask_wt", 0.1, "weight for silhouette loss")
     flags.DEFINE_float("rgb_wt", 0.1, "weight for color loss")
-    flags.DEFINE_float("depth_wt", 1e-4, "weight for depth loss")
+    flags.DEFINE_float("depth_wt", 5e-3, "weight for depth loss")
     flags.DEFINE_float("normal_wt", 0.0, "weight for normal loss")
     flags.DEFINE_float("flow_wt", 0.01, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
@@ -21,8 +21,8 @@ class TrainModelConfig:
     flags.DEFINE_float(
         "reg_visibility_wt", 1e-4, "weight for visibility regularization"
     )
-    flags.DEFINE_float("reg_eikonal_wt", 1e-3, "weight for eikonal regularization")
-    flags.DEFINE_float("reg_eikonal_scale_max", 100, "max scaling for eikonal reg")
+    flags.DEFINE_float("reg_eikonal_wt", 0.1, "weight for eikonal regularization")
+    flags.DEFINE_float("reg_eikonal_scale_max", 1, "max scaling for eikonal reg")
     flags.DEFINE_float(
         "reg_deform_cyc_wt", 0.01, "weight for deform cyc regularization"
     )
@@ -42,7 +42,8 @@ class TrainModelConfig:
     flags.DEFINE_string(
         "fg_motion", "rigid", "{rigid, dense, bob, skel-human, skel-quad}"
     )
-    flags.DEFINE_bool("single_inst", True, "assume the same morphology over objs")
+    flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
+    flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
 
 
 class TrainOptConfig:

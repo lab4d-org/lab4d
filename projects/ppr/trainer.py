@@ -152,10 +152,12 @@ class PPRTrainer(Trainer):
                 "module.fields.field_params.fg.colorfield.": 0.0,
                 "module.fields.field_params.fg.sdf.": 0.0,
                 "module.fields.field_params.fg.rgb.": 0.0,
+                "module.fields.field_params.fg.vis_mlp.": 0.0,
                 "module.fields.field_params.bg.basefield.": 0.0,
                 "module.fields.field_params.bg.colorfield.": 0.0,
                 "module.fields.field_params.bg.sdf.": 0.0,
                 "module.fields.field_params.bg.rgb.": 0.0,
+                "module.fields.field_params.bg.vis_mlp.": 0.0,
             }
         )
         return param_lr_startwith, param_lr_with
