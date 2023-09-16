@@ -176,7 +176,7 @@ class PPRTrainer(Trainer):
         return param_lr_startwith, param_lr_with
 
     def run_one_round(self, round_count):
-        if round_count == 0:
+        if round_count == self.first_round:
             # initialize control input of phys model to kinematics
             self.phys_model.override_states()
         # run physics cycle

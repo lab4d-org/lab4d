@@ -23,7 +23,7 @@ class PPRConfig:
     flags.DEFINE_float("traj_wt", 0.01, "weight for traj matching loss")
     flags.DEFINE_float("pos_state_wt", 2e-4, "weight for position matching reg")
     flags.DEFINE_float("vel_state_wt", 0.0, "weight for velocity matching reg")
-    flags.DEFINE_float("pos_distill_wt", 0.01, "weight for distilling proxy kienmatics")
+    flags.DEFINE_float("pos_distill_wt", 0.1, "weight for distilling proxy kienmatics")
 
     # regs
     flags.DEFINE_float("reg_torque_wt", 0.0, "weight for torque regularization")

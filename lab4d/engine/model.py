@@ -221,10 +221,10 @@ class dvr_model(nn.Module):
                 rendered[k].append(v.view(div_factor, res, res, -1)[0])
             for k, v in aux["fg"].items():
                 res = int(np.sqrt(v.shape[1]))
-                rendered["fg_%s" % k].append(v.view(div_factor, res, res, -1)[0])
+                rendered["%s/fg" % k].append(v.view(div_factor, res, res, -1)[0])
             for k, v in aux["bg"].items():
                 res = int(np.sqrt(v.shape[1]))
-                rendered["bg_%s" % k].append(v.view(div_factor, res, res, -1)[0])
+                rendered["%s/bg" % k].append(v.view(div_factor, res, res, -1)[0])
 
         for k, v in rendered.items():
             rendered[k] = torch.stack(v, 0)
@@ -486,7 +486,8 @@ class dvr_model(nn.Module):
         if config["field_type"] == "fg":
             rendered_fg_mask = rendered["mask"]
         elif config["field_type"] == "comp":
-            rendered_fg_mask = rendered["mask_fg"]
+            # rendered_fg_mask = rendered["mask_fg"]
+            rendered_fg_mask = aux_dict["fg"]["mask"]
         elif config["field_type"] == "bg":
             rendered_fg_mask = None
         else:
@@ -501,9 +502,10 @@ class dvr_model(nn.Module):
             loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] *= mask_balance_wt
         elif config["field_type"] == "comp":
-            loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
-            loss_dict["mask"] *= mask_balance_wt
-            loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
+            # loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
+            # loss_dict["mask"] *= mask_balance_wt
+            # loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
+            loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
         else:
             raise ("field_type %s not supported" % config["field_type"])
 

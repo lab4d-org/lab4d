@@ -76,6 +76,7 @@ class Trainer:
 
         self.current_steps = 0  # 0-total_steps
         self.current_round = 0  # 0-num_rounds
+        self.first_round = 0  # 0-num_rounds
 
         # 0-last image in eval dataset
         self.eval_fid = np.linspace(0, len(self.evalloader) - 1, 9).astype(int)
@@ -278,7 +279,7 @@ class Trainer:
             round_count (int): Current round index
         """
         if get_local_rank() == 0:
-            if round_count == 0:
+            if round_count == self.first_round:
                 self.model_eval()
 
         self.model.update_geometry_aux()
@@ -362,6 +363,7 @@ class Trainer:
         if not self.opts["reset_steps"]:
             self.current_steps = checkpoint["current_steps"]
             self.current_round = checkpoint["current_round"]
+            self.first_round = self.current_round
 
     def train_one_round(self, round_count):
         """Train a single round (going over mini-batches)
@@ -639,6 +641,8 @@ class Trainer:
             ((name, p),) = param_dict.items()
             if p.requires_grad and p.grad is not None:
                 params_list.append(p)
+                # if p.grad.isnan().any():
+                #     p.grad.zero_()
 
         # check individual parameters
         grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
