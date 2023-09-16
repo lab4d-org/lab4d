@@ -708,7 +708,7 @@ class NeRF(nn.Module):
         xyz_t = backwarp_dict["xyz_t"]
 
         # visibility
-        vis_score = self.vis_mlp(xyz, inst_id=inst_id)  # (M, N, D, 1)
+        vis_score = self.vis_mlp(xyz.detach(), inst_id=inst_id)  # (M, N, D, 1)
 
         # compute valid_indices to speed up querying fields
         if self.training:
@@ -869,6 +869,13 @@ class NeRF(nn.Module):
             # For efficiency, compute subsampled eikonal loss in canonical space
             jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
                 xyz, inst_id=inst_id
+            )
+            # convert to camera space
+            jacob_dict["normal"] = quaternion_apply(
+                field2cam[0][:, None, None]
+                .expand(jacob_dict["normal"].shape[:-1] + (4,))
+                .clone(),
+                jacob_dict["normal"],
             )
         else:
             # For rendering, compute full eikonal loss and normals in camera space

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from lab4d.nnutils.time import TimeMLP
+from lab4d.utils.torch_utils import reinit_model
 
 
 class IntrinsicsMLP(TimeMLP):
@@ -64,12 +65,16 @@ class IntrinsicsMLP(TimeMLP):
             "init_vals", torch.tensor(intrinsics, dtype=torch.float32), persistent=False
         )
 
-    def mlp_init(self):
+    def base_init(self):
         """Initialize camera intrinsics from external values"""
         intrinsics = self.init_vals
         frame_offset = self.get_frame_offset()
         self.base_logfocal.data = intrinsics[frame_offset[:-1], :2].log()
         self.base_ppoint.data = intrinsics[frame_offset[:-1], 2:]
+
+    def mlp_init(self):
+        """Initialize camera intrinsics from external values"""
+        self.base_init()
         super().mlp_init(termination_loss=1.0)
 
     def forward(self, t_embed):
@@ -106,8 +111,57 @@ class IntrinsicsMLP(TimeMLP):
         intrinsics = torch.cat([focal, ppoint], dim=-1)
         return intrinsics
 
-    def get_intrinsics(self, inst_id):
-        raw_fid_to_vid = self.time_embedding.raw_fid_to_vid
-        frame_id = (raw_fid_to_vid == inst_id).nonzero()[:, 0]
+    def get_intrinsics(self, inst_id=None):
+        if inst_id is None:
+            frame_id = None
+        else:
+            raw_fid_to_vid = self.time_embedding.raw_fid_to_vid
+            frame_id = (raw_fid_to_vid == inst_id).nonzero()[:, 0]
         intrinsics = self.get_vals(frame_id=frame_id)
         return intrinsics
+
+
+class IntrinsicsMLP_delta(IntrinsicsMLP):
+    """Encode camera intrinsics over time with an MLP
+
+    Args:
+        intrinsics: (N,4) Camera intrinsics (fx, fy, cx, cy)
+        frame_info (Dict): Metadata about the frames in a dataset
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+        num_freq_t (int): Number of frequencies in the time embedding
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+        time_scale (float): Control the sensitivity to time by scaling.
+          Lower values make the module less sensitive to time.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        del self.base_logfocal
+        del self.base_ppoint
+        self.register_buffer(
+            "base_logfocal", torch.zeros(self.time_embedding.num_frames, 2)
+        )
+        self.register_buffer(
+            "base_ppoint", torch.zeros(self.time_embedding.num_frames, 2)
+        )
+
+    def update_base_focal(self):
+        """Update base camera rotations from current camera trajectory"""
+        intrinsics = self.get_vals()
+        focal, ppoint = intrinsics[..., :2], intrinsics[..., 2:]
+        self.base_logfocal.data = focal.log()
+        self.base_ppoint.data = ppoint
+        # reinit the mlp head
+        reinit_model(self.focal, std=0.01)
+
+    def base_init(self):
+        """Initialize camera intrinsics from external values"""
+        intrinsics = self.init_vals
+        frame_offset = self.get_frame_offset()
+        for i in range(len(frame_offset) - 1):
+            focal = intrinsics[frame_offset[i], :2]
+            ppoint = intrinsics[frame_offset[i], 2:]
+            self.base_logfocal.data[frame_offset[i] : frame_offset[i + 1]] = focal.log()
+            self.base_ppoint.data[frame_offset[i] : frame_offset[i + 1]] = ppoint

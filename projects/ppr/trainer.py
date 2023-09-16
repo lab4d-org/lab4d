@@ -126,12 +126,25 @@ class PPRTrainer(Trainer):
         """Load a checkpoint at training time and update the current step count
         and round count
         """
-        if self.opts["load_path_bg"] != "":
-            _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
+        # load background and intrinsics model
+        checkpoint = torch.load(self.opts["load_path_bg"])
+        model_states = checkpoint["model"]
+        self.model.load_state_dict(model_states, strict=False)
+        # f_bg = self.model.intrinsics.get_intrinsics()[:, 0]  # focal
         super().load_checkpoint_train()
-        # this loads the intrinsics from bg model
-        if self.opts["load_path_bg"] != "":
-            _ = self.load_checkpoint(self.opts["load_path_bg"], self.model)
+        # f_fg = self.model.intrinsics.get_intrinsics()[:, 0]  # focal
+
+        # # change the translation such that the rendering is close to input
+        # f_ratio = (f_fg / f_bg)[..., None]
+        # self.model.fields.field_params["bg"].camera_mlp.base_trans.data *= f_ratio
+        # self.model.fields.field_params["bg"].logscale.data += f_ratio.log().mean()
+
+        # # reset beta
+        # beta = torch.tensor([0.01]).to(self.device)
+        # self.model.fields.field_params["fg"].logibeta.data = -beta.log()
+        # self.model.fields.field_params["bg"].logibeta.data = -beta.log()
+
+        self.model.fields.reset_geometry_aux()
 
     def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters

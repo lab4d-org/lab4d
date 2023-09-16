@@ -31,6 +31,7 @@ from lab4d.utils.skel_utils import (
     apply_root_offset,
 )
 from lab4d.utils.vis_utils import draw_cams
+from lab4d.utils.torch_utils import reinit_model
 
 
 class CameraMLP(TimeMLP):
@@ -327,8 +328,8 @@ class CameraMLP_so3(TimeMLP):
         """Update base camera rotations from current camera trajectory"""
         self.base_quat.data, self.base_trans.data = self.get_vals()
         # reinit the mlp head
-        self.reinit(self.so3, std=0.01)
-        self.reinit(self.trans, std=0.01)
+        reinit_model(self.so3, std=0.01)
+        reinit_model(self.trans, std=0.01)
 
     def interpolate_base(self, frame_id):
         idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
@@ -343,15 +344,6 @@ class CameraMLP_so3(TimeMLP):
         base_quat = interpolate_slerp(self.base_quat, idx, idx + 1, t_frac)
         base_trans = interpolate_linear(self.base_trans, idx, idx + 1, t_frac)
         return base_quat, base_trans
-
-    @staticmethod
-    def reinit(model, std=1):
-        for m in model.modules():
-            if isinstance(m, nn.Linear):
-                if hasattr(m.weight, "data"):
-                    nn.init.normal_(m.weight, mean=0.0, std=std)
-                if hasattr(m.bias, "data"):
-                    m.bias.data.zero_()
 
 
 class ArticulationBaseMLP(TimeMLP):

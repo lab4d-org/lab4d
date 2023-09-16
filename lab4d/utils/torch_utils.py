@@ -1,5 +1,15 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
 import torch
+import torch.nn as nn
+
+
+def reinit_model(model, std=1):
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            if hasattr(m.weight, "data"):
+                nn.init.normal_(m.weight, mean=0.0, std=std)
+            if hasattr(m.bias, "data"):
+                m.bias.data.zero_()
 
 
 def flip_pair(tensor):

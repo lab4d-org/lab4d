@@ -7,7 +7,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from lab4d.engine.train_utils import get_local_rank
-from lab4d.nnutils.intrinsics import IntrinsicsMLP
+from lab4d.nnutils.intrinsics import IntrinsicsMLP, IntrinsicsMLP_delta
 from lab4d.nnutils.multifields import MultiFields
 from lab4d.utils.geom_utils import K2inv, K2mat
 from lab4d.utils.numpy_utils import interp_wt
@@ -214,10 +214,17 @@ class dvr_model(nn.Module):
                         batch_sub[k][k2] = v2[i * div_factor : (i + 1) * div_factor]
                 else:
                     batch_sub[k] = v[i * div_factor : (i + 1) * div_factor]
-            rendered_sub = self.render(batch_sub)["rendered"]
+            results_sub = self.render(batch_sub)
+            rendered_sub, aux = results_sub["rendered"], results_sub["aux_dict"]
             for k, v in rendered_sub.items():
                 res = int(np.sqrt(v.shape[1]))
                 rendered[k].append(v.view(div_factor, res, res, -1)[0])
+            for k, v in aux["fg"].items():
+                res = int(np.sqrt(v.shape[1]))
+                rendered["fg_%s" % k].append(v.view(div_factor, res, res, -1)[0])
+            for k, v in aux["bg"].items():
+                res = int(np.sqrt(v.shape[1]))
+                rendered["bg_%s" % k].append(v.view(div_factor, res, res, -1)[0])
 
         for k, v in rendered.items():
             rendered[k] = torch.stack(v, 0)
@@ -233,6 +240,9 @@ class dvr_model(nn.Module):
     def update_geometry_aux(self):
         """Extract proxy geometry for all neural fields"""
         self.fields.update_geometry_aux()
+
+        if isinstance(self.intrinsics, IntrinsicsMLP_delta):
+            self.intrinsics.update_base_focal()
 
     def export_geometry_aux(self, path):
         """Export proxy geometry for all neural fields"""
@@ -663,3 +673,14 @@ class dvr_model(nn.Module):
             wt_name = k + "_wt"
             if wt_name in config.keys():
                 loss_dict[k] *= config[wt_name]
+
+    def get_field_betas(self):
+        """Get beta values for all neural fields
+
+        Returns:
+            betas (Dict): Beta values for each neural field
+        """
+        beta_dicts = {}
+        for field in self.fields.field_params.values():
+            beta_dicts["beta/%s" % field.category] = field.logibeta.exp()
+        return beta_dicts

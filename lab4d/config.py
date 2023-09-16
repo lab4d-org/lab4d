@@ -74,6 +74,7 @@ class TrainOptConfig:
         "reset steps of loss scheduling, set to False if resuming training",
     )
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
+    flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

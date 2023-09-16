@@ -146,10 +146,11 @@ class Trainer:
         opts = self.opts
         lr_base = opts["learning_rate"]
         lr_explicit = lr_base * 10
+        lr_intrinsics = 0.0 if opts["freeze_intrinsics"] else lr_base
 
         param_lr_startwith = {
             "module.fields.field_params": lr_base,
-            "module.intrinsics": lr_base,
+            "module.intrinsics": lr_intrinsics,
         }
         param_lr_with = {
             ".logibeta": lr_explicit,
@@ -157,8 +158,6 @@ class Trainer:
             ".logscale": lr_explicit,
             ".log_gauss": 0.0,
             ".base_quat": 0.0,
-            ".base_logfocal": lr_explicit,
-            ".base_ppoint": lr_explicit,
             ".shift": lr_explicit,
             ".orient": lr_explicit,
         }
@@ -396,6 +395,7 @@ class Trainer:
             if get_local_rank() == 0:
                 # update scalar dict
                 loss_dict["loss/total"] = total_loss
+                loss_dict.update(self.model.get_field_betas())
                 loss_dict.update(grad_dict)
                 self.add_scalar(self.log, loss_dict, self.current_steps)
             self.current_steps += 1
@@ -642,7 +642,7 @@ class Trainer:
 
         # check individual parameters
         grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
-        if grad_norm > thresh:
+        if grad_norm > thresh or torch.isnan(grad_norm):
             # clear gradients
             self.optimizer.zero_grad()
             if get_local_rank() == 0:
