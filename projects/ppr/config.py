@@ -27,11 +27,11 @@ class PPRConfig:
 
     # regs
     flags.DEFINE_float("reg_torque_wt", 0.0, "weight for torque regularization")
-    flags.DEFINE_float("reg_res_f_wt", 2e-5, "weight for residual force regularization")
+    flags.DEFINE_float("reg_res_f_wt", 1e-4, "weight for residual force regularization")
     flags.DEFINE_float("reg_foot_wt", 0.0, "weight for foot contact regularization")
     flags.DEFINE_float("reg_root_wt", 0.0, "weight for root pose regularization")
-    flags.DEFINE_float("reg_phys_q_wt", 2e-2, "weight for soft physics regularization")
-    flags.DEFINE_float("reg_phys_ja_wt", 0.1, "weight for soft physics regularization")
+    flags.DEFINE_float("reg_phys_q_wt", 0.1, "weight for soft physics regularization")
+    flags.DEFINE_float("reg_phys_ja_wt", 0.02, "weight for soft physics regularization")
 
     # io-related
     flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")

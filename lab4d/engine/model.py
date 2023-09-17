@@ -339,6 +339,8 @@ class dvr_model(nn.Module):
             if not self.training:
                 # clear cache for evaluation
                 torch.cuda.empty_cache()
+            # print("allocated: %.2f M" % (torch.cuda.memory_allocated() / (1024**2)))
+            # print("cached: %.2f M" % (torch.cuda.memory_cached() / (1024**2)))
             results_chunk = self.render_samples(
                 samples_dict_chunk, flow_thresh=flow_thresh
             )

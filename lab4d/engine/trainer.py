@@ -3,6 +3,7 @@ import os
 import time
 from collections import defaultdict
 from copy import deepcopy
+import gc
 
 import numpy as np
 import torch
@@ -372,6 +373,7 @@ class Trainer:
             round_count (int): round index
         """
         opts = self.opts
+        gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
         self.model.train()
         self.optimizer.zero_grad()
@@ -450,6 +452,7 @@ class Trainer:
     def model_eval(self):
         """Evaluate the current model"""
         self.model.eval()
+        gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
         ref_dict, batch = self.load_batch(self.evalloader.dataset, self.eval_fid)
         self.construct_eval_batch(batch)

@@ -58,9 +58,9 @@ class PyRenderWrapper:
     def set_light_topdown(self, gl=False):
         # top down light, slightly closer to the camera
         if gl:
-            rot = cv2.Rodrigues(np.asarray([-np.pi / 3, 0, 0]))[0]
+            rot = cv2.Rodrigues(np.asarray([-np.pi / 2, 0, 0]))[0]
         else:
-            rot = cv2.Rodrigues(np.asarray([np.pi / 3, 0, 0]))[0]
+            rot = cv2.Rodrigues(np.asarray([np.pi / 2, 0, 0]))[0]
         self.light_pose[:3, :3] = rot
 
     def set_intrinsics(self, intrinsics):

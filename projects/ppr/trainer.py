@@ -4,6 +4,7 @@ import pdb
 import torch
 import numpy as np
 import tqdm
+import gc
 
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank
@@ -83,6 +84,18 @@ class PPRTrainer(Trainer):
 
         super().__init__(opts)
         self.model.fields.field_params["bg"].compute_field2world()
+
+        # initialize control input of phys model to kinematics
+        self.phys_model.override_states()
+
+        # reset scale to avoid initial penetration
+        frame_offset_raw = self.phys_model.frame_offset_raw
+        vid_frames = []
+        for vidid in self.opts["phys_vid"]:
+            vid_frame = range(frame_offset_raw[vidid + 1] - frame_offset_raw[vidid])
+            vid_frames += vid_frame
+        self.phys_model.correct_foot_position(vid_frames)
+        self.run_phys_visualization(tag="kinematics")
 
     def trainer_init(self):
         super().trainer_init()
@@ -176,9 +189,6 @@ class PPRTrainer(Trainer):
         return param_lr_startwith, param_lr_with
 
     def run_one_round(self, round_count):
-        if round_count == self.first_round:
-            # initialize control input of phys model to kinematics
-            self.phys_model.override_states()
         # run physics cycle
         self.run_phys_cycle()
         self.current_round_phys += 1
@@ -189,12 +199,12 @@ class PPRTrainer(Trainer):
         # run dr cycle
         super().run_one_round(round_count)
 
-    def init_phys_env_train(self):
+    def init_phys_env_train(self, ses_per_wdw):
         opts = self.opts
         # to use the same amount memory as DR
-        total_timesteps = opts["secs_per_wdw"] / opts["timestep"]
+        total_timesteps = ses_per_wdw / opts["timestep"]
         num_envs = int(96000 / total_timesteps)
-        frames_per_wdw = int(opts["secs_per_wdw"] / self.phys_model.frame_interval) + 1
+        frames_per_wdw = int(ses_per_wdw / self.phys_model.frame_interval) + 1
         print("num_envs:", num_envs)
         print("frames_per_wdw:", frames_per_wdw)
         self.phys_model.train()
@@ -202,24 +212,21 @@ class PPRTrainer(Trainer):
             num_envs,
             frames_per_wdw=frames_per_wdw,
             is_eval=False,
+            overwrite=True,
         )
 
     def run_phys_cycle(self):
         opts = self.opts
+        gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
 
-        # eval
-        if self.current_round_phys == 0:
-            # frame_offset_raw = self.phys_model.frame_offset_raw
-            # vid_frames = []
-            # for vidid in opts["phys_vid"]:
-            #     vid_frame = range(frame_offset_raw[vidid + 1] - frame_offset_raw[vidid])
-            #     vid_frames += vid_frame
-            # self.phys_model.correct_foot_position(vid_frames)
-            self.run_phys_visualization(tag="kinematics")
-
         # train
-        self.init_phys_env_train()
+        secs_per_wdw = opts["secs_per_wdw"]
+        # schedule: 0-end, 0.2-2s
+        progress = self.current_steps_phys / self.phys_model.total_iters
+        secs_per_wdw = (1 - progress) * 0.5 + progress * 2
+
+        self.init_phys_env_train(secs_per_wdw)
         for i in tqdm.tqdm(range(self.iters_per_phys_cycle)):
             self.phys_model.set_progress(self.current_steps_phys)
             self.run_phys_iter()
@@ -228,7 +235,7 @@ class PPRTrainer(Trainer):
                 # eval
                 self.phys_model.save_checkpoint(round_count=self.current_round_phys)
                 self.run_phys_visualization(tag="phys")
-                self.init_phys_env_train()
+                self.init_phys_env_train(secs_per_wdw)
 
     def run_phys_iter(self):
         """Run physics optimization"""
