@@ -68,6 +68,16 @@ def main():
         renderer.set_camera(scene_to_cam)
         input_dict = {"shape": mesh_obj}
         color = renderer.render(input_dict)[0]
+
+        # render another view
+        scene_to_cam_vp2 = scene_to_cam.copy()
+        # rotate 90 degrees along y axis
+        rot = cv2.Rodrigues(np.asarray([0, np.pi / 2, 0]))[0]
+        scene_to_cam_vp2[:3, :3] = scene_to_cam_vp2[:3, :3] @ rot
+        renderer.set_camera(scene_to_cam_vp2)
+        color_vp2 = renderer.render(input_dict)[0]
+        color = np.concatenate([color, color_vp2], axis=1)
+
         # add text
         color = color.astype(np.uint8)
         color = cv2.putText(
@@ -79,6 +89,7 @@ def main():
             (256, 0, 0),
             2,
         )
+
         frames.append(color)
 
     save_path = "%s/%s" % (outdir, args.data_class)

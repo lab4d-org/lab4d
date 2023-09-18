@@ -212,7 +212,7 @@ class PPRTrainer(Trainer):
             num_envs,
             frames_per_wdw=frames_per_wdw,
             is_eval=False,
-            overwrite=True,
+            overwrite=False,
         )
 
     def run_phys_cycle(self):
@@ -222,9 +222,9 @@ class PPRTrainer(Trainer):
 
         # train
         secs_per_wdw = opts["secs_per_wdw"]
-        # schedule: 0-end, 0.2-2s
-        progress = self.current_steps_phys / self.phys_model.total_iters
-        secs_per_wdw = (1 - progress) * 0.5 + progress * 2
+        # # schedule: 0-end, 0.2-2s
+        # progress = self.current_steps_phys / self.phys_model.total_iters
+        # secs_per_wdw = (1 - progress) * 0.5 + progress * 2
 
         self.init_phys_env_train(secs_per_wdw)
         for i in tqdm.tqdm(range(self.iters_per_phys_cycle)):
