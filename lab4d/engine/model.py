@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsMLP, IntrinsicsMLP_delta
+from lab4d.nnutils.pose import CameraMLP_so3
 from lab4d.nnutils.multifields import MultiFields
 from lab4d.utils.geom_utils import K2inv, K2mat
 from lab4d.utils.numpy_utils import interp_wt
@@ -124,9 +125,9 @@ class dvr_model(nn.Module):
         beta_prob = interp_wt(anchor_x, anchor_y, current_steps, type=type)
         self.fields.set_beta_prob(beta_prob)
 
-        # camera prior wt: steps(0->800, 1->0), range (0,1)
+        # camera prior wt: steps(0->1000, 1->0), range (0,1)
         loss_name = "reg_cam_prior_wt"
-        anchor_x = (0, 800)
+        anchor_x = (0, config["num_rounds_cam_init"] * config["iters_per_round"])
         anchor_y = (1, 0)
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
@@ -221,10 +222,10 @@ class dvr_model(nn.Module):
                 rendered[k].append(v.view(div_factor, res, res, -1)[0])
             for k, v in aux["fg"].items():
                 res = int(np.sqrt(v.shape[1]))
-                rendered["%s/fg" % k].append(v.view(div_factor, res, res, -1)[0])
+                rendered["%s_fg" % k].append(v.view(div_factor, res, res, -1)[0])
             for k, v in aux["bg"].items():
                 res = int(np.sqrt(v.shape[1]))
-                rendered["%s/bg" % k].append(v.view(div_factor, res, res, -1)[0])
+                rendered["%s_bg" % k].append(v.view(div_factor, res, res, -1)[0])
 
         for k, v in rendered.items():
             rendered[k] = torch.stack(v, 0)
@@ -241,8 +242,14 @@ class dvr_model(nn.Module):
         """Extract proxy geometry for all neural fields"""
         self.fields.update_geometry_aux()
 
+    def update_camera_aux(self):
         if isinstance(self.intrinsics, IntrinsicsMLP_delta):
             self.intrinsics.update_base_focal()
+
+        # update camera mlp base quat
+        for field in self.fields.field_params.values():
+            if isinstance(field.camera_mlp, CameraMLP_so3):
+                field.camera_mlp.update_base_quat()
 
     def export_geometry_aux(self, path):
         """Export proxy geometry for all neural fields"""

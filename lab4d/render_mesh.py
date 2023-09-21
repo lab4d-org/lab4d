@@ -16,6 +16,7 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.utils.io import save_vid
 from lab4d.utils.mesh_render_utils import PyRenderWrapper
+from lab4d.utils.geom_utils import compute_rectification_se3
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
@@ -84,6 +85,14 @@ def main():
             scene_path = mesh_path.replace("fg/mesh", "bg/mesh")
             scene = trimesh.load(scene_path, process=False)
             scene.visual.vertex_colors = scene.visual.vertex_colors
+
+            # fit plane to the scene, and align with xz plane
+            if "field2world" not in locals():
+                field2world = compute_rectification_se3(scene).numpy()
+                world2field = np.linalg.inv(field2world)
+            scene.vertices = scene.vertices @ field2world[:3, :3].T + field2world[:3, 3]
+            field2cam_bg_dict[frame_idx] = field2cam_bg_dict[frame_idx] @ world2field
+
             scene_dict[frame_idx] = scene
             # use scene camera
             extr_dict[frame_idx] = field2cam_bg_dict[frame_idx]
@@ -107,12 +116,24 @@ def main():
             input_dict["bone"] = bone_dict[frame_idx]
         if scene_mode == "scene":
             input_dict["scene"] = scene_dict[frame_idx]
-        # set camera extrinsics
-        renderer.set_camera(extr_dict[frame_idx])
-        # # bev
-        # renderer.set_camera_bev(3)
-        # set camera intrinsics
-        renderer.set_intrinsics(intrinsics[frame_idx])
+        if scene_mode == "object":
+            # set camera extrinsics
+            renderer.set_camera(extr_dict[frame_idx])
+            # set camera intrinsics
+            renderer.set_intrinsics(intrinsics[frame_idx])
+        else:
+            # # bev
+            # renderer.set_camera_bev(4)
+
+            # frontal view
+            renderer.set_camera_frontal(25)
+
+            # set camera intrinsics
+            fl = max(raw_size)
+            intr = np.asarray([fl * 4, fl * 4, raw_size[1] / 2, raw_size[0] / 4 * 3])
+            renderer.set_intrinsics(intr)
+        renderer.align_light_to_camera()
+
         color = renderer.render(input_dict)[0]
         # add text
         color = color.astype(np.uint8)

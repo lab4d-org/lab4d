@@ -13,7 +13,7 @@ from ppr import config
 
 sys.path.insert(0, "%s/ppr-diffphys" % os.path.join(os.path.dirname(__file__)))
 from diffphys.dp_interface import phys_interface, query_q
-from diffphys.vis import Logger
+from diffphys.vis import PhysVisualizer
 from diffphys.dp_utils import se3_loss
 
 
@@ -116,24 +116,29 @@ class PPRTrainer(Trainer):
 
     def define_model(self, model=dvr_phys_reg):
         super().define_model(model=model)
-        # opts
-        opts = self.opts
-        # model
-        model_dict = {}
-        model_dict["scene_field"] = self.model.fields.field_params["bg"]
-        model_dict["object_field"] = self.model.fields.field_params["fg"]
-        model_dict["intrinsics"] = self.model.intrinsics
-        model_dict["frame_interval"] = opts["frame_interval"]
-        model_dict["frame_info"] = self.data_info["frame_info"]
-
-        # define phys model
-        self.phys_model = phys_interface(opts, model_dict, dt=opts["timestep"])
-        self.phys_visualizer = Logger(opts)
+        self.phys_model = self.define_phys_standalone(
+            self.model, self.opts, self.data_info
+        )
+        self.phys_visualizer = PhysVisualizer(self.save_dir)
 
         # move model to device
         self.device = torch.device("cuda:{}".format(get_local_rank()))
         self.phys_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.phys_model)
         self.phys_model = self.phys_model.to(self.device)
+
+    @staticmethod
+    def define_phys_standalone(model, opts, data_info):
+        """Define a standalon phys model"""
+        model_dict = {}
+        model_dict["scene_field"] = model.fields.field_params["bg"]
+        model_dict["object_field"] = model.fields.field_params["fg"]
+        model_dict["intrinsics"] = model.intrinsics
+        model_dict["frame_interval"] = opts["frame_interval"]
+        model_dict["frame_info"] = data_info["frame_info"]
+
+        # define phys model
+        phys_model = phys_interface(opts, model_dict, dt=opts["timestep"])
+        return phys_model
 
     def load_checkpoint_train(self):
         """Load a checkpoint at training time and update the current step count
@@ -174,16 +179,17 @@ class PPRTrainer(Trainer):
 
         param_lr_with.update(
             {
-                "module.fields.field_params.fg.basefield.": 0.0,
-                "module.fields.field_params.fg.colorfield.": 0.0,
-                "module.fields.field_params.fg.sdf.": 0.0,
-                "module.fields.field_params.fg.rgb.": 0.0,
+                # "module.fields.field_params.fg.basefield.": 0.0,
+                # "module.fields.field_params.fg.colorfield.": 0.0,
+                # "module.fields.field_params.fg.sdf.": 0.0,
+                # "module.fields.field_params.fg.rgb.": 0.0,
                 "module.fields.field_params.fg.vis_mlp.": 0.0,
                 "module.fields.field_params.bg.basefield.": 0.0,
-                "module.fields.field_params.bg.colorfield.": 0.0,
+                # "module.fields.field_params.bg.colorfield.": 0.0,
                 "module.fields.field_params.bg.sdf.": 0.0,
-                "module.fields.field_params.bg.rgb.": 0.0,
+                # "module.fields.field_params.bg.rgb.": 0.0,
                 "module.fields.field_params.bg.vis_mlp.": 0.0,
+                "module.fields.field_params.fg.warp.articulation.log_bone_len": 0.0,
             }
         )
         return param_lr_startwith, param_lr_with
@@ -233,7 +239,7 @@ class PPRTrainer(Trainer):
             self.current_steps_phys += 1
             if self.current_steps_phys % opts["phys_vis_interval"] == 0:
                 # eval
-                self.phys_model.save_checkpoint(round_count=self.current_round_phys)
+                self.phys_model.save_checkpoint(self.current_steps_phys)
                 self.run_phys_visualization(tag="phys")
                 self.init_phys_env_train(secs_per_wdw)
 
@@ -253,15 +259,51 @@ class PPRTrainer(Trainer):
         opts = self.opts
         frame_offset_raw = self.phys_model.frame_offset_raw
         for vidid in opts["phys_vid"]:
-            vid_frame = frame_offset_raw[vidid + 1] - frame_offset_raw[vidid]
-            self.phys_model.reinit_envs(1, frames_per_wdw=vid_frame, is_eval=True)
-            frame_start = torch.zeros(1) + frame_offset_raw[vidid]
-            _ = self.phys_model(frame_start=frame_start.to(self.device))
-            img_size = tuple(self.data_info["raw_size"][vidid])
-            img_size = img_size + (0.5,)  # scale
-            data = self.phys_model.query(img_size=img_size)
+            data = self.simulate(self.phys_model, self.data_info, vidid)
             self.phys_visualizer.show(
                 "%s-%02d-%05d" % (tag, vidid, self.current_steps_phys),
                 data,
                 fps=1.0 / self.phys_model.frame_interval,
             )
+
+    @staticmethod
+    def simulate(phys_model, data_info, vidid):
+        """
+        run phys simulation for a video in eval mode
+        """
+        device = phys_model.device
+        frame_offset_raw = phys_model.frame_offset_raw
+        num_frames = frame_offset_raw[vidid + 1] - frame_offset_raw[vidid]
+        phys_model.reinit_envs(1, frames_per_wdw=num_frames, is_eval=True)
+        frame_start = torch.zeros(1) + frame_offset_raw[vidid]
+        _ = phys_model(frame_start=frame_start.to(device))
+        img_size = tuple(data_info["raw_size"][vidid])
+        img_size = img_size + (0.5,)  # scale
+        data = phys_model.query(img_size=img_size)
+        return data
+
+    @staticmethod
+    def construct_test_model(opts):
+        """Load a model at test time
+
+        Args:
+            opts (Dict): Command-line options
+        """
+        # io
+        logname = "%s-%s" % (opts["seqname"], opts["logname"])
+
+        # construct dvr model
+        model, data_info, ref_dict = Trainer.construct_test_model(opts)
+
+        # construct phys model
+        phys_model = PPRTrainer.define_phys_standalone(model, opts, data_info)
+        load_path = "%s/%s/ckpt_phys_%s.pth" % (
+            opts["logroot"],
+            logname,
+            opts["load_suffix_phys"],
+        )
+        phys_model.load_checkpoint(load_path)
+        phys_model.cuda()
+        phys_model.eval()
+
+        return model, data_info, ref_dict, phys_model

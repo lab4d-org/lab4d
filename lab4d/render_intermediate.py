@@ -51,7 +51,7 @@ def main():
         aabb_max = np.maximum(aabb_max, mesh_obj.bounds[1])
 
     # set camera translation
-    renderer.set_camera_bev(depth=max(aabb_max - aabb_min) * 1.2)
+    renderer.set_camera_bev(depth=max(aabb_max - aabb_min) * 2)
 
     # render
     frames = []

@@ -285,6 +285,8 @@ class Trainer:
 
         self.model.update_geometry_aux()
         self.model.export_geometry_aux("%s/%03d" % (self.save_dir, round_count))
+        if self.current_round > self.opts["num_rounds_cam_init"]:
+            self.model.update_camera_aux()
 
         self.model.train()
         self.train_one_round(round_count)

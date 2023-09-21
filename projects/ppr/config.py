@@ -35,3 +35,4 @@ class PPRConfig:
 
     # io-related
     flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")
+    flags.DEFINE_string("load_suffix_phys", "", "sufix of params, {latest, 0, 10, ...}")

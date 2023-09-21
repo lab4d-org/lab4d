@@ -51,6 +51,17 @@ class PyRenderWrapper:
         scene_to_cam[2, 3] = depth
         self.scene_to_cam = self.flip_pose @ scene_to_cam
 
+    def set_camera_frontal(self, depth, gl=False):
+        # object to camera transforms
+        if gl:
+            rot = cv2.Rodrigues(np.asarray([np.pi, 0, 0]))[0]
+        else:
+            rot = cv2.Rodrigues(np.asarray([0.0, 0, 0]))[0]
+        scene_to_cam = np.eye(4)
+        scene_to_cam[:3, :3] = rot
+        scene_to_cam[2, 3] = depth
+        self.scene_to_cam = self.flip_pose @ scene_to_cam
+
     def set_camera(self, scene_to_cam):
         # object to camera transforms
         self.scene_to_cam = self.flip_pose @ scene_to_cam
@@ -62,6 +73,9 @@ class PyRenderWrapper:
         else:
             rot = cv2.Rodrigues(np.asarray([np.pi / 2, 0, 0]))[0]
         self.light_pose[:3, :3] = rot
+
+    def align_light_to_camera(self):
+        self.light_pose = np.linalg.inv(self.scene_to_cam)
 
     def set_intrinsics(self, intrinsics):
         """
@@ -96,7 +110,8 @@ class PyRenderWrapper:
             scene.add_node(Node(mesh=mesh_pyrender))
 
             # make shape transparent and gray
-            input_dict["shape"].visual.vertex_colors[:] = 102
+            input_dict["shape"].visual.vertex_colors[:3] = 102
+            input_dict["shape"].visual.vertex_colors[3:] = 192
         # else:
         #     # make shape gray
         #     input_dict["shape"].visual.vertex_colors[:, :3] = 102

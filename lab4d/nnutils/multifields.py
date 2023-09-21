@@ -149,10 +149,6 @@ class MultiFields(nn.Module):
             field.update_aabb()
             field.update_near_far()
 
-            # update camera mlp base quat
-            if isinstance(field.camera_mlp, CameraMLP_so3):
-                field.camera_mlp.update_base_quat()
-
     def reset_geometry_aux(self):
         """Reset proxy geometry and bounds for all child fields"""
         for field in self.field_params.values():

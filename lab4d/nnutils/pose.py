@@ -790,6 +790,9 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         loss_so3 = so3.pow(2).mean()
 
         # get average log bone length increment
+        # inst_id = torch.arange(0, self.time_embedding.num_vids).long().to(device)
+        # empty_feat = torch.zeros_like(inst_id[:, None][:, :0])  # (1, 0)
+        # log_bone_len_inc = self.log_bone_len(empty_feat, inst_id)
         empty_feat = torch.zeros_like(so3[..., 0, :0])  # (1, 0)
         log_bone_len_inc = self.log_bone_len(empty_feat, None)
         loss_bone = 0.2 * log_bone_len_inc.pow(2).mean()

@@ -666,6 +666,7 @@ def plane_transform(origin, normal, axis=[0, 1, 0]):
     transform: (4,4) float
         Transformation matrix to move points onto XZ plane
     """
+    normal = normal / (1e-6 + np.linalg.norm(normal))
     transform = align_vectors(normal, axis)
     if origin is not None:
         transform[:3, 3] = -np.dot(transform, np.append(origin, 1))[:3]
