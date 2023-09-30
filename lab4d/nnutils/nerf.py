@@ -32,6 +32,7 @@ from lab4d.utils.quat_transform import (
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
 from lab4d.utils.torch_utils import compute_gradient, flip_pair
+from lab4d.utils.vis_utils import append_xz_plane
 
 
 class NeRF(nn.Module):
@@ -167,13 +168,13 @@ class NeRF(nn.Module):
             "near_far", torch.zeros(frame_offset_raw[-1], 2), persistent=False
         )
 
-        field2world = torch.eye(4)[None].expand(self.num_inst, -1, -1).clone()
+        field2world = torch.zeros(4, 4)[None].expand(self.num_inst, -1, -1).clone()
         self.register_buffer("field2world", field2world, persistent=True)
 
         # inverse sampling
         self.use_importance_sampling = True
 
-    def forward(self, xyz, dir=None, frame_id=None, inst_id=None, get_density=True):
+    def forward(self, xyz, dir=None, frame_id=None, inst_id=None):
         """
         Args:
             xyz: (M,N,D,3) Points along ray in object canonical space
@@ -182,8 +183,8 @@ class NeRF(nn.Module):
             inst_id: (M,) Instance id. If None, render for the average instance
         Returns:
             rgb: (M,N,D,3) Rendered RGB
-            sigma: (M,N,D,1) If get_density=True, return density. Otherwise
-                return signed distance (negative inside)
+            sdf: (M,N,D,1) Signed distance (negative inside)
+            sigma: (M,N,D,1) Denstiy
         """
         if frame_id is not None:
             assert frame_id.ndim == 1
@@ -193,15 +194,12 @@ class NeRF(nn.Module):
         xyz_feat = self.basefield(xyz_embed, inst_id)
 
         sdf = self.sdf(xyz_feat)  # negative inside, positive outside
-        if get_density:
-            ibeta = self.logibeta.exp()
-            # density = torch.sigmoid(-sdf * ibeta) * ibeta  # neus
-            density = (
-                0.5 + 0.5 * sdf.sign() * torch.expm1(-sdf.abs() * ibeta)
-            ) * ibeta  # volsdf
-            out = density
-        else:
-            out = sdf
+        ibeta = self.logibeta.exp()
+        # density = torch.sigmoid(-sdf * ibeta) * ibeta  # neus
+        density = (
+            0.5 + 0.5 * sdf.sign() * torch.expm1(-sdf.abs() * ibeta)
+        ) * ibeta  # volsdf
+        out = sdf, density
 
         if dir is not None:
             dir_embed = self.dir_embedding(dir)
@@ -220,7 +218,7 @@ class NeRF(nn.Module):
             rgb = self.rgb(torch.cat([xyz_feat, appr_embed], -1))
             if self.color_act:
                 rgb = rgb.sigmoid()
-            out = rgb, out
+            out = (rgb,) + out
         return out
 
     def get_init_sdf_fn(self):
@@ -296,7 +294,7 @@ class NeRF(nn.Module):
             sdf_gt = sdf_fn(pts)
 
             # evaluate sdf loss
-            sdf = self.forward(pts, inst_id=inst_id, get_density=False)
+            sdf, _ = self.forward(pts, inst_id=inst_id)
             scale = align_tensors(sdf, sdf_gt)
             sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
 
@@ -352,7 +350,7 @@ class NeRF(nn.Module):
             aabb = self.get_aabb(inst_id=inst_id)  # 2,3
         else:
             aabb = self.get_aabb()
-        sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id, get_density=False)
+        sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id)[0]
         vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > 0
         if use_extend_aabb:
             aabb = extend_aabb(aabb, factor=0.5)
@@ -490,7 +488,7 @@ class NeRF(nn.Module):
             rand_inds = Ellipsis
 
         xyz = xyz.detach()
-        fn_sdf = lambda x: self.forward(x, inst_id=inst_id, get_density=False)
+        fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
         g = compute_gradient(fn_sdf, xyz)[..., 0]
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
@@ -538,7 +536,7 @@ class NeRF(nn.Module):
                 inst_id=inst_id,
                 samples_dict=samples_dict,
             )["xyz"]
-            sdf = self.forward(xyz, inst_id=inst_id, get_density=False)
+            sdf, _ = self.forward(xyz, inst_id=inst_id)
             return sdf
 
         g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
@@ -796,7 +794,7 @@ class NeRF(nn.Module):
             )["xyz"]
 
             # get pdf
-            density = self.forward(
+            _, density = self.forward(
                 xyz,
                 dir=None,
                 frame_id=frame_id,
@@ -909,6 +907,7 @@ class NeRF(nn.Module):
                     % self.category: torch.zeros(
                         valid_idx.shape + (1,), device=xyz.device
                     ),
+                    "sdf": torch.zeros(valid_idx.shape + (1,), device=xyz.device),
                 }
                 return field_dict
             # reshape
@@ -918,7 +917,7 @@ class NeRF(nn.Module):
             frame_id = frame_id[:, None, None].expand(shape[:3])[valid_idx]
             inst_id = inst_id[:, None, None].expand(shape[:3])[valid_idx]
 
-        rgb, density = self.forward(
+        rgb, sdf, density = self.forward(
             xyz,
             dir=dir,
             frame_id=frame_id,
@@ -928,8 +927,10 @@ class NeRF(nn.Module):
         # reshape
         field_dict = {
             "rgb": rgb,
+            "sdf": sdf,
             "density": density,
-            "density_%s" % self.category: density,
+            "density_%s"
+            % self.category: (density / self.logibeta.exp()).detach(),  # (0,1)
         }
 
         if valid_idx is not None:
@@ -1121,7 +1122,7 @@ class NeRF(nn.Module):
         field2cam = quaternion_translation_to_se3(quat, trans)
         return field2cam
 
-    def compute_field2world(self):
+    def compute_field2world(self, up_direction=[0, 1, 0]):
         """Compute SE(3) to transform points in the scene space to world space
         For background, this is computed by detecting planes with ransac.
 
@@ -1130,8 +1131,8 @@ class NeRF(nn.Module):
         """
         for inst_id in range(self.num_inst):
             # TODO: move this to background nerf, and use each proxy geometry
-            mesh = self.extract_canonical_mesh(level=0.005, inst_id=inst_id)
-            self.field2world[inst_id] = compute_rectification_se3(mesh)
+            mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
+            self.field2world[inst_id] = compute_rectification_se3(mesh, up_direction)
 
     def get_field2world(self, inst_id=None):
         """Compute SE(3) to transform points in the scene space to world space
@@ -1144,5 +1145,27 @@ class NeRF(nn.Module):
             field2world = self.field2world
         else:
             field2world = self.field2world[inst_id]
+        field2world = field2world.clone()
         field2world[..., :3, 3] /= self.logscale.exp()
         return field2world
+
+    @torch.no_grad()
+    def visualize_floor_mesh(self, inst_id, to_world=False):
+        """Visualize floor and canonical mesh in the world space
+        Args:
+            inst_id: (int) Instance id
+        """
+        field2world = self.get_field2world(inst_id)
+        world2field = field2world.inverse().cpu()
+        mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
+        mesh.vertices /= self.logscale.exp().cpu().numpy()
+        mesh = append_xz_plane(mesh, world2field, gl=False)
+        if to_world:
+            mesh.apply_transform(field2world.cpu().numpy())
+        return mesh
+
+    def valid_field2world(self):
+        if self.field2world.abs().sum() == 0:
+            return False
+        else:
+            return True

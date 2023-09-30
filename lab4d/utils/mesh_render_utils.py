@@ -51,12 +51,12 @@ class PyRenderWrapper:
         scene_to_cam[2, 3] = depth
         self.scene_to_cam = self.flip_pose @ scene_to_cam
 
-    def set_camera_frontal(self, depth, gl=False):
+    def set_camera_frontal(self, depth, gl=False, delta=0.0):
         # object to camera transforms
         if gl:
-            rot = cv2.Rodrigues(np.asarray([np.pi, 0, 0]))[0]
+            rot = cv2.Rodrigues(np.asarray([np.pi, delta, 0]))[0]
         else:
-            rot = cv2.Rodrigues(np.asarray([0.0, 0, 0]))[0]
+            rot = cv2.Rodrigues(np.asarray([0.0, delta, 0]))[0]
         scene_to_cam = np.eye(4)
         scene_to_cam[:3, :3] = rot
         scene_to_cam[2, 3] = depth

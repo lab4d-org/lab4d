@@ -34,7 +34,6 @@ class Trainer:
             opts (Dict): Command-line args from absl (defined in lab4d/config.py)
         """
         # When profiling, use fewer iterations per round so trace files are smaller
-        is_resumed = opts["load_path"] != ""
         if opts["profile"]:
             opts["iters_per_round"] = 10
 
@@ -52,11 +51,10 @@ class Trainer:
             find_unused_parameters=False,
         )
 
-        self.optimizer_init(is_resumed=is_resumed)
+        self.optimizer_init(is_resumed=opts["load_path"] != "")
 
         # load model
-        if is_resumed:
-            self.load_checkpoint_train()
+        self.load_checkpoint_train()
 
     def trainer_init(self):
         """Initialize logger and other misc things"""
@@ -77,10 +75,12 @@ class Trainer:
 
         self.current_steps = 0  # 0-total_steps
         self.current_round = 0  # 0-num_rounds
-        self.first_round = 0  # 0-num_rounds
+        self.first_round = 0  # 0
+        self.first_step = 0  # 0
 
         # 0-last image in eval dataset
         self.eval_fid = np.linspace(0, len(self.evalloader) - 1, 9).astype(int)
+        # self.eval_fid = np.linspace(1200, 1200, 9).astype(int)
 
         # torch.manual_seed(8)  # do it again
         # torch.cuda.manual_seed(1)
@@ -261,38 +261,33 @@ class Trainer:
 
         # start training loop
         self.save_checkpoint(round_count=self.current_round)
-        for round_count in range(
-            self.current_round, self.current_round + opts["num_rounds"]
-        ):
+        for _ in range(self.current_round, self.current_round + opts["num_rounds"]):
             start_time = time.time()
             with torch_profile(
-                self.save_dir, f"{round_count:03d}", enabled=opts["profile"]
+                self.save_dir, f"{self.current_round:03d}", enabled=opts["profile"]
             ):
-                self.run_one_round(round_count)
+                self.run_one_round()
 
             if get_local_rank() == 0:
-                print(f"Round {round_count:03d}: time={time.time() - start_time:.3f}s")
+                print(
+                    f"Round {self.current_round:03d}: time={time.time() - start_time:.3f}s"
+                )
+            self.save_checkpoint(round_count=self.current_round)
 
-    def run_one_round(self, round_count):
-        """Evaluation and training for a single round
-
-        Args:
-            round_count (int): Current round index
-        """
+    def run_one_round(self):
+        """Evaluation and training for a single round"""
         if get_local_rank() == 0:
-            if round_count == self.first_round:
+            if self.current_round == self.first_round:
                 self.model_eval()
 
         self.model.update_geometry_aux()
-        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, round_count))
+        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
         if self.current_round > self.opts["num_rounds_cam_init"]:
             self.model.update_camera_aux()
 
         self.model.train()
-        self.train_one_round(round_count)
+        self.train_one_round()
         self.current_round += 1
-        self.save_checkpoint(round_count=self.current_round)
-
         if get_local_rank() == 0:
             self.model_eval()
 
@@ -359,33 +354,33 @@ class Trainer:
         """Load a checkpoint at training time and update the current step count
         and round count
         """
-        # training time
-        checkpoint = self.load_checkpoint(
-            self.opts["load_path"], self.model, optimizer=self.optimizer
-        )
-        if not self.opts["reset_steps"]:
-            self.current_steps = checkpoint["current_steps"]
-            self.current_round = checkpoint["current_round"]
-            self.first_round = self.current_round
+        if self.opts["load_path"] != "":
+            # training time
+            checkpoint = self.load_checkpoint(
+                self.opts["load_path"], self.model, optimizer=self.optimizer
+            )
+            if not self.opts["reset_steps"]:
+                self.current_steps = checkpoint["current_steps"]
+                self.current_round = checkpoint["current_round"]
+                self.first_round = self.current_round
+                self.first_step = self.current_steps
 
-    def train_one_round(self, round_count):
-        """Train a single round (going over mini-batches)
-
-        Args:
-            round_count (int): round index
-        """
+    def train_one_round(self):
+        """Train a single round (going over mini-batches)"""
         opts = self.opts
         gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
         self.model.train()
         self.optimizer.zero_grad()
 
-        self.trainloader.sampler.set_epoch(round_count)  # necessary for shuffling
+        # necessary for shuffling
+        self.trainloader.sampler.set_epoch(self.current_round)
         for i, batch in enumerate(self.trainloader):
             if i == opts["iters_per_round"]:
                 break
 
-            self.model.set_progress(self.current_steps)
+            progress = (self.current_steps - self.first_step) / self.total_steps
+            self.model.set_progress(self.current_steps, progress)
 
             loss_dict = self.model(batch)
             total_loss = torch.sum(torch.stack(list(loss_dict.values())))

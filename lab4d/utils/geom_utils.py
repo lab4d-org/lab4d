@@ -619,13 +619,22 @@ def check_inside_aabb(xyz, aabb):
     return inside_aabb
 
 
-def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=2000):
+def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter=2000):
     # run ransac to get plane
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
-    best_eq, index = pcd.segment_plane(threshold, init_n, iter)
-    segmented_points = pcd.select_by_index(index)
-    print("segmented floor points: ", len(segmented_points.points) / len(mesh.vertices))
+    hypos = []
+    n_hypo = 5
+    for _ in range(n_hypo):
+        best_eq, index = pcd.segment_plane(threshold, init_n, iter)
+        segmented_pts = pcd.select_by_index(index)
+        pts_left = np.asarray(pcd.points)[~np.isin(np.arange(len(pcd.points)), index)]
+        pcd.points = o3d.utility.Vector3dVector(pts_left)
+        # print("segmented plane pts: ", len(segmented_pts.points) / len(mesh.vertices))
+        score = abs(np.asarray(up_direction).dot(best_eq[:3]))
+        hypos.append((best_eq, segmented_pts, score))
+    # find the one with best score
+    best_eq, segmented_pts, score = sorted(hypos, key=lambda x: x[-1])[-1]
 
     # point upside
     if best_eq[1] < 0:
@@ -633,7 +642,7 @@ def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=2000):
 
     # get se3
     plane_n = np.asarray(best_eq[:3])
-    center = np.asarray(segmented_points.points).mean(0)
+    center = np.asarray(segmented_pts.points).mean(0)
     dist = (center * plane_n).sum() + best_eq[3]
     plane_o = center - plane_n * dist
     plane = np.concatenate([plane_o, plane_n])
@@ -645,6 +654,9 @@ def compute_rectification_se3(mesh, threshold=0.01, init_n=3, iter=2000):
     # mesh.export("tmp/raw.obj")
     # mesh.apply_transform(bg2world)
     # mesh.export("tmp/rect.obj")
+    # import pdb
+
+    # pdb.set_trace()
 
     bg2world = torch.Tensor(bg2world)
     return bg2world
@@ -667,10 +679,72 @@ def plane_transform(origin, normal, axis=[0, 1, 0]):
         Transformation matrix to move points onto XZ plane
     """
     normal = normal / (1e-6 + np.linalg.norm(normal))
-    transform = align_vectors(normal, axis)
+    # transform = align_vectors(normal, axis)
+    transform = np.eye(4)
+    transform[:3, :3] = align_vector_a_to_b(normal, axis)
     if origin is not None:
         transform[:3, 3] = -np.dot(transform, np.append(origin, 1))[:3]
     return transform
+
+
+def align_vector_a_to_b(a, b):
+    """Find the rotation matrix that transforms one 3D vector
+    to another.
+    Args:
+        a : (3,) float
+          Unit vector
+        b : (3,) float
+          Unit vector
+    Returns:
+        matrix : (3, 3) float
+          Rotation matrix to rotate from `a` to `b`
+    """
+    # Ensure the vectors are numpy arrays
+    a = np.array(a)
+    b = np.array(b)
+
+    # Check if vectors are non-zero
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        raise ValueError("Vectors must be non-zero")
+
+    # Normalize the vectors
+    a_hat = a / np.linalg.norm(a)
+    b_hat = b / np.linalg.norm(b)
+
+    # Compute the rotation axis (normal to the plane formed by a and b)
+    axis = np.cross(a_hat, b_hat)
+
+    # Compute the cosine of the angle between a_hat and b_hat
+    cos_angle = np.dot(a_hat, b_hat)
+
+    # Handling numerical imprecision
+    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+
+    # Compute the angle of rotation
+    angle = np.arccos(cos_angle)
+
+    # If vectors are parallel or anti-parallel, no axis is determined. Handle separately
+    if np.isclose(angle, 0.0):
+        return np.eye(3)  # Identity matrix, no rotation needed
+    elif np.isclose(angle, np.pi):
+        # Find a perpendicular vector
+        axis = np.cross(a_hat, np.array([1, 0, 0]))
+        if np.linalg.norm(axis) < 1e-10:
+            axis = np.cross(a_hat, np.array([0, 1, 0]))
+    axis = axis / np.linalg.norm(axis)  # Normalize axis
+
+    # Compute the rotation matrix using the axis-angle representation
+    axis_matrix = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
+
+    rotation_matrix = (
+        np.eye(3)
+        + np.sin(angle) * axis_matrix
+        + (1 - np.cos(angle)) * np.dot(axis_matrix, axis_matrix)
+    )
+
+    return rotation_matrix
 
 
 def align_vectors(a, b, return_angle=False):

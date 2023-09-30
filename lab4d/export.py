@@ -27,6 +27,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_se3,
     quaternion_translation_to_se3,
 )
+from lab4d.utils.vis_utils import append_xz_plane
 
 cudnn.benchmark = True
 
@@ -145,10 +146,6 @@ def extract_deformation(field, mesh_rest, inst_id):
         xyz_i = xyz_i[0, 0]
         mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces)
 
-    # rescale to world scale
-    field_scale = field.logscale.exp().cpu().numpy()
-    mesh_rest = mesh_rest.apply_scale(1.0 / field_scale)
-    rescale_motion_tuples(motion_tuples, field_scale)
     return mesh_rest, motion_tuples
 
 
@@ -208,15 +205,47 @@ def extract_motion_params(model, opts, data_info):
         use_extend_aabb=False,
     )
 
+    if "bg" in model.fields.field_params.keys():
+        # visualize ground plane
+        field2world = (
+            model.fields.field_params["bg"].get_field2world(opts["inst_id"]).cpu()
+        )
+        field2world[..., :3, 3] *= model.fields.field_params["bg"].logscale.exp().cpu()
+        meshes_rest["bg"] = append_xz_plane(meshes_rest["bg"], field2world.inverse())
+
     # get deformation
     motion_tuples = {}
     for cate, field in model.fields.field_params.items():
         meshes_rest[cate], motion_tuples[cate] = extract_deformation(
             field, meshes_rest[cate], opts["inst_id"]
         )
+    # rescale to urdf scale if skeleton is used, otherwise to world scale
+    if "bg" in model.fields.field_params.keys():
+        bg_field = model.fields.field_params["bg"]
+        bg_scale = bg_field.logscale.exp().cpu().numpy()
+    if "fg" in model.fields.field_params.keys():
+        fg_field = model.fields.field_params["fg"]
+        fg_scale = fg_field.logscale.exp().cpu().numpy()
+        # if (
+        #     hasattr(fg_field, "warp")
+        #     and isinstance(fg_field.warp, SkinningWarp)
+        #     and isinstance(fg_field.warp.articulation, ArticulationSkelMLP)
+        # ):
+        #     skel_scale = fg_field.warp.articulation.logscale.exp().cpu().numpy()
+        #     if "bg" in model.fields.field_params.keys():
+        #         bg_scale = bg_scale / fg_scale * skel_scale
+        #     fg_scale = skel_scale
+
+    if "fg" in model.fields.field_params.keys():
+        meshes_rest["fg"] = meshes_rest["fg"].apply_scale(1.0 / fg_scale)
+        rescale_motion_tuples(motion_tuples["fg"], fg_scale)
+    if "bg" in model.fields.field_params.keys():
+        meshes_rest["bg"] = meshes_rest["bg"].apply_scale(1.0 / bg_scale)
+        rescale_motion_tuples(motion_tuples["bg"], bg_scale)
     return meshes_rest, motion_tuples
 
 
+@torch.no_grad()
 def export(opts):
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     save_dir = make_save_dir(opts, sub_dir="export_%04d" % (opts["inst_id"]))
@@ -224,6 +253,15 @@ def export(opts):
     # save motion paramters
     meshes_rest, motion_tuples = extract_motion_params(model, opts, data_info)
     save_motion_params(meshes_rest, motion_tuples, save_dir)
+
+    # save scene to world transform
+    if (
+        "bg" in model.fields.field_params.keys()
+        and model.fields.field_params["bg"].valid_field2world()
+    ):
+        field2world = model.fields.field_params["bg"].get_field2world(opts["inst_id"])
+        field2world = field2world.cpu().numpy().tolist()
+        json.dump(field2world, open("%s/bg/field2world.json" % (save_dir), "w"))
 
     # same raw image size and intrinsics
     with torch.no_grad():

@@ -82,7 +82,7 @@ def main():
         color = color.astype(np.uint8)
         color = cv2.putText(
             color,
-            "batch: %02d" % batch_idx,
+            "iteration: %04d" % batch_idx,
             (30, 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             2,

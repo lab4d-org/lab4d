@@ -46,6 +46,9 @@ def img2color(tag, img, pca_fn=None):
 
     if "vis2d" in tag:
         img = minmax_normalize(img)
+
+    if "xy_reproj" in tag:
+        img = minmax_normalize(img)
     return img
 
 
@@ -377,3 +380,65 @@ def image_to_mesh(image_path, z_displacement=0.04, mesh_scale=0.005, mesh_res=5e
 
     mesh = trimesh.Trimesh(vertices=points, faces=faces, face_colors=colors)
     return mesh
+
+
+def create_plane(size, offset):
+    """
+    Create a plane mesh spaning x,z axis
+    """
+    vertices = np.array(
+        [
+            [-0.5, 0, -0.5],  # vertex 0
+            [0.5, 0, -0.5],  # vertex 1
+            [0.5, 0, 0.5],  # vertex 2
+            [-0.5, 0, 0.5],  # vertex 3
+        ]
+    )
+    vertices = vertices * size + np.asarray(offset)
+
+    faces = np.array(
+        [
+            [0, 2, 1],  # triangle 0
+            [2, 0, 3],  # triangle 1
+        ]
+    )
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+    return mesh
+
+
+def create_floor_mesh(scale=20, gl=True):
+    # create scene
+    floor1 = create_plane(scale, [0, 0, 0])
+    floor1.visual.vertex_colors[:, 0] = 10
+    floor1.visual.vertex_colors[:, 1] = 255
+    floor1.visual.vertex_colors[:, 2] = 102
+    floor1.visual.vertex_colors[:, 3] = 102
+
+    floor2 = create_plane(scale / 4, [0, 0.01, 0])
+    floor2.visual.vertex_colors[:, 0] = 10
+    floor2.visual.vertex_colors[:, 1] = 102
+    floor2.visual.vertex_colors[:, 2] = 255
+    floor2.visual.vertex_colors[:, 3] = 102
+
+    floor = trimesh.util.concatenate([floor1, floor2])
+    if not gl:
+        floor.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1, 0, 0]))
+    return floor
+
+
+# visualze all meshes
+def visualize_trajectory(all_verts, tag):
+    meshes_concat = []
+    for it, verts_pred in enumerate(all_verts[::30]):
+        verts_pred = verts_pred.cpu().numpy()
+        verts_pred[:, 0] += 1 * it
+        meshes_concat.append([trimesh.Trimesh(vertices=verts_pred)])
+    trimesh.util.concatenate(meshes_concat).export("tmp/%s.obj" % tag)
+
+
+def append_xz_plane(mesh, world_to_cam, gl=True):
+    mesh.visual.vertex_colors = mesh.visual.vertex_colors  # visual.kind = 'vertex'
+    scale = np.abs(mesh.vertices).max() * 2
+    plane = create_floor_mesh(scale, gl=gl)
+    plane.apply_transform(world_to_cam)
+    return trimesh.util.concatenate([mesh, plane])

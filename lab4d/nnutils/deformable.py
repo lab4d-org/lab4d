@@ -286,9 +286,7 @@ class Deformable(FeatureNeRF):
             aabb = extend_aabb(aabb)
             inside_aabb = check_inside_aabb(pts, aabb)
 
-            density[inside_aabb] = self.forward(
-                pts[inside_aabb], inst_id=inst_id, get_density=True
-            )
+            _, density[inside_aabb] = self.forward(pts[inside_aabb], inst_id=inst_id)
             density = density / self.logibeta.exp()  # (0,1)
 
         # loss = ((density_gauss - density).pow(2)).mean()

@@ -62,7 +62,7 @@ class TrainOptConfig:
     # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")
     flags.DEFINE_integer("num_rounds", 20, "number of rounds to train")
-    flags.DEFINE_integer("num_rounds_cam_init", 5, "number of rounds for camera init")
+    flags.DEFINE_integer("num_rounds_cam_init", 10, "number of rounds for camera init")
     flags.DEFINE_integer("iters_per_round", 200, "number of iterations per round")
     flags.DEFINE_integer("imgs_per_gpu", 128, "images samples per iter, per gpu")
     flags.DEFINE_integer("pixels_per_image", 16, "pixel samples per image")

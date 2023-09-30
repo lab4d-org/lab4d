@@ -2,6 +2,7 @@
 import numpy as np
 import torch
 import trimesh
+import cv2
 from torch import nn
 
 from lab4d.nnutils.base import BaseMLP
@@ -90,6 +91,10 @@ class FeatureNeRF(NeRF):
 
         sigma = torch.tensor([1.0])
         self.logsigma = nn.Parameter(sigma.log())
+        self.set_match_region(sample_around_surface=True)
+
+    def set_match_region(self, sample_around_surface):
+        self.sample_around_surface = sample_around_surface
 
     def query_field(self, samples_dict, flow_thresh=None):
         """Render outputs from a neural radiance field.
@@ -124,7 +129,8 @@ class FeatureNeRF(NeRF):
         # global matching
         if "feature" in samples_dict and "feature" in feat_dict:
             feature = feat_dict["feature"]
-            feature, xyz = self.propose_matches(feature, xyz)
+            sdf = feat_dict["sdf"]
+            feature, xyz = self.propose_matches(feature, xyz.detach(), sdf)
             xyz_matches = self.global_match(samples_dict["feature"], feature, xyz)
             xy_reproj, xyz_reproj = self.forward_project(
                 xyz_matches,
@@ -136,10 +142,42 @@ class FeatureNeRF(NeRF):
             )
             aux_dict["xyz_matches"] = xyz_matches
             aux_dict["xyz_reproj"] = xyz_reproj
-            aux_dict["xy_reproj"] = xy_reproj
+            hxy = samples_dict["hxy"][..., :2]
+            aux_dict["xy_reproj"] = (xy_reproj - hxy).norm(2, -1, keepdim=True)
+            # # visualize matches
+            # if not self.training:
+            #     img = self.plot_xy_matches(xy_reproj, samples_dict)
+            #     cv2.imwrite("tmp/arrow.png", img)
+            #     trimesh.Trimesh(vertices=xyz_matches[0].cpu().numpy()).export(
+            #         "tmp/matches.obj"
+            #     )
+            # import pdb
+
+            # pdb.set_trace()
         return feat_dict, deltas, aux_dict
 
-    def propose_matches(self, feature, xyz, num_candidates=8196):
+    def plot_xy_matches(self, xy_reproj, samples_dict):
+        # plot arrow from hxy to xy_reproj
+        res = int(np.sqrt(samples_dict["hxy"].shape[1]))
+        img = np.zeros((res * 16, res * 16, 3), dtype=np.uint8)
+        hxy_vis = samples_dict["hxy"].view(-1, res, res, 3)[..., :2].cpu().numpy()
+        xy_reproj_vis = xy_reproj.view(-1, res, res, 2).cpu().numpy()
+        feature_vis = samples_dict["feature"].view(-1, res, res, 16)
+        for i in range(res):
+            for j in range(res):
+                if feature_vis[0, i, j].norm(2, -1) == 0:
+                    continue
+                # draw a line
+                img = cv2.arrowedLine(
+                    img,
+                    tuple(hxy_vis[0, i, j] * 16),
+                    tuple(xy_reproj_vis[0, i, j] * 16),
+                    (0, 255, 0),
+                    1,
+                )
+        return img
+
+    def propose_matches(self, feature, xyz, sdf, num_candidates=8192):
         """Sample canonical points for global matching
         Args:
             feature: (M,N,D,feature_channels) Pixel features
@@ -149,6 +187,11 @@ class FeatureNeRF(NeRF):
             feature: (num_candidates, feature_channels) Canonical features
             xyz: (num_candidates, 3) Points in field coordinates
         """
+        # threshold
+        if self.sample_around_surface:
+            thresh = 0.005
+        else:
+            thresh = 1
         # sample canonical points
         feature = feature.view(-1, feature.shape[-1])  # (M*N*D, feature_channels)
         xyz = xyz.view(-1, 3)  # (M*N*D, 3)
@@ -159,6 +202,12 @@ class FeatureNeRF(NeRF):
         inside_aabb = check_inside_aabb(xyz, aabb)
         feature = feature[inside_aabb]
         xyz = xyz[inside_aabb]
+        sdf = sdf.view(-1)[inside_aabb]
+
+        # remove points far from the surface beyond a sdf threshold
+        is_near_surface = sdf.abs() < thresh
+        feature = feature[is_near_surface]
+        xyz = xyz[is_near_surface]
 
         num_candidates = min(num_candidates, feature.shape[0])
         idx = torch.randperm(feature.shape[0])[: num_candidates // 2]
@@ -166,11 +215,22 @@ class FeatureNeRF(NeRF):
         xyz = xyz[idx]  # (num_candidates, 3)
 
         # sample additional points
-        rand_xyz, _, _ = self.sample_points_aabb(num_candidates // 2, extend_factor=0.1)
-        feat_field_dict = self.compute_feat(rand_xyz)
+        if self.sample_around_surface:
+            # sample from proxy geometry on the surface
+            proxy_geometry = self.get_proxy_geometry()
+            rand_xyz, _ = trimesh.sample.sample_surface(
+                proxy_geometry, num_candidates // 2
+            )
+            rand_xyz = torch.tensor(rand_xyz, dtype=torch.float32, device=xyz.device)
+        else:
+            # sample from aabb
+            rand_xyz, _, _ = self.sample_points_aabb(
+                num_candidates // 2, extend_factor=0.1
+            )
+        rand_feat = self.compute_feat(rand_xyz)["feature"]
 
         # combine
-        feature = torch.cat([feature, feat_field_dict["feature"]], dim=0)
+        feature = torch.cat([feature, rand_feat], dim=0)
         xyz = torch.cat([xyz, rand_xyz], dim=0)
         return feature, xyz
 

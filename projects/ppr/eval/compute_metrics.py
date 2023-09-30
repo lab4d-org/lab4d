@@ -19,6 +19,7 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.utils.io import save_vid
 from lab4d.utils.mesh_render_utils import PyRenderWrapper
+from lab4d.utils.vis_utils import append_xz_plane
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument(
@@ -64,10 +65,21 @@ def main():
 
     # glob predicted meshes (from either lab4d or other methods)
     if args.pred_prefix == "":
-        pred_prefix = "%s/mesh/fg-" % (args.testdir)  # use lab4d
+        pred_prefix = "%s/fg/mesh/" % (args.testdir)  # use lab4d
         pred_mesh_paths = glob.glob("%s*.obj" % (pred_prefix))
         intrinsics = np.asarray(camera_info["intrinsics"], dtype=np.float32)
-        extrinsics = np.repeat(np.eye(4)[None], len(pred_mesh_paths), axis=0)
+        # transform to view coord
+        extrinsics = json.load(open("%s/fg/motion.json" % (args.testdir), "r"))
+        extrinsics = np.asarray(extrinsics["field2cam"])
+
+        if os.path.exists("%s/bg/motion.json" % (args.testdir)):
+            extrinsics_bg = json.load(open("%s/bg/motion.json" % (args.testdir), "r"))
+            extrinsics_bg = np.asarray(extrinsics_bg["field2cam"])
+
+        # align bg floor with xz plane
+        field2world_path = "%s/bg/field2world.json" % (args.testdir)
+        field2world = np.asarray(json.load(open(field2world_path, "r")))
+        world2field = np.linalg.inv(field2world)
     else:
         pred_mesh_paths = glob.glob("%s*.obj" % (args.pred_prefix))
         pred_camera_paths = sorted(glob.glob("%s*.txt" % (args.pred_prefix)))
@@ -79,7 +91,17 @@ def main():
     for fidx, mesh_path in enumerate(sorted(pred_mesh_paths)):
         fidx = int(mesh_path.split("/")[-1].split("-")[-1].split(".")[0])
         pred_mesh_dict[args.skip * fidx] = trimesh.load(mesh_path, process=False)
+        pred_mesh_dict[args.skip * fidx].apply_transform(extrinsics[fidx])
+        # pred_mesh_dict[args.skip * fidx].apply_transform(np.linalg.inv(Gmat_gt))
     assert len(pred_mesh_dict) == len(gt_mesh_dict)
+
+    if os.path.exists("%s/bg/motion.json" % (args.testdir)):
+        pred_mesh_paths_bg = glob.glob("%s/bg/mesh/*.obj" % (args.testdir))
+        pred_mesh_dict_bg = {}
+        for fidx, mesh_path in enumerate(sorted(pred_mesh_paths_bg)):
+            fidx = int(mesh_path.split("/")[-1].split("-")[-1].split(".")[0])
+            pred_mesh_dict_bg[args.skip * fidx] = trimesh.load(mesh_path, process=False)
+            pred_mesh_dict_bg[args.skip * fidx].apply_transform(extrinsics_bg[fidx])
 
     # evaluate
     # ama_eval(all_verts_gt, all_verts_gt, verbose=True)
@@ -92,13 +114,33 @@ def main():
     renderer_pred = PyRenderWrapper(raw_size)
     frames = []
     for fidx, mesh_obj in tqdm.tqdm(gt_mesh_dict.items(), desc=f"Rendering:"):
-        renderer_gt.set_intrinsics(intrinsics_gt)
-        color_gt = renderer_gt.render(mesh_obj, force_gray=True)[0]
-        cd_gt = renderer_gt.render(gt_cd_dict[fidx])[0]
+        world_to_cam_pred = extrinsics_bg[fidx] @ world2field
+        mesh_obj = append_xz_plane(mesh_obj, Gmat_gt)
+        gt_cd_dict[fidx] = append_xz_plane(gt_cd_dict[fidx], Gmat_gt)
+        pred_mesh_dict[fidx] = append_xz_plane(
+            pred_mesh_dict[fidx], world_to_cam_pred, gl=False
+        )
+        pred_cd_dict[fidx] = append_xz_plane(
+            pred_cd_dict[fidx], world_to_cam_pred, gl=False
+        )
+        # pred_mesh_dict[fidx] = trimesh.util.concatenate(
+        #     [pred_mesh_dict[fidx], pred_mesh_dict_bg[fidx]]
+        # )
+        # mesh_obj.export("tmp/0.obj")
+        # pred_mesh_dict[fidx].export("tmp/1.obj")
+        # pdb.set_trace()
 
+        # renderer_gt.set_camera_frontal(4, gl=True)
+        renderer_gt.set_intrinsics(intrinsics_gt)
+        renderer_gt.align_light_to_camera()
+        color_gt = renderer_gt.render({"shape": mesh_obj})[0]
+        cd_gt = renderer_gt.render({"shape": gt_cd_dict[fidx]})[0]
+
+        # renderer_pred.set_camera_frontal(4, gl=True)
         renderer_pred.set_intrinsics(intrinsics[fidx // args.skip])
-        color_pred = renderer_pred.render(pred_mesh_dict[fidx], force_gray=True)[0]
-        cd_pred = renderer_pred.render(pred_cd_dict[fidx])[0]
+        renderer_pred.align_light_to_camera()
+        color_pred = renderer_pred.render({"shape": pred_mesh_dict[fidx]})[0]
+        cd_pred = renderer_pred.render({"shape": pred_cd_dict[fidx]})[0]
 
         color = np.concatenate([color_gt, color_pred], axis=1)
         cd = np.concatenate([cd_gt, cd_pred], axis=1)

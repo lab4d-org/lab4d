@@ -34,6 +34,8 @@ from pytorch3d.ops.points_alignment import (
 )
 from pytorch3d.ops.utils import wmean
 
+from lab4d.utils.vis_utils import visualize_trajectory
+
 
 def load_ama_intrinsics(path):
     pmat = np.loadtxt(path)
@@ -83,7 +85,7 @@ def ama_eval(
     all_verts_pred = torch.tensor(all_verts_pred, device=device, dtype=torch.float32)
     all_verts_gt = torch.tensor(all_verts_gt, device=device, dtype=torch.float32)
 
-    # trimesh.Trimesh(vertices=all_verts_pred[0].cpu().numpy()).export("tmp/pred.obj")
+    # visualize_trajectory(all_verts_pred, "pred")
     # global se3 alignment
     all_verts_pred = align_seqs(
         all_verts_pred[:, None],
@@ -92,9 +94,8 @@ def ama_eval(
         verbose=verbose,
     )
     all_verts_pred = [x[0] for x in all_verts_pred]
-    # trimesh.Trimesh(vertices=all_verts_pred[0].cpu().numpy()).export("tmp/aligned.obj")
-    # trimesh.Trimesh(vertices=all_verts_gt[0].cpu().numpy()).export("tmp/gt.obj")
-
+    # visualize_trajectory(all_verts_pred, "aligned")
+    # visualize_trajectory(all_verts_gt, "gt")
     # pdb.set_trace()
 
     chamLoss = chamfer_3DDist()

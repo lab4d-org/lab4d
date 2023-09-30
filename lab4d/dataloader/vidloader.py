@@ -364,6 +364,8 @@ class VidDataset(Dataset):
         else:
             rand_xy = rand_xy / self.img_size[0] * 112
             feat = bilinear_interp(feat, rand_xy)
+        # normalize
+        feat = feat / (np.linalg.norm(feat, axis=-1, keepdims=True) + 1e-6)
         feat = feat.astype(np.float32)
         return feat
 

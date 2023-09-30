@@ -60,7 +60,7 @@ class dvr_phys_reg(dvr_model):
 
         object_field = self.fields.field_params["fg"]
         scene_field = self.fields.field_params["bg"]
-        kinematics_q = query_q(steps_fr, object_field, scene_field)[0]
+        kinematics_q, _ = query_q(steps_fr, object_field, scene_field)
         kinematics_ja = object_field.warp.articulation.get_vals(
             steps_fr, return_so3=True
         )
@@ -84,18 +84,11 @@ class PPRTrainer(Trainer):
 
         super().__init__(opts)
         self.model.fields.field_params["bg"].compute_field2world()
-
-        # initialize control input of phys model to kinematics
-        self.phys_model.override_states()
-
-        # reset scale to avoid initial penetration
-        frame_offset_raw = self.phys_model.frame_offset_raw
-        vid_frames = []
-        for vidid in self.opts["phys_vid"]:
-            vid_frame = range(frame_offset_raw[vidid + 1] - frame_offset_raw[vidid])
-            vid_frames += vid_frame
-        self.phys_model.correct_foot_position(vid_frames)
-        self.run_phys_visualization(tag="kinematics")
+        for vidid in opts["phys_vid"]:
+            mesh = self.model.fields.field_params["bg"].visualize_floor_mesh(
+                vidid, to_world=True
+            )
+            mesh.export("%s/floor_%02d.obj" % (self.save_dir, vidid))
 
     def trainer_init(self):
         super().trainer_init()
@@ -111,7 +104,8 @@ class PPRTrainer(Trainer):
     def init_model(self):
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics from external priors, if this is the first run"""
-        # super().init_model()
+        if self.opts["load_path"] == "":
+            super().init_model()
         return
 
     def define_model(self, model=dvr_phys_reg):
@@ -144,18 +138,12 @@ class PPRTrainer(Trainer):
         """Load a checkpoint at training time and update the current step count
         and round count
         """
-        # load background and intrinsics model
-        checkpoint = torch.load(self.opts["load_path_bg"])
-        model_states = checkpoint["model"]
-        self.model.load_state_dict(model_states, strict=False)
-        # f_bg = self.model.intrinsics.get_intrinsics()[:, 0]  # focal
+        if self.opts["load_path_bg"] != "":
+            # load background and intrinsics model
+            checkpoint = torch.load(self.opts["load_path_bg"])
+            model_states = checkpoint["model"]
+            self.model.load_state_dict(model_states, strict=False)
         super().load_checkpoint_train()
-        # f_fg = self.model.intrinsics.get_intrinsics()[:, 0]  # focal
-
-        # # change the translation such that the rendering is close to input
-        # f_ratio = (f_fg / f_bg)[..., None]
-        # self.model.fields.field_params["bg"].camera_mlp.base_trans.data *= f_ratio
-        # self.model.fields.field_params["bg"].logscale.data += f_ratio.log().mean()
 
         # # reset beta
         # beta = torch.tensor([0.01]).to(self.device)
@@ -179,9 +167,9 @@ class PPRTrainer(Trainer):
 
         param_lr_with.update(
             {
-                # "module.fields.field_params.fg.basefield.": 0.0,
+                "module.fields.field_params.fg.basefield.": 0.0,
                 # "module.fields.field_params.fg.colorfield.": 0.0,
-                # "module.fields.field_params.fg.sdf.": 0.0,
+                "module.fields.field_params.fg.sdf.": 0.0,
                 # "module.fields.field_params.fg.rgb.": 0.0,
                 "module.fields.field_params.fg.vis_mlp.": 0.0,
                 "module.fields.field_params.bg.basefield.": 0.0,
@@ -190,20 +178,42 @@ class PPRTrainer(Trainer):
                 # "module.fields.field_params.bg.rgb.": 0.0,
                 "module.fields.field_params.bg.vis_mlp.": 0.0,
                 "module.fields.field_params.fg.warp.articulation.log_bone_len": 0.0,
+                "module.fields.field_params.bg.camera_mlp.": 0.0,
             }
         )
         return param_lr_startwith, param_lr_with
 
-    def run_one_round(self, round_count):
-        # run physics cycle
-        self.run_phys_cycle()
-        self.current_round_phys += 1
-        # # transfer phys-optimized kinematics to dvr
-        # self.phys_model.override_states_inv()
-        # transfer hys-optimized kinematics to dvr as soft constriaints
-        self.model.copy_phys_traj(self.phys_model)
+    def run_one_round(self):
+        if self.current_round == self.first_round:
+            # initialize control input of phys model to kinematics
+            self.phys_model.override_control_ref_states()
+            self.phys_model.override_distilled_states()
+
+            # reset scale to avoid initial penetration
+            frame_offset_raw = self.phys_model.frame_offset_raw
+            vid_frames = []
+            for vidid in self.opts["phys_vid"]:
+                vid_frame = range(frame_offset_raw[vidid], frame_offset_raw[vidid + 1])
+                vid_frames += vid_frame
+            self.phys_model.correct_foot_position(vid_frames)
+            if get_local_rank() == 0:
+                self.run_phys_visualization(tag="kinematics")
+
         # run dr cycle
-        super().run_one_round(round_count)
+        super().run_one_round()
+
+        # run physics cycle
+        if self.phys_model.copy_weights:
+            # transfer dvr kinematics to phys
+            self.phys_model.override_distilled_states()
+        self.run_phys_cycle()
+        if self.phys_model.copy_weights:
+            # transfer phys-optimized kinematics to dvr
+            self.phys_model.override_states_inv()
+        else:
+            # transfer phys-optimized kinematics to dvr as soft constriaints
+            self.model.copy_phys_traj(self.phys_model)
+        self.current_round_phys += 1
 
     def init_phys_env_train(self, ses_per_wdw):
         opts = self.opts
@@ -267,6 +277,7 @@ class PPRTrainer(Trainer):
             )
 
     @staticmethod
+    @torch.no_grad()
     def simulate(phys_model, data_info, vidid):
         """
         run phys simulation for a video in eval mode
