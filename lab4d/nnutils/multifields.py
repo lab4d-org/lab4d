@@ -94,11 +94,11 @@ class MultiFields(nn.Module):
             nerf = bg_arch(
                 data_info,
                 D=8,
-                num_freq_xyz=6,
                 num_freq_dir=0,
                 appr_channels=0,
                 num_inst=num_inst,
-                init_scale=0.2,
+                init_scale=0.05,
+                # init_scale=0.2,
             )
         else:  # exit with an error
             raise ValueError("Invalid category")
@@ -163,7 +163,7 @@ class MultiFields(nn.Module):
         grid_size=64,
         level=0.0,
         inst_id=None,
-        use_visibility=True,
+        vis_thresh=0.0,
         use_extend_aabb=True,
     ):
         """Extract canonical mesh using marching cubes for all child fields
@@ -173,8 +173,7 @@ class MultiFields(nn.Module):
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
             inst_id: (int) Instance id. If None, extract for the average instance
-            use_visibility (bool): If True, use visibility mlp to mask out invisible
-              region.
+            vis_thresh (float): threshold for visibility value to mask out invisible points.
             use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
               Used at training time.
         Returns:
@@ -186,7 +185,7 @@ class MultiFields(nn.Module):
                 grid_size=grid_size,
                 level=level,
                 inst_id=inst_id,
-                use_visibility=use_visibility,
+                vis_thresh=vis_thresh,
                 use_extend_aabb=use_extend_aabb,
             )
             meshes[category] = mesh

@@ -498,7 +498,7 @@ class SkinningWarp(IdentityWarp):
         mesh_gauss = self.get_gauss_vis()
 
         sdf_func = lambda xyz: self.get_gauss_sdf(xyz)
-        mesh_sdf = marching_cubes(sdf_func, aabb, level=0.005)
+        mesh_sdf = marching_cubes(sdf_func, aabb, level=0.0)
         return mesh_gauss, mesh_sdf
 
 

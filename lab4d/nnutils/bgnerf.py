@@ -71,7 +71,7 @@ class BGNeRF(NeRF):
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
         for inst_id in range(self.num_inst):
-            mesh = self.extract_canonical_mesh(level=0.005, inst_id=inst_id)
+            mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
             if len(mesh.vertices) > 0:
                 self.proxy_geometry[inst_id] = mesh
 

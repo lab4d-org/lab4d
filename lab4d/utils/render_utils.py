@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 
-def sample_cam_rays(hxy, Kinv, near_far, n_depth=64, depth=None, perturb=False):
+def sample_cam_rays(hxy, Kinv, near_far, n_depth, depth=None, perturb=False):
     """Sample NeRF rays in camera space
 
     Args:
@@ -80,14 +80,11 @@ def render_pixel(field_dict, deltas):
         rendered["delta_skin"] = field_dict["delta_skin"].mean(dim=(-1, -2))
 
     # visibility loss
+    is_visible = (transmit[..., None] > 0.4).float()  # a loose threshold
     # part of binary cross entropy: -label * log(sigmoid(vis)), where label is transmit
-    transmit = transmit[..., None].detach()
-    # sharpness = 20  # 0.6->0.88
-    # is_visible = torch.sigmoid(sharpness * (transmit - 0.5))
-    is_visible = transmit
     vis_loss = -(F.logsigmoid(field_dict["vis"]) * is_visible).mean(-2)
     # normalize by the number of visible points
-    vis_loss = vis_loss / is_visible.mean().detach()
+    vis_loss = vis_loss / is_visible.mean()
     rendered["vis"] = vis_loss
 
     # mask for gaussian density

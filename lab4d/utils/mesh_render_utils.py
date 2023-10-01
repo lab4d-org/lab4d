@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import pdb
 import pyrender
+import trimesh
 from pyrender import (
     IntrinsicsCamera,
     Mesh,
@@ -96,6 +97,8 @@ class PyRenderWrapper:
         """
         Args:
             input_dict: Dict of trimesh objects. Keys: shape, bone
+            "shape": trimesh object
+            "bone": trimesh object
         Returns:
             color: (H,W,3)
             depth: (H,W)
@@ -122,9 +125,15 @@ class PyRenderWrapper:
             mesh_pyrender.primitives[0].material = self.material
             scene.add_node(Node(mesh=mesh_pyrender))
 
+        # shape
         mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
         mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))
+        if "ghost" in input_dict:
+            mesh_shape = trimesh.util.concatenate(input_dict["ghost"])
+            mesh_pyrender = Mesh.from_trimesh(mesh_shape, smooth=False)
+            mesh_pyrender.primitives[0].material = self.material
+            scene.add_node(Node(mesh=mesh_pyrender))
 
         # camera
         scene.add(self.intrinsics, pose=self.get_cam_to_scene())
@@ -133,11 +142,11 @@ class PyRenderWrapper:
         scene.add(self.direc_l, pose=self.light_pose)
 
         # render
-        color, depth = self.r.render(
-            scene,
-            flags=pyrender.RenderFlags.SHADOWS_DIRECTIONAL
-            # | pyrender.RenderFlags.SKIP_CULL_FACES,
-        )
+        if "ghost" in input_dict:
+            flags = 0
+        else:
+            flags = pyrender.RenderFlags.SHADOWS_DIRECTIONAL
+        color, depth = self.r.render(scene, flags=flags)
         color = color[: self.image_size[0], : self.image_size[1]]
         depth = depth[: self.image_size[0], : self.image_size[1]]
         return color, depth

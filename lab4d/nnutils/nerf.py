@@ -5,6 +5,8 @@ import torch.nn.functional as F
 import trimesh
 from pysdf import SDF
 from torch import nn
+from torch.autograd.functional import jacobian
+
 
 from lab4d.nnutils.appearance import AppearanceEmbedding
 from lab4d.nnutils.base import CondMLP
@@ -95,7 +97,7 @@ class NeRF(nn.Module):
         self.num_inst = num_inst
 
         # position and direction embedding
-        self.pos_embedding = PosEmbedding(3, num_freq_xyz, pre_rotate=True)
+        self.pos_embedding = PosEmbedding(3, num_freq_xyz)
         self.dir_embedding = PosEmbedding(3, num_freq_dir)
 
         # xyz encoding layers
@@ -234,7 +236,14 @@ class NeRF(nn.Module):
             sdf = torch.tensor(sdf, device=pts.device, dtype=pts.dtype)
             return sdf
 
-        return sdf_fn_torch
+        def sdf_fn_torch_sphere(pts):
+            radius = 0.03
+            # l2 distance to a unit sphere
+            dis = (pts).pow(2).sum(-1, keepdim=True)
+            sdf = torch.sqrt(dis) - radius  # negative inside, postive outside
+            return sdf
+
+        return sdf_fn_torch_sphere
 
     def mlp_init(self):
         """Initialize camera transforms and geometry from external priors"""
@@ -245,15 +254,24 @@ class NeRF(nn.Module):
         self.geometry_init(sdf_fn_torch)
 
     def init_proxy(self, geom_path, init_scale):
-        """Initialize the geometry from a mesh
+        """Initialize proxy geometry as a sphere
 
         Args:
-            geom_path (List(str)): paths to initial shape mesh
-            init_scale (float): Geometry scale factor
+            geom_path (str): Unused
+            init_scale (float): Unused
         """
-        mesh = trimesh.load(geom_path[0])
-        mesh.vertices = mesh.vertices * init_scale
-        self.proxy_geometry = mesh
+        self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
+
+    # def init_proxy(self, geom_path, init_scale):
+    #     """Initialize the geometry from a mesh
+
+    #     Args:
+    #         geom_path (List(str)): paths to initial shape mesh
+    #         init_scale (float): Geometry scale factor
+    #     """
+    #     mesh = trimesh.load(geom_path[0])
+    #     mesh.vertices = mesh.vertices * init_scale
+    #     self.proxy_geometry = mesh
 
     def get_proxy_geometry(self):
         """Get proxy geometry
@@ -318,7 +336,7 @@ class NeRF(nn.Module):
 
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
-        mesh = self.extract_canonical_mesh(level=0.005)
+        mesh = self.extract_canonical_mesh(level=0.0)
         if len(mesh.vertices) > 3:
             self.proxy_geometry = mesh
 
@@ -328,7 +346,7 @@ class NeRF(nn.Module):
         grid_size=64,
         level=0.0,
         inst_id=None,
-        use_visibility=True,
+        vis_thresh=0.0,
         use_extend_aabb=True,
     ):
         """Extract canonical mesh using marching cubes
@@ -338,8 +356,7 @@ class NeRF(nn.Module):
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
             inst_id: (int) Instance id. If None, extract for the average instance
-            use_visibility (bool): If True, use visibility mlp to mask out invisible
-              region.
+            vis_thresh (float): threshold for visibility value to remove invisible pts.
             use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
               Used at training time.
         Returns:
@@ -351,13 +368,13 @@ class NeRF(nn.Module):
         else:
             aabb = self.get_aabb()
         sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id)[0]
-        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > 0
+        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > vis_thresh
         if use_extend_aabb:
             aabb = extend_aabb(aabb, factor=0.5)
         mesh = marching_cubes(
             sdf_func,
             aabb[0],
-            visibility_func=vis_func if use_visibility else None,
+            visibility_func=vis_func,
             grid_size=grid_size,
             level=level,
             apply_connected_component=True if self.category == "fg" else False,
@@ -488,8 +505,15 @@ class NeRF(nn.Module):
             rand_inds = Ellipsis
 
         xyz = xyz.detach()
-        fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
-        g = compute_gradient(fn_sdf, xyz)[..., 0]
+        # fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
+        # g = compute_gradient(fn_sdf, xyz)[..., 0]
+
+        def fn_sdf(x):
+            sdf, _ = self.forward(x, inst_id=inst_id)
+            sdf_sum = sdf.sum()
+            return sdf_sum
+
+        g = jacobian(fn_sdf, xyz, create_graph=True, strict=True)
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
@@ -693,8 +717,8 @@ class NeRF(nn.Module):
                 hxy,
                 Kinv,
                 near_far,
-                perturb=False,
                 n_depth=64,
+                perturb=False,
             )  # (M, N, D, x)
 
         # backward warping
@@ -772,7 +796,7 @@ class NeRF(nn.Module):
         frame_id,
         inst_id,
         samples_dict,
-        n_depth=64,
+        n_depth,
     ):
         """
         importance sampling coarse
@@ -780,7 +804,7 @@ class NeRF(nn.Module):
         with torch.no_grad():
             # sample camera space rays
             xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-                hxy, Kinv, near_far, perturb=False, n_depth=n_depth // 2
+                hxy, Kinv, near_far, n_depth // 2, perturb=False
             )  # (M, N, D, x)
 
             # backward warping
@@ -837,7 +861,7 @@ class NeRF(nn.Module):
 
         # sample camera space rays
         xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-            hxy, Kinv, near_far, depth=depth, perturb=False
+            hxy, Kinv, near_far, None, depth=depth, perturb=False
         )
 
         return xyz_cam, dir_cam, deltas, depth

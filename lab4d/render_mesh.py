@@ -23,6 +23,7 @@ parser.add_argument("--testdir", default="", help="path to the directory with re
 parser.add_argument("--fps", default=30, type=int, help="fps of the video")
 parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
+parser.add_argument("--ghosting", action="store_true", help="ghosting")
 args = parser.parse_args()
 
 
@@ -72,12 +73,13 @@ def main():
     extr_dict = {}
     bone_dict = {}
     scene_dict = {}
-    for mesh_path in path_list:
+    for counter, mesh_path in enumerate(path_list):
         frame_idx = int(mesh_path.split("/")[-1].split(".")[0])
         mesh = trimesh.load(mesh_path, process=False)
         mesh.visual.vertex_colors = mesh.visual.vertex_colors  # visual.kind = 'vertex'
+        field2cam_fg = field2cam_fg_dict[frame_idx]
         mesh_dict[frame_idx] = mesh
-        extr_dict[frame_idx] = field2cam_fg_dict[frame_idx]
+        extr_dict[frame_idx] = field2cam_fg
 
         if mode == "bone":
             # load bone
@@ -98,7 +100,8 @@ def main():
                 field2world = np.asarray(json.load(open(field2world_path, "r")))
                 world2field = np.linalg.inv(field2world)
             scene.vertices = scene.vertices @ field2world[:3, :3].T + field2world[:3, 3]
-            field2cam_bg_dict[frame_idx] = field2cam_bg_dict[frame_idx] @ world2field
+            field2cam_bg = field2cam_bg_dict[frame_idx] @ world2field
+            field2cam_bg_dict[frame_idx] = field2cam_bg
 
             scene_dict[frame_idx] = scene
             # use scene camera
@@ -111,6 +114,21 @@ def main():
             mesh_dict[frame_idx].apply_transform(object_to_scene)
             if mode == "bone":
                 bone_dict[frame_idx].apply_transform(object_to_scene)
+
+            if args.ghosting:
+                total_ghost = 10
+                ghost_skip = len(path_list) // total_ghost
+                if "ghost_list" in locals():
+                    if counter % ghost_skip == 0:
+                        mesh_ghost = mesh_dict[frame_idx].copy()
+                        mesh_ghost.visual.vertex_colors[:, 3] = 102
+                        ghost_list.append(mesh_ghost)
+                else:
+                    ghost_list = [mesh_dict[frame_idx]]
+                if "ghost_dict" in locals():
+                    ghost_dict[frame_idx] = [mesh.copy() for mesh in ghost_list]
+                else:
+                    ghost_dict = {frame_idx: [mesh.copy() for mesh in ghost_list]}
 
     # render
     renderer = PyRenderWrapper(raw_size)
@@ -143,6 +161,8 @@ def main():
             # fl = max(raw_size)
             # intr = np.asarray([fl * 4, fl * 4, raw_size[1] / 2, raw_size[0] / 4 * 3])
             # renderer.set_intrinsics(intr)
+        if args.ghosting:
+            input_dict["ghost"] = ghost_dict[frame_idx]
         renderer.align_light_to_camera()
 
         color = renderer.render(input_dict)[0]

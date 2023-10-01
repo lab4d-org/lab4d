@@ -38,7 +38,9 @@ class ExportMeshFlags:
     flags.DEFINE_float(
         "level", 0.0, "contour value of marching cubes use to search for isosurfaces"
     )
-    flags.DEFINE_boolean("use_visibility", False, "use visibility to remove extra pts")
+    flags.DEFINE_float(
+        "vis_thresh", 0.0, "visibility threshold to remove invisible pts, -inf to inf"
+    )
 
 
 class MotionParamsExpl(NamedTuple):
@@ -201,11 +203,14 @@ def extract_motion_params(model, opts, data_info):
         grid_size=opts["grid_size"],
         level=opts["level"],
         inst_id=opts["inst_id"],
-        use_visibility=opts["use_visibility"],
+        vis_thresh=opts["vis_thresh"],
         use_extend_aabb=False,
     )
 
-    if "bg" in model.fields.field_params.keys():
+    if (
+        "bg" in model.fields.field_params.keys()
+        and model.fields.field_params["bg"].valid_field2world()
+    ):
         # visualize ground plane
         field2world = (
             model.fields.field_params["bg"].get_field2world(opts["inst_id"]).cpu()

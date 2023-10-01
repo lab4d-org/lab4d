@@ -104,7 +104,7 @@ class dvr_model(nn.Module):
         config = self.config
         if self.config["use_freq_anneal"]:
             # positional encoding annealing
-            anchor_x = (0, 2000)
+            anchor_x = (1000, 2000)
             anchor_y = (0.6, 1)
             type = "linear"
             alpha = interp_wt(anchor_x, anchor_y, current_steps, type=type)
@@ -144,6 +144,29 @@ class dvr_model(nn.Module):
             self.fields.field_params["fg"], FeatureNeRF
         ):
             self.fields.field_params["fg"].set_match_region(sample_around_surface)
+
+        if config["alter_flow"]:
+            # alternating between flow and all losses for initialzation
+            switch_list = [
+                "feat_reproj_wt",
+                "feature_wt",
+                "mask_wt",
+                "rgb_wt",
+                "normal_wt",
+                "reg_gauss_mask_wt",
+            ]
+            if current_steps < 1600 and current_steps % 2 == 0:
+                # set to 0
+                for key in switch_list:
+                    self.set_loss_weight(
+                        key, (0, 1), (0, 0), current_steps, type="linear"
+                    )
+            else:
+                # set to 1x
+                for key in switch_list:
+                    self.set_loss_weight(
+                        key, (0, 1), (1, 1), current_steps, type="linear"
+                    )
 
         # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)
