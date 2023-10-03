@@ -254,7 +254,7 @@ class FeatureNeRF(NeRF):
         feat_px,
         feat_canonical,
         xyz_canonical,
-        num_grad=128,
+        num_grad=0,
     ):
         """Match pixel features to canonical features, which combats local
         minima in differentiable rendering optimization
@@ -273,9 +273,10 @@ class FeatureNeRF(NeRF):
         score = torch.matmul(feat_px, feat_canonical.t())  # (M*N, num_candidates)
 
         # find top K candidates
-        num_grad = min(num_grad, score.shape[1])
-        score, idx = torch.topk(score, num_grad, dim=1, largest=True)
-        xyz_canonical = xyz_canonical[idx]
+        if num_grad > 0:
+            num_grad = min(num_grad, score.shape[1])
+            score, idx = torch.topk(score, num_grad, dim=1, largest=True)
+            xyz_canonical = xyz_canonical[idx]
 
         # soft argmin
         score = score * self.logsigma.exp()  # temperature

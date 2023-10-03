@@ -148,8 +148,6 @@ class dvr_model(nn.Module):
         if config["alter_flow"]:
             # alternating between flow and all losses for initialzation
             switch_list = [
-                "feat_reproj_wt",
-                "feature_wt",
                 "mask_wt",
                 "rgb_wt",
                 "normal_wt",
@@ -619,6 +617,11 @@ class dvr_model(nn.Module):
                 loss_dict["reg_gauss_mask"] = (
                     aux_dict["fg"]["gauss_mask"] - (rendered_fg_mask > 0.5).float()
                 ).pow(2)
+
+        # # downweight pixels with low opacity (e.g., mask not aligned with gt)
+        # density_related_loss = ["rgb", "depth", "normal", "feature", "flow"]
+        # for k in density_related_loss:
+        #     loss_dict[k] = loss_dict[k] * rendered["mask"].detach()
 
     def compute_reg_loss(self, loss_dict, results):
         """Compute regularization losses.

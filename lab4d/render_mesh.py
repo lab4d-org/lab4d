@@ -77,7 +77,12 @@ def main():
         frame_idx = int(mesh_path.split("/")[-1].split(".")[0])
         mesh = trimesh.load(mesh_path, process=False)
         mesh.visual.vertex_colors = mesh.visual.vertex_colors  # visual.kind = 'vertex'
-        field2cam_fg = field2cam_fg_dict[frame_idx]
+        field2cam_fg = np.asarray(field2cam_fg_dict[frame_idx])
+
+        # post-modify the scale of the fg
+        # mesh.vertices = mesh.vertices / 2
+        # field2cam_fg[:3, 3] = field2cam_fg[:3, 3] / 2
+
         mesh_dict[frame_idx] = mesh
         extr_dict[frame_idx] = field2cam_fg
 
@@ -107,10 +112,7 @@ def main():
             # use scene camera
             extr_dict[frame_idx] = field2cam_bg_dict[frame_idx]
             # transform to scene
-            object_to_scene = (
-                np.linalg.inv(field2cam_bg_dict[frame_idx])
-                @ field2cam_fg_dict[frame_idx]
-            )
+            object_to_scene = np.linalg.inv(field2cam_bg_dict[frame_idx]) @ field2cam_fg
             mesh_dict[frame_idx].apply_transform(object_to_scene)
             if mode == "bone":
                 bone_dict[frame_idx].apply_transform(object_to_scene)

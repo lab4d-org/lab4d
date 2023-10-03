@@ -336,7 +336,7 @@ class NeRF(nn.Module):
 
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
-        mesh = self.extract_canonical_mesh(level=0.0)
+        mesh = self.extract_canonical_mesh(level=0.005)
         if len(mesh.vertices) > 3:
             self.proxy_geometry = mesh
 
@@ -941,12 +941,35 @@ class NeRF(nn.Module):
             frame_id = frame_id[:, None, None].expand(shape[:3])[valid_idx]
             inst_id = inst_id[:, None, None].expand(shape[:3])[valid_idx]
 
+        # # symmetrically normalize
+        # symm_ratio = 0.5
+        # xyz_x = xyz[..., :1].clone()
+        # symm_mask = torch.rand_like(xyz_x) < symm_ratio
+        # xyz_x[symm_mask] = -xyz_x[symm_mask]
+        # xyz = torch.cat([xyz_x, xyz[..., 1:3]], -1)
+
         rgb, sdf, density = self.forward(
             xyz,
             dir=dir,
             frame_id=frame_id,
             inst_id=inst_id,
         )  # (M, N, D, x)
+
+        # # density drop out, to enforce motion to explain the missing density
+        # # get aabb
+        # ratio = 4
+        # aabb = self.get_aabb()
+        # # select a random box from aabb with 1/ratio size
+        # aabb_size = aabb[..., 1, :] - aabb[..., 0, :]
+        # aabb_size_sub = aabb_size / ratio
+        # aabb_sub_min = aabb[..., 0, :] + torch.rand_like(aabb_size) * (
+        #     aabb_size - aabb_size_sub
+        # )
+        # aabb_sub_max = aabb_sub_min + aabb_size_sub
+        # aabb_sub = torch.stack([aabb_sub_min, aabb_sub_max], -2)
+        # # check whether the point is inside the aabb
+        # inside_aabb = check_inside_aabb(xyz, aabb_sub)
+        # density[inside_aabb] = 0
 
         # reshape
         field_dict = {

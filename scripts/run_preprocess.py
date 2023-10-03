@@ -116,8 +116,11 @@ if __name__ == "__main__":
     print("using gpus: ", gpulist)
     os.makedirs("tmp", exist_ok=True)
 
-    # download the videos
-    download_seq(vidname)
+    # check if the directory with the video already exists
+    viddir_path = os.path.join("database", "raw", vidname)
+    if not os.path.exists(viddir_path):
+        # download the videos only if the directory does not exist
+        download_seq(vidname)
 
     # set up parallel extraction
     frame_args = []

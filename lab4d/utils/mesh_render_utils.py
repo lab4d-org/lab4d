@@ -121,7 +121,9 @@ class PyRenderWrapper:
 
         if "scene" in input_dict:
             # add scene
-            mesh_pyrender = Mesh.from_trimesh(input_dict["scene"], smooth=False)
+            scene_mesh = input_dict["scene"]
+            scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
+            mesh_pyrender = Mesh.from_trimesh(scene_mesh, smooth=False)
             mesh_pyrender.primitives[0].material = self.material
             scene.add_node(Node(mesh=mesh_pyrender))
 
