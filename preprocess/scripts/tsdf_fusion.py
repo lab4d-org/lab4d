@@ -39,7 +39,9 @@ from lab4d.utils.vis_utils import draw_cams
 #     return cam2scene
 
 
-def tsdf_fusion(seqname, component_id, crop_size=256, use_full=True):
+def tsdf_fusion(
+    seqname, component_id, crop_size=256, use_full=True, voxel_size=0.2, use_gpu=False
+):
     # load rgb/depth
     imgdir = "database/processed/JPEGImages/Full-Resolution/%s" % seqname
     imglist = sorted(glob.glob("%s/*.jpg" % imgdir))
@@ -69,7 +71,7 @@ def tsdf_fusion(seqname, component_id, crop_size=256, use_full=True):
         view_frust_pts = fusion.get_view_frustum(depth, K0, cam2scene)
         vol_bnds[:, 0] = np.minimum(vol_bnds[:, 0], np.amin(view_frust_pts, axis=1))
         vol_bnds[:, 1] = np.maximum(vol_bnds[:, 1], np.amax(view_frust_pts, axis=1))
-    tsdf_vol = fusion.TSDFVolume(vol_bnds, voxel_size=0.2, use_gpu=False)
+    tsdf_vol = fusion.TSDFVolume(vol_bnds, voxel_size=voxel_size, use_gpu=use_gpu)
 
     # fusion
     for it, imgpath in enumerate(imglist[:-1]):

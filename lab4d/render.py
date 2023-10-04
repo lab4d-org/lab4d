@@ -196,8 +196,9 @@ def render(opts, construct_batch_func):
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     batch, raw_size = construct_batch_func(opts, model, data_info)
     # # TODO: make eval_res and render_res consistent
-    # feature = ref_dict["ref_feature"].reshape(-1, opts["eval_res"] ** 2, 16)
-    # batch["feature"] = torch.tensor(feature, device="cuda")
+    if opts["render_res"] == opts["eval_res"]:
+        feature = ref_dict["ref_feature"].reshape(-1, opts["eval_res"] ** 2, 16)
+        batch["feature"] = torch.tensor(feature, device="cuda")
     save_dir = make_save_dir(
         opts, sub_dir="renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
     )

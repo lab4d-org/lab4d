@@ -58,13 +58,13 @@ class VidDataset(Dataset):
 
     def __init__(self, opts, rgblist, dataid, ks, raw_size):
         self.delta_list = opts["delta_list"]
+        self.field_type = opts["field_type"]
         self.dict_list = self.construct_data_list(
             rgblist, opts["data_prefix"], opts["feature_type"]
         )
         self.pixels_per_image = opts["pixels_per_image"]
         self.dataid = dataid
         self.load_pair = opts["load_pair"]
-        self.field_type = opts["field_type"]
         self.ks = ks
         self.raw_size = raw_size
         self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
@@ -92,13 +92,27 @@ class VidDataset(Dataset):
         flowbw_path = rgb_path.replace("JPEGImages", "FlowBW")
         depth_path = rgb_path.replace("JPEGImages", "Depth")
         normal_path = rgb_path.replace("JPEGImages", "Normal")
+        if self.field_type == "bg":
+            group_id = 0
+        else:
+            group_id = 1
         feature_path = str(
             Path(rgb_path.replace("JPEGImages", "Features")).parent
-        ) + "/%s-%s-01.npy" % (prefix, feature_type)
+        ) + "/%s-%s-%02d.npy" % (prefix, feature_type, group_id)
 
-        camlist_bg = (
-            reflist[0].replace("JPEGImages", "Cameras").replace("00000.jpg", "00.npy")
-        )  # bg
+        canonical_path_bg = (
+            reflist[0]
+            .replace("JPEGImages", "Cameras")
+            .replace("00000.jpg", "00-canonical.npy")
+        )
+        if os.path.exists(canonical_path_bg):
+            camlist_bg = canonical_path_bg
+        else:
+            camlist_bg = (
+                reflist[0]
+                .replace("JPEGImages", "Cameras")
+                .replace("00000.jpg", "00.npy")
+            )  # bg
         camlist_fg = (
             reflist[0]
             .replace("JPEGImages", "Cameras")

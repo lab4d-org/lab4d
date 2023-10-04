@@ -39,19 +39,19 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     mesh_dict = {}
-    aabb_min = np.asarray([np.inf, np.inf, np.inf])
-    aabb_max = np.asarray([-np.inf, -np.inf, -np.inf])
+    aabb_min = np.asarray([np.inf, np.inf])
+    aabb_max = np.asarray([-np.inf, -np.inf])
     for mesh_path in path_list:
         batch_idx = int(mesh_path.split("/")[-1].split("-")[0])
         mesh_obj = trimesh.load(mesh_path)
         mesh_dict[batch_idx] = mesh_obj
 
         # update aabb
-        aabb_min = np.minimum(aabb_min, mesh_obj.bounds[0])
-        aabb_max = np.maximum(aabb_max, mesh_obj.bounds[1])
+        aabb_min = np.minimum(aabb_min, mesh_obj.bounds[0, [0, 2]])  # x,z coords
+        aabb_max = np.maximum(aabb_max, mesh_obj.bounds[1, [0, 2]])
 
     # set camera translation
-    renderer.set_camera_bev(depth=max(aabb_max - aabb_min) * 2)
+    renderer.set_camera_bev(depth=max(aabb_max - aabb_min))
 
     # render
     frames = []

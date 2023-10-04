@@ -8,6 +8,7 @@ run-long.sh
 /database/ama
 /logdir
 /tmp
+projects/csim
 
 lab4d.egg-info
 __pycache__/

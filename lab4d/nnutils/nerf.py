@@ -236,14 +236,7 @@ class NeRF(nn.Module):
             sdf = torch.tensor(sdf, device=pts.device, dtype=pts.dtype)
             return sdf
 
-        def sdf_fn_torch_sphere(pts):
-            radius = 0.03
-            # l2 distance to a unit sphere
-            dis = (pts).pow(2).sum(-1, keepdim=True)
-            sdf = torch.sqrt(dis) - radius  # negative inside, postive outside
-            return sdf
-
-        return sdf_fn_torch_sphere
+        return sdf_fn_torch
 
     def mlp_init(self):
         """Initialize camera transforms and geometry from external priors"""
@@ -254,24 +247,15 @@ class NeRF(nn.Module):
         self.geometry_init(sdf_fn_torch)
 
     def init_proxy(self, geom_path, init_scale):
-        """Initialize proxy geometry as a sphere
+        """Initialize the geometry from a mesh
 
         Args:
-            geom_path (str): Unused
-            init_scale (float): Unused
+            geom_path (List(str)): paths to initial shape mesh
+            init_scale (float): Geometry scale factor
         """
-        self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
-
-    # def init_proxy(self, geom_path, init_scale):
-    #     """Initialize the geometry from a mesh
-
-    #     Args:
-    #         geom_path (List(str)): paths to initial shape mesh
-    #         init_scale (float): Geometry scale factor
-    #     """
-    #     mesh = trimesh.load(geom_path[0])
-    #     mesh.vertices = mesh.vertices * init_scale
-    #     self.proxy_geometry = mesh
+        mesh = trimesh.load(geom_path[0])
+        mesh.vertices = mesh.vertices * init_scale
+        self.proxy_geometry = mesh
 
     def get_proxy_geometry(self):
         """Get proxy geometry

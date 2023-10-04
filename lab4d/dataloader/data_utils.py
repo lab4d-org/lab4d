@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
 import configparser
 import glob
+import os
 import random
 
 import numpy as np
@@ -327,12 +328,30 @@ def load_small_files(data_path_dict):
     #     [np.load(path).astype(np.float32) for path in data_path_dict["crop2raw"]], 0
     # )  # N,4
 
-    rtmat_bg = np.concatenate(
-        [np.load(path).astype(np.float32) for path in data_path_dict["cambg"]], 0
-    )  # N,4,4
-    rtmat_fg = np.concatenate(
-        [np.load(path).astype(np.float32) for path in data_path_dict["camfg"]], 0
-    )  # N,4,4
+    # bg/fg camera
+    rtmat_bg = []
+    for vid, path in enumerate(data_path_dict["cambg"]):
+        # get N
+        num_frames = np.load(data_path_dict["is_detected"][vid]).shape[0]
+        if os.path.exists(path):
+            rtmat_bg.append(np.load(path).astype(np.float32))
+        else:
+            rtmat_bg.append(np.eye(4)[None].repeat(num_frames, 0))
+            print("Warning: no bg camera found at %s" % path)
+    rtmat_bg = np.concatenate(rtmat_bg, 0)  # N,4,4
+
+    rtmat_fg = []
+    for vid, path in enumerate(data_path_dict["camfg"]):
+        # get N
+        num_frames = np.load(data_path_dict["is_detected"][vid]).shape[0]
+        if os.path.exists(path):
+            rtmat_fg.append(np.load(path).astype(np.float32))
+        else:
+            rtmat_fg.append(np.eye(4)[None].repeat(num_frames, 0))
+            print("Warning: no fg camera found at %s" % path)
+
+    rtmat_fg = np.concatenate(rtmat_fg, 0)
+
     # hard-code for now
     vis_info = {"bg": 0, "fg": 1}  # video instance segmentation info
     data_info["vis_info"] = vis_info

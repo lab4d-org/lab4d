@@ -76,8 +76,9 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1):
     if obj_class == "other":
         import json, pdb
 
-        cam_path = (
-            "database/processed/Cameras/Full-Resolution/%s/01-manual.json" % seqname
+        cam_path = "database/processed/Cameras/Full-Resolution/%s/%02d-manual.json" % (
+            seqname,
+            component_id,
         )
         with open(cam_path) as f:
             cams_canonical = json.load(f)
@@ -126,30 +127,31 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1):
     quat, trans = registration.optimize()
     cams_pred = quaternion_translation_to_se3(quat, trans).cpu().numpy()
 
-    # fixed depth
-    cams_pred[:, :2, 3] = 0
-    cams_pred[:, 2, 3] = 3
+    if component_id == 1:
+        # fixed depth
+        cams_pred[:, :2, 3] = 0
+        cams_pred[:, 2, 3] = 3
 
-    # compute initial camera trans with 2d bbox
-    # depth = focal * sqrt(surface_area / bbox_area) = focal / bbox_size
-    # xytrn = depth * (pxy - crop_size/2) / focal
-    # surface_area = 1
-    for it, imgpath in enumerate(imglist):
-        bbox = get_bbox(imgpath, component_id=component_id)
-        if bbox is None:
-            continue
-        shape = cv2.imread(imgpath).shape[:2]
+        # compute initial camera trans with 2d bbox
+        # depth = focal * sqrt(surface_area / bbox_area) = focal / bbox_size
+        # xytrn = depth * (pxy - crop_size/2) / focal
+        # surface_area = 1
+        for it, imgpath in enumerate(imglist):
+            bbox = get_bbox(imgpath, component_id=component_id)
+            if bbox is None:
+                continue
+            shape = cv2.imread(imgpath).shape[:2]
 
-        focal = max(shape)
-        depth = focal / np.sqrt(bbox[2] * bbox[3])
-        depth = min(depth, 10)  # depth might be too large for mis-detected frames
+            focal = max(shape)
+            depth = focal / np.sqrt(bbox[2] * bbox[3])
+            depth = min(depth, 10)  # depth might be too large for mis-detected frames
 
-        center_bbox = bbox[:2] + bbox[2:] / 2
-        center_img = np.array(shape[::-1]) / 2
-        xytrn = depth * (center_bbox - center_img) / focal
+            center_bbox = bbox[:2] + bbox[2:] / 2
+            center_img = np.array(shape[::-1]) / 2
+            xytrn = depth * (center_bbox - center_img) / focal
 
-        cams_pred[it, 2, 3] = depth
-        cams_pred[it, :2, 3] = xytrn
+            cams_pred[it, 2, 3] = depth
+            cams_pred[it, :2, 3] = xytrn
 
     np.save("%s/%02d-canonical.npy" % (save_path, component_id), cams_pred)
     draw_cams(cams_pred, rgbpath_list=imglist).export(

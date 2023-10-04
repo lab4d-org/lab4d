@@ -700,10 +700,15 @@ class dvr_model(nn.Module):
                 raise ("loss %s not defined" % k)
 
         # mask out the following losses if obj is not detected
-        keys_mask_not_detected = ["mask", "feature", "feat_reproj"]
+        keys_mask_not_detected = ["feature", "feat_reproj"]
+        is_detected = batch["is_detected"].float()[:, None, None]
         for k, v in loss_dict.items():
             if k in keys_mask_not_detected:
-                loss_dict[k] = v * batch["is_detected"].float()[:, None, None]
+                loss_dict[k] = v * is_detected
+
+        # remove mask loss for frames without detection
+        if config["field_type"] == "fg" or config["field_type"] == "comp":
+            loss_dict["mask"] = loss_dict["mask"] * is_detected
 
     @staticmethod
     def apply_loss_weights(loss_dict, config, motion_scale):

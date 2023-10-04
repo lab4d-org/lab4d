@@ -10,7 +10,7 @@ class TrainModelConfig:
     # weights of reconstruction terms
     flags.DEFINE_float("mask_wt", 0.1, "weight for silhouette loss")
     flags.DEFINE_float("rgb_wt", 0.1, "weight for color loss")
-    flags.DEFINE_float("depth_wt", 5e-3, "weight for depth loss")
+    flags.DEFINE_float("depth_wt", 1e-3, "weight for depth loss")
     flags.DEFINE_float("normal_wt", 0.0, "weight for normal loss")
     flags.DEFINE_float("flow_wt", 0.01, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
