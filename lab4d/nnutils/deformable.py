@@ -86,6 +86,15 @@ class Deformable(FeatureNeRF):
         self.warp = create_warp(fg_motion, data_info)
         self.fg_motion = fg_motion
 
+    def update_aabb(self, beta=0.5):
+        """Update axis-aligned bounding box by interpolating with the current
+        proxy geometry's bounds
+
+        Args:
+            beta (float): Interpolation factor between previous/current values
+        """
+        super().update_aabb(beta=beta)
+
     def init_proxy(self, geom_path, init_scale):
         """Initialize proxy geometry as a sphere
 

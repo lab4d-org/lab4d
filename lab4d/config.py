@@ -10,7 +10,7 @@ class TrainModelConfig:
     # weights of reconstruction terms
     flags.DEFINE_float("mask_wt", 0.1, "weight for silhouette loss")
     flags.DEFINE_float("rgb_wt", 0.1, "weight for color loss")
-    flags.DEFINE_float("depth_wt", 1e-3, "weight for depth loss")
+    flags.DEFINE_float("depth_wt", 0.0, "weight for depth loss")
     flags.DEFINE_float("normal_wt", 0.0, "weight for normal loss")
     flags.DEFINE_float("flow_wt", 0.01, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
@@ -24,11 +24,13 @@ class TrainModelConfig:
     flags.DEFINE_float("reg_eikonal_wt", 0.1, "weight for eikonal regularization")
     flags.DEFINE_float("reg_eikonal_scale_max", 1, "max scaling for eikonal reg")
     flags.DEFINE_float(
-        "reg_deform_cyc_wt", 0.01, "weight for deform cyc regularization"
+        "reg_deform_cyc_wt", 0.05, "weight for deform cyc regularization"
     )
     flags.DEFINE_float("reg_delta_skin_wt", 5e-3, "weight for delta skinning reg")
     flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
-    flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
+    flags.DEFINE_float(
+        "reg_gauss_skin_wt", 0.001, "weight for gauss density loss in 3D"
+    )
     # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
     flags.DEFINE_float("reg_skel_prior_wt", 0.01, "weight for skeleton regularization")

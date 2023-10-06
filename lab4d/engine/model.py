@@ -215,6 +215,13 @@ class dvr_model(nn.Module):
         # type = "linear"
         # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
+        # # learn feature field before reproj error
+        # loss_name = "feat_reproj_wt"
+        # anchor_x = (200, 400)
+        # anchor_y = (0, 1)
+        # type = "linear"
+        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+
     def set_loss_weight(
         self, loss_name, anchor_x, anchor_y, current_steps, type="linear"
     ):
@@ -280,8 +287,10 @@ class dvr_model(nn.Module):
 
         # blend with mask: render = render * mask + 0*(1-mask)
         for k, v in rendered.items():
-            if "mask" in k or "xyz_matches" in k or "xyz_reproj" in k:
+            if "mask" in k:
                 continue
+            elif "xyz_matches" in k or "xyz_reproj" in k:
+                rendered[k] = rendered[k] * (rendered["mask_id-fg"] > 0.5).float()
             elif "xy_reproj" in k:
                 mask = batch["feature"][::div_factor].norm(2, -1, keepdim=True) > 0
                 res = rendered[k].shape[1]

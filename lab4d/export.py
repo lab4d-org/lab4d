@@ -41,6 +41,7 @@ class ExportMeshFlags:
     flags.DEFINE_float(
         "vis_thresh", 0.0, "visibility threshold to remove invisible pts, -inf to inf"
     )
+    flags.DEFINE_boolean("extend_aabb", False, "use extended aabb for meshing (for bg)")
 
 
 class MotionParamsExpl(NamedTuple):
@@ -204,7 +205,7 @@ def extract_motion_params(model, opts, data_info):
         level=opts["level"],
         inst_id=opts["inst_id"],
         vis_thresh=opts["vis_thresh"],
-        use_extend_aabb=False,
+        use_extend_aabb=opts["extend_aabb"],
     )
 
     if (

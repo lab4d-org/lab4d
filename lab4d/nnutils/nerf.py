@@ -33,7 +33,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
-from lab4d.utils.torch_utils import compute_gradient, flip_pair
+from lab4d.utils.torch_utils import compute_gradient, flip_pair, compute_gradients_sdf
 from lab4d.utils.vis_utils import append_xz_plane
 
 
@@ -383,7 +383,7 @@ class NeRF(nn.Module):
         aabb = self.get_aabb()[0]
         return (aabb[1] - aabb[0]).mean()
 
-    def update_aabb(self, beta=0.5):
+    def update_aabb(self, beta=0.9):
         """Update axis-aligned bounding box by interpolating with the current
         proxy geometry's bounds
 
@@ -489,15 +489,16 @@ class NeRF(nn.Module):
             rand_inds = Ellipsis
 
         xyz = xyz.detach()
-        # fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
+        fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
+        g = compute_gradients_sdf(fn_sdf, xyz, training=self.training)
         # g = compute_gradient(fn_sdf, xyz)[..., 0]
 
-        def fn_sdf(x):
-            sdf, _ = self.forward(x, inst_id=inst_id)
-            sdf_sum = sdf.sum()
-            return sdf_sum
+        # def fn_sdf(x):
+        #     sdf, _ = self.forward(x, inst_id=inst_id)
+        #     sdf_sum = sdf.sum()
+        #     return sdf_sum
 
-        g = jacobian(fn_sdf, xyz, create_graph=True, strict=True)
+        # g = jacobian(fn_sdf, xyz, create_graph=True, strict=True)
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
@@ -547,7 +548,8 @@ class NeRF(nn.Module):
             sdf, _ = self.forward(xyz, inst_id=inst_id)
             return sdf
 
-        g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
+        # g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
+        g = compute_gradients_sdf(fn_sdf, xyz_cam, training=self.training)
 
         eikonal = (g.norm(2, dim=-1, keepdim=True) - 1) ** 2
         normal = g  # self.grad_to_normal(g)

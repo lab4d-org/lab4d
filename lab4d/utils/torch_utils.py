@@ -31,6 +31,37 @@ def flip_pair(tensor):
         return {k: flip_pair(v) for k, v in tensor.items()}
 
 
+def compute_gradients_sdf(fn, x, training=False, sdf=None, mode="numerical", eps=1e-3):
+    """
+    Taken from https://github.com/nvlabs/neuralangelo
+    """
+    x = x.detach()
+    if mode == "analytical":
+        requires_grad = x.requires_grad
+        with torch.enable_grad():
+            # 1st-order gradient
+            x.requires_grad_(True)
+            sdf = fn(x)
+            gradient = torch.autograd.grad(sdf.sum(), x, create_graph=True)[0]
+            # 2nd-order gradient (hessian)
+            if training:
+                pass
+            else:
+                gradient = gradient.detach()
+        x.requires_grad_(requires_grad)
+    elif mode == "numerical":
+        k1 = torch.tensor([1, -1, -1], dtype=x.dtype, device=x.device)  # [3]
+        k2 = torch.tensor([-1, -1, 1], dtype=x.dtype, device=x.device)  # [3]
+        k3 = torch.tensor([-1, 1, -1], dtype=x.dtype, device=x.device)  # [3]
+        k4 = torch.tensor([1, 1, 1], dtype=x.dtype, device=x.device)  # [3]
+        sdf1 = fn(x + k1 * eps)  # [...,1]
+        sdf2 = fn(x + k2 * eps)  # [...,1]
+        sdf3 = fn(x + k3 * eps)  # [...,1]
+        sdf4 = fn(x + k4 * eps)  # [...,1]
+        gradient = (k1 * sdf1 + k2 * sdf2 + k3 * sdf3 + k4 * sdf4) / (4.0 * eps)
+    return gradient
+
+
 @torch.enable_grad()
 def compute_gradient(fn, x):
     """
