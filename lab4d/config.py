@@ -28,9 +28,7 @@ class TrainModelConfig:
     )
     flags.DEFINE_float("reg_delta_skin_wt", 5e-3, "weight for delta skinning reg")
     flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
-    flags.DEFINE_float(
-        "reg_gauss_skin_wt", 0.001, "weight for gauss density loss in 3D"
-    )
+    flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
     # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
     flags.DEFINE_float("reg_skel_prior_wt", 0.01, "weight for skeleton regularization")
@@ -70,7 +68,7 @@ class TrainOptConfig:
     flags.DEFINE_integer("pixels_per_image", 16, "pixel samples per image")
     # flags.DEFINE_integer("imgs_per_gpu", 1, "size of minibatches per iter")
     # flags.DEFINE_integer("pixels_per_image", 4096, "number of pixel samples per image")
-    flags.DEFINE_boolean("use_freq_anneal", False, "whether to use frequency annealing")
+    flags.DEFINE_boolean("use_freq_anneal", True, "whether to use frequency annealing")
     flags.DEFINE_boolean(
         "reset_steps",
         True,

@@ -208,12 +208,12 @@ class dvr_model(nn.Module):
         type = "log"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
-        # # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
-        # loss_name = "reg_gauss_skin_wt"
-        # anchor_x = (0, 1000)
-        # anchor_y = (1, 0)
-        # type = "linear"
-        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
+        loss_name = "reg_gauss_skin_wt"
+        anchor_x = (1000, 2000)
+        anchor_y = (0.05, 1)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # # learn feature field before reproj error
         # loss_name = "feat_reproj_wt"

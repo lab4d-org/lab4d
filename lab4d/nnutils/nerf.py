@@ -192,10 +192,9 @@ class NeRF(nn.Module):
             assert frame_id.ndim == 1
         if inst_id is not None:
             assert inst_id.ndim == 1
-        xyz_embed = self.pos_embedding(xyz)
-        xyz_feat = self.basefield(xyz_embed, inst_id)
 
-        sdf = self.sdf(xyz_feat)  # negative inside, positive outside
+        sdf, xyz_feat = self.forward_sdf(xyz, inst_id=inst_id)
+
         ibeta = self.logibeta.exp()
         # density = torch.sigmoid(-sdf * ibeta) * ibeta  # neus
         density = (
@@ -222,6 +221,22 @@ class NeRF(nn.Module):
                 rgb = rgb.sigmoid()
             out = (rgb,) + out
         return out
+
+    def forward_sdf(self, xyz, inst_id=None):
+        """Forward pass for signed distance function
+        Args:
+            xyz: (M,N,D,3) Points along ray in object canonical space
+            inst_id: (M,) Instance id. If None, render for the average instance
+
+        Returns:
+            sdf: (M,N,D,1) Signed distance (negative inside)
+            xyz_feat: (M,N,D,W) Features from the xyz encoder
+        """
+        xyz_embed = self.pos_embedding(xyz)
+        xyz_feat = self.basefield(xyz_embed, inst_id)
+
+        sdf = self.sdf(xyz_feat)  # negative inside, positive outside
+        return sdf, xyz_feat
 
     def get_init_sdf_fn(self):
         """Initialize signed distance function from mesh geometry
@@ -418,21 +433,23 @@ class NeRF(nn.Module):
                 frame_mapping
             ] * beta + near_far * (1 - beta)
 
-    def sample_points_aabb(self, nsample, extend_factor=1.0):
+    def sample_points_aabb(self, nsample, extend_factor=1.0, aabb=None):
         """Sample points within axis-aligned bounding box
 
         Args:
             nsample (int): Number of samples
             extend_factor (float): Extend aabb along each side by factor of
                 the previous size
+            aabb: (2,3) Axis-aligned bounding box to sample from, optional
         Returns:
             pts: (nsample, 3) Sampled points
         """
         device = next(self.parameters()).device
         frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
         inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
-        aabb = self.get_aabb(inst_id=inst_id)
-        aabb = extend_aabb(aabb, factor=extend_factor)
+        if aabb is None:
+            aabb = self.get_aabb(inst_id=inst_id)
+            aabb = extend_aabb(aabb, factor=extend_factor)
         pts = (
             torch.rand(nsample, 3, dtype=torch.float32, device=device)
             * (aabb[..., 1, :] - aabb[..., 0, :])
@@ -972,6 +989,25 @@ class NeRF(nn.Module):
                 tmpv[valid_idx] = v.view(-1, v.shape[-1])
                 field_dict[k] = tmpv
         return field_dict
+
+    def wipe_loss(self, nsample=512):
+        # density drop out, to enforce motion to explain the missing density
+        # get aabb
+        ratio = 4
+        aabb = self.get_aabb()
+        # select a random box from aabb with 1/ratio size
+        aabb_size = aabb[..., 1, :] - aabb[..., 0, :]
+        aabb_size_sub = aabb_size / ratio
+        aabb_sub_min = aabb[..., 0, :] + torch.rand_like(aabb_size) * (
+            aabb_size - aabb_size_sub
+        )
+        aabb_sub_max = aabb_sub_min + aabb_size_sub
+        aabb_sub = torch.stack([aabb_sub_min, aabb_sub_max], -2)
+        pts, frame_id, inst_id = self.sample_points_aabb(nsample, aabb=aabb_sub)
+        # check whether the point is inside the aabb
+        sdf, _ = self.forward(pts, frame_id=frame_id, inst_id=inst_id)
+        wipe_loss = (-sdf).exp().mean()
+        return wipe_loss
 
     @staticmethod
     def cam_to_field(xyz_cam, dir_cam, field2cam):

@@ -255,6 +255,17 @@ class TimeEmbedding(nn.Module):
         return t_embed
 
 
+class TimeEmbeddingRest(TimeEmbedding):
+    """Time embedding with a rest embedding"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rest_embedding = nn.Parameter(torch.zeros(1, self.out_channels))
+
+    def get_mean_embedding(self, device):
+        return self.rest_embedding
+
+
 class InstEmbedding(nn.Module):
     """A learnable embedding per object instance
 
