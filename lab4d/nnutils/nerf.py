@@ -1191,7 +1191,7 @@ class NeRF(nn.Module):
         field2cam = quaternion_translation_to_se3(quat, trans)
         return field2cam
 
-    def compute_field2world(self, up_direction=[0, 1, 0]):
+    def compute_field2world(self, up_direction=[0, -1, 0]):
         """Compute SE(3) to transform points in the scene space to world space
         For background, this is computed by detecting planes with ransac.
 

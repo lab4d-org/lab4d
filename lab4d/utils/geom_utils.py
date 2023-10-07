@@ -626,19 +626,21 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
     hypos = []
     n_hypo = 5
     for _ in range(n_hypo):
+        if len(pcd.points) < 3:
+            break
         best_eq, index = pcd.segment_plane(threshold, init_n, iter)
+        # visibile plane given z direction
+        if best_eq[2] > 0:
+            best_eq = -1 * best_eq
+
         segmented_pts = pcd.select_by_index(index)
         pts_left = np.asarray(pcd.points)[~np.isin(np.arange(len(pcd.points)), index)]
         pcd.points = o3d.utility.Vector3dVector(pts_left)
         # print("segmented plane pts: ", len(segmented_pts.points) / len(mesh.vertices))
-        score = abs(np.asarray(up_direction).dot(best_eq[:3]))
+        score = np.asarray(up_direction).dot(best_eq[:3])
         hypos.append((best_eq, segmented_pts, score))
     # find the one with best score
     best_eq, segmented_pts, score = sorted(hypos, key=lambda x: x[-1])[-1]
-
-    # point upside
-    if best_eq[1] < 0:
-        best_eq = -1 * best_eq
 
     # get se3
     plane_n = np.asarray(best_eq[:3])
@@ -648,7 +650,7 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
     plane = np.concatenate([plane_o, plane_n])
 
     # xz plane
-    bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, 1, 0])
+    bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, -1, 0])
 
     # # DEBUG only
     # mesh.export("tmp/raw.obj")
