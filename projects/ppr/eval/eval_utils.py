@@ -55,7 +55,6 @@ def ama_eval(
     pred_mesh_dict,
     gt_mesh_dict,
     verbose=False,
-    correct_tra=False,
     device="cuda",
     shape_scale=1,
 ):
@@ -68,7 +67,6 @@ def ama_eval(
         vidid [int]: Video identifier (e.g. 1)
         verbose [bool]: Whether to print eval metrics
         render_vid [str]: If provided, output an error video to this path
-        correct_tra [bool]: If True, use ground-truth translations to evaluate
 
     Returns:
         cd_avg [float]: Chamfer distance (cm), averaged across all frames
@@ -86,11 +84,11 @@ def ama_eval(
     all_verts_gt = torch.tensor(all_verts_gt, device=device, dtype=torch.float32)
 
     # visualize_trajectory(all_verts_pred, "pred")
-    # global se3 alignment
+    # global sim3 alignment, translation, rotation, scale
     all_verts_pred = align_seqs(
         all_verts_pred[:, None],
         all_verts_gt[:, None],
-        correct_tra=correct_tra,
+        align_se3=True,
         verbose=verbose,
     )
     all_verts_pred = [x[0] for x in all_verts_pred]
@@ -136,6 +134,10 @@ def ama_eval(
         print(f"  Avg f-score at d=5cm:  {100 * f005_avg:.1f}%")
         print(f"  Avg f-score at d=2cm:  {100 * f002_avg:.1f}%")
 
+    # assign aligned vertices
+    for fidx in pred_mesh_dict.keys():
+        pred_mesh_dict[fidx].vertices = all_verts_pred[fidx].cpu().numpy()
+
     pred_cd_dict = deepcopy(pred_mesh_dict)
     gt_cd_dict = deepcopy(gt_mesh_dict)
     vis_err_max = 0.02  # 2cm
@@ -147,7 +149,15 @@ def ama_eval(
             gt_cd_list[idx].cpu().numpy() / vis_err_max
         )
 
-    return cd_avg, f010_avg, f005_avg, f002_avg, pred_cd_dict, gt_cd_dict
+    return (
+        cd_avg,
+        f010_avg,
+        f005_avg,
+        f002_avg,
+        pred_mesh_dict,
+        pred_cd_dict,
+        gt_cd_dict,
+    )
 
 
 def fscore(dist1, dist2, threshold=0.001):
@@ -346,7 +356,7 @@ def timeseries_iterative_closest_point(
     )
 
 
-def align_seqs(all_verts_pred, all_verts_gt, correct_tra=False, verbose=False):
+def align_seqs(all_verts_pred, all_verts_gt, align_se3=True, verbose=False):
     """Align predicted mesh sequence to the ground-truths
     Taken from DASR: https://github.com/jefftan969/dasr/blob/main/eval_utils.py#L86
 
@@ -354,7 +364,6 @@ def align_seqs(all_verts_pred, all_verts_gt, correct_tra=False, verbose=False):
     Args:
         all_verts_pred (List(bs, npts[t], 3)): Time-series of predicted mesh batches
         all_verts_gt (List(bs, npts[t], 3)): Time-series of ground-truth mesh batches
-        correct_tra (bool): If True, use ground-truth translations to evaluate
         verbose (bool): Whether to print ICP results
 
     Returns:
@@ -375,42 +384,37 @@ def align_seqs(all_verts_pred, all_verts_gt, correct_tra=False, verbose=False):
 
     out_verts_pred = [verts_pred * fitted_scale for verts_pred in all_verts_pred]
 
-    # Use ICP to align the first frame and fine-tune the scale estimate
-    # scale estimation with ICP is not reliable
-    frts0 = timeseries_iterative_closest_point(
-        out_verts_pred[:1],
-        all_verts_gt[:1],
-        estimate_scale=False,
-        max_iterations=100,
-        verbose=verbose,
-    )
-    R_icp0, T_icp0, s_icp0 = frts0.RTs  # 1, 3, 3  |  1, 3  |  1, 1
-
-    for i in range(nframes):
-        out_verts_pred[i] = _apply_similarity_transform(
-            out_verts_pred[i], R_icp0, T_icp0, s_icp0
+    if align_se3:
+        # Use ICP to align the first frame and fine-tune the scale estimate
+        # scale estimation with ICP is not reliable
+        frts0 = timeseries_iterative_closest_point(
+            out_verts_pred[:1],
+            all_verts_gt[:1],
+            estimate_scale=False,
+            max_iterations=100,
+            verbose=verbose,
         )
+        R_icp0, T_icp0, s_icp0 = frts0.RTs  # 1, 3, 3  |  1, 3  |  1, 1
 
-        if correct_tra:
-            # Optionally, replace predicted translations with ground-truth
-            center_pred = torch.mean(out_verts_pred[i], dim=1, keepdims=True)  # 1, 1, 3
-            center_gt = torch.mean(all_verts_gt[i], dim=1, keepdims=True)  # 1, 1, 3
-            out_verts_pred[i] += center_gt - center_pred
+        for i in range(nframes):
+            out_verts_pred[i] = _apply_similarity_transform(
+                out_verts_pred[i], R_icp0, T_icp0, s_icp0
+            )
 
-    # Run global ICP across the point cloud time-series
-    frts = timeseries_iterative_closest_point(
-        out_verts_pred,
-        all_verts_gt,
-        estimate_scale=True,
-        max_iterations=100,
-        verbose=verbose,
-    )
-    R_icp, T_icp, s_icp = frts.RTs  # 1, 3, 3  |  1, 3  |  1, 1
-
-    for i in range(nframes):
-        out_verts_pred[i] = _apply_similarity_transform(
-            out_verts_pred[i], R_icp, T_icp, s_icp
+        # Run global ICP across the point cloud time-series
+        frts = timeseries_iterative_closest_point(
+            out_verts_pred,
+            all_verts_gt,
+            estimate_scale=True,
+            max_iterations=100,
+            verbose=verbose,
         )
+        R_icp, T_icp, s_icp = frts.RTs  # 1, 3, 3  |  1, 3  |  1, 1
+
+        for i in range(nframes):
+            out_verts_pred[i] = _apply_similarity_transform(
+                out_verts_pred[i], R_icp, T_icp, s_icp
+            )
 
     return out_verts_pred
 

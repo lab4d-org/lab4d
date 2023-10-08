@@ -76,10 +76,10 @@ def main():
             extrinsics_bg = json.load(open("%s/bg/motion.json" % (args.testdir), "r"))
             extrinsics_bg = np.asarray(extrinsics_bg["field2cam"])
 
-        # align bg floor with xz plane
-        field2world_path = "%s/bg/field2world.json" % (args.testdir)
-        field2world = np.asarray(json.load(open(field2world_path, "r")))
-        world2field = np.linalg.inv(field2world)
+            # align bg floor with xz plane
+            field2world_path = "%s/bg/field2world.json" % (args.testdir)
+            field2world = np.asarray(json.load(open(field2world_path, "r")))
+            world2field = np.linalg.inv(field2world)
     else:
         pred_mesh_paths = glob.glob("%s*.obj" % (args.pred_prefix))
         pred_camera_paths = sorted(glob.glob("%s*.txt" % (args.pred_prefix)))
@@ -105,9 +105,15 @@ def main():
 
     # evaluate
     # ama_eval(all_verts_gt, all_verts_gt, verbose=True)
-    cd_avg, f010_avg, f005_avg, f002_avg, pred_cd_dict, gt_cd_dict = ama_eval(
-        pred_mesh_dict, gt_mesh_dict, verbose=True
-    )
+    (
+        cd_avg,
+        f010_avg,
+        f005_avg,
+        f002_avg,
+        pred_mesh_dict,
+        pred_cd_dict,
+        gt_cd_dict,
+    ) = ama_eval(pred_mesh_dict, gt_mesh_dict, verbose=True)
 
     # render
     renderer_gt = PyRenderWrapper(raw_size)
@@ -117,12 +123,8 @@ def main():
         world_to_cam_pred = extrinsics_bg[fidx] @ world2field
         mesh_obj = append_xz_plane(mesh_obj, Gmat_gt)
         gt_cd_dict[fidx] = append_xz_plane(gt_cd_dict[fidx], Gmat_gt)
-        pred_mesh_dict[fidx] = append_xz_plane(
-            pred_mesh_dict[fidx], world_to_cam_pred, gl=False
-        )
-        pred_cd_dict[fidx] = append_xz_plane(
-            pred_cd_dict[fidx], world_to_cam_pred, gl=False
-        )
+        pred_mesh_dict[fidx] = append_xz_plane(pred_mesh_dict[fidx], Gmat_gt)
+        pred_cd_dict[fidx] = append_xz_plane(pred_cd_dict[fidx], Gmat_gt)
         # pred_mesh_dict[fidx] = trimesh.util.concatenate(
         #     [pred_mesh_dict[fidx], pred_mesh_dict_bg[fidx]]
         # )
