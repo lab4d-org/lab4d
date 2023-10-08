@@ -77,6 +77,7 @@ class TrainOptConfig:
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
     flags.DEFINE_boolean("alter_flow", False, "alternatve between flow and all terms")
     flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")
+    flags.DEFINE_boolean("absorb_base", True, "whether to absorb se3 into base")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

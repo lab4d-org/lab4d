@@ -436,9 +436,9 @@ def visualize_trajectory(all_verts, tag):
     trimesh.util.concatenate(meshes_concat).export("tmp/%s.obj" % tag)
 
 
-def append_xz_plane(mesh, world_to_cam, gl=True):
+def append_xz_plane(mesh, world_to_cam, scale=5, gl=True):
     mesh.visual.vertex_colors = mesh.visual.vertex_colors  # visual.kind = 'vertex'
-    scale = np.abs(mesh.vertices).max() * 2
-    plane = create_floor_mesh(scale, gl=gl)
+    # scale = np.abs(mesh.vertices).max() * 2
+    plane = create_floor_mesh(scale=scale, gl=gl)
     plane.apply_transform(world_to_cam)
     return trimesh.util.concatenate([mesh, plane])

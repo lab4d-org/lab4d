@@ -16,7 +16,6 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.utils.io import save_vid
 from lab4d.utils.mesh_render_utils import PyRenderWrapper
-from lab4d.utils.geom_utils import compute_rectification_se3
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
@@ -24,6 +23,7 @@ parser.add_argument("--fps", default=30, type=int, help="fps of the video")
 parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
 parser.add_argument("--ghosting", action="store_true", help="ghosting")
+parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
 args = parser.parse_args()
 
 
@@ -58,8 +58,8 @@ def main():
     else:
         compose_mode = "primary"
     print(
-        "[mode=%s+%s] rendering %d meshes to %s"
-        % (mode, compose_mode, len(path_list), args.testdir)
+        "[mode=%s, compose=%s, view=%s] rendering %d meshes to %s"
+        % (mode, compose_mode, args.view, len(path_list), args.testdir)
     )
 
     # get cam dict
@@ -73,6 +73,8 @@ def main():
     extr_dict = {}
     bone_dict = {}
     scene_dict = {}
+    aabb_min = np.asarray([np.inf, np.inf])
+    aabb_max = np.asarray([-np.inf, -np.inf])
     for counter, mesh_path in enumerate(path_list):
         frame_idx = int(mesh_path.split("/")[-1].split(".")[0])
         mesh = trimesh.load(mesh_path, process=False)
@@ -132,6 +134,14 @@ def main():
                 else:
                     ghost_dict = {frame_idx: [mesh.copy() for mesh in ghost_list]}
 
+        # update aabb # x,z coords
+        if compose_mode == "compose":
+            bounds = scene_dict[frame_idx].bounds
+        else:
+            bounds = mesh_dict[frame_idx].bounds
+        aabb_min = np.minimum(aabb_min, bounds[0, [0, 2]])
+        aabb_max = np.maximum(aabb_max, bounds[1, [0, 2]])
+
     # render
     renderer = PyRenderWrapper(raw_size)
     frames = []
@@ -149,20 +159,27 @@ def main():
             # set camera intrinsics
             renderer.set_intrinsics(intrinsics[frame_idx])
         else:
-            # set camera extrinsics
-            renderer.set_camera(extr_dict[frame_idx])
-            # set camera intrinsics
-            renderer.set_intrinsics(intrinsics[frame_idx])
-
-            # # bev
-            # renderer.set_camera_bev(8)
-
-            # # frontal view
-            # renderer.set_camera_frontal(25, delta=np.pi / 2)
-            # # set camera intrinsics
-            # fl = max(raw_size)
-            # intr = np.asarray([fl * 4, fl * 4, raw_size[1] / 2, raw_size[0] / 4 * 3])
-            # renderer.set_intrinsics(intr)
+            if args.view == "ref":
+                # set camera extrinsics
+                renderer.set_camera(extr_dict[frame_idx])
+                # set camera intrinsics
+                renderer.set_intrinsics(intrinsics[frame_idx])
+            elif args.view == "bev":
+                # bev
+                renderer.set_camera_bev(depth=max(aabb_max - aabb_min))
+                # set camera intrinsics
+                fl = max(raw_size)
+                intr = np.asarray([fl * 2, fl * 2, raw_size[1] / 2, raw_size[0] / 2])
+                renderer.set_intrinsics(intr)
+            elif args.view == "front":
+                # frontal view
+                renderer.set_camera_frontal(25, delta=0.0)
+                # set camera intrinsics
+                fl = max(raw_size)
+                intr = np.asarray(
+                    [fl * 4, fl * 4, raw_size[1] / 2, raw_size[0] / 4 * 3]
+                )
+                renderer.set_intrinsics(intr)
         if args.ghosting:
             input_dict["ghost"] = ghost_dict[frame_idx]
         renderer.align_light_to_camera()
@@ -181,14 +198,15 @@ def main():
         )
         frames.append(color)
 
+    save_path = "%s/render-%s-%s-%s" % (args.testdir, mode, compose_mode, args.view)
     save_vid(
-        "%s/render" % args.testdir,
+        save_path,
         frames,
         suffix=".mp4",
         upsample_frame=-1,
         fps=args.fps,
     )
-    print("saved to %s/render.mp4" % args.testdir)
+    print("saved to %s.mp4" % save_path)
 
 
 if __name__ == "__main__":

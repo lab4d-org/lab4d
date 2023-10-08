@@ -578,10 +578,10 @@ class dvr_model(nn.Module):
             loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] *= mask_balance_wt
         elif config["field_type"] == "comp":
-            loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
-            loss_dict["mask"] *= mask_balance_wt
-            loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
-            # loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
+            # loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
+            # loss_dict["mask"] *= mask_balance_wt
+            # loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
+            loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
         else:
             raise ("field_type %s not supported" % config["field_type"])
 

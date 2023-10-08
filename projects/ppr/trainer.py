@@ -90,6 +90,40 @@ class PPRTrainer(Trainer):
             )
             mesh.export("%s/floor_%02d.obj" % (self.save_dir, vidid))
 
+        # after loading the ckeckpoints
+        self.floor_fitting()
+        self.init_phys_coupling()
+
+    def floor_fitting(self):
+        """
+        fit floor to the background reconstruction
+        """
+        self.model.fields.field_params["bg"].compute_field2world()
+        if get_local_rank() == 0:
+            for vidid in self.opts["phys_vid"]:
+                mesh = self.model.fields.field_params["bg"].visualize_floor_mesh(
+                    vidid, to_world=True
+                )
+                mesh.export("%s/floor_%02d.obj" % (self.save_dir, vidid))
+
+    def init_phys_coupling(self):
+        """
+        initialize scale lowest point fitting
+        """
+        # initialize control input of phys model to kinematics
+        self.phys_model.override_control_ref_states()
+        self.phys_model.override_distilled_states()
+
+        # reset scale to avoid initial penetration
+        frame_offset_raw = self.phys_model.frame_offset_raw
+        vid_frames = []
+        for vidid in self.opts["phys_vid"]:
+            vid_frame = range(frame_offset_raw[vidid], frame_offset_raw[vidid + 1])
+            vid_frames += vid_frame
+        self.phys_model.correct_scale(vid_frames)
+        if get_local_rank() == 0:
+            self.run_phys_visualization(tag="kinematics")
+
     def trainer_init(self):
         super().trainer_init()
 
@@ -177,40 +211,40 @@ class PPRTrainer(Trainer):
                 "module.fields.field_params.bg.sdf.": 0.0,
                 # "module.fields.field_params.bg.rgb.": 0.0,
                 "module.fields.field_params.bg.vis_mlp.": 0.0,
+                "module.fields.field_params.fg.warp.articulation.logscale": 0.0,
                 "module.fields.field_params.fg.warp.articulation.log_bone_len": 0.0,
                 "module.fields.field_params.bg.camera_mlp.": 0.0,
             }
         )
+        del param_lr_with[".logscale"]  # do not update scale of the urdf
         return param_lr_startwith, param_lr_with
 
     def run_one_round(self):
-        if self.current_round == self.first_round:
-            # initialize control input of phys model to kinematics
-            self.phys_model.override_control_ref_states()
-            self.phys_model.override_distilled_states()
-
-            # reset scale to avoid initial penetration
-            frame_offset_raw = self.phys_model.frame_offset_raw
-            vid_frames = []
-            for vidid in self.opts["phys_vid"]:
-                vid_frame = range(frame_offset_raw[vidid], frame_offset_raw[vidid + 1])
-                vid_frames += vid_frame
-            self.phys_model.correct_foot_position(vid_frames)
-            if get_local_rank() == 0:
-                self.run_phys_visualization(tag="kinematics")
-
         # run dr cycle
         super().run_one_round()
+        if self.opts["ratio_phys_cycle"] > 0:
+            self.run_one_round_phys()
+
+    def run_one_round_phys(self):
+        # determine wdw size
+        secs_per_wdw = self.opts["secs_per_wdw"]
+        # # schedule: 0-end, 0.2-2s
+        # progress = self.current_steps_phys / self.phys_model.total_iters
+        # secs_per_wdw = (1 - progress) * 0.5 + progress * 2
+
+        # warmup phys
+        if self.current_round_phys == 0 and self.opts["warmup_iters"] > 0:
+            self.run_phys_cycle(secs_per_wdw, num_iters=self.opts["warmup_iters"])
 
         # run physics cycle
         if self.phys_model.copy_weights:
             # transfer dvr kinematics to phys
             self.phys_model.override_distilled_states()
-        self.run_phys_cycle()
-        if self.phys_model.copy_weights:
+            self.run_phys_cycle(secs_per_wdw)
             # transfer phys-optimized kinematics to dvr
             self.phys_model.override_states_inv()
         else:
+            self.run_phys_cycle(secs_per_wdw)
             # transfer phys-optimized kinematics to dvr as soft constriaints
             self.model.copy_phys_traj(self.phys_model)
         self.current_round_phys += 1
@@ -231,19 +265,14 @@ class PPRTrainer(Trainer):
             overwrite=False,
         )
 
-    def run_phys_cycle(self):
+    def run_phys_cycle(self, secs_per_wdw, num_iters=0):
         opts = self.opts
         gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
 
-        # train
-        secs_per_wdw = opts["secs_per_wdw"]
-        # # schedule: 0-end, 0.2-2s
-        # progress = self.current_steps_phys / self.phys_model.total_iters
-        # secs_per_wdw = (1 - progress) * 0.5 + progress * 2
-
         self.init_phys_env_train(secs_per_wdw)
-        for i in tqdm.tqdm(range(self.iters_per_phys_cycle)):
+        num_iters = self.iters_per_phys_cycle if num_iters == 0 else num_iters
+        for i in tqdm.tqdm(range(num_iters)):
             self.phys_model.set_progress(self.current_steps_phys)
             self.run_phys_iter()
             self.current_steps_phys += 1
@@ -274,6 +303,7 @@ class PPRTrainer(Trainer):
                 "%s-%02d-%05d" % (tag, vidid, self.current_steps_phys),
                 data,
                 fps=1.0 / self.phys_model.frame_interval,
+                view_mode="front",
             )
 
     @staticmethod

@@ -38,7 +38,10 @@ def simulate(opts):
 
     # reset scale to avoid initial penetration
     data = PPRTrainer.simulate(phys_model, data_info, opts["inst_id"])
-    phys_visualizer.show("simulated", data, fps=1.0 / phys_model.frame_interval)
+    fps = 1.0 / phys_model.frame_interval
+    phys_visualizer.show("simulated_ref", data, fps=fps, view_mode="ref")
+    phys_visualizer.show("simulated_bev", data, fps=fps, view_mode="bev")
+    phys_visualizer.show("simulated_front", data, fps=fps, view_mode="front")
     print("Results saved to %s" % (save_dir))
     return
 

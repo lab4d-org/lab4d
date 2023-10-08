@@ -194,14 +194,17 @@ class Trainer:
         )
         # initial_lr = lr/div_factor
         # min_lr = initial_lr/final_div_factor
-        if is_resumed:
+        # if is_resumed:
+        if False:
             div_factor = 1.0
-            final_div_factor = 5.0
+            final_div_factor = 25.0
             pct_start = 0.0  # cannot be 0
         else:
             div_factor = 25.0
             final_div_factor = 1.0
-            pct_start = 2.0 / opts["num_rounds"]  # use 2 epochs to warm up
+            pct_start = min(
+                1 - 1e-5, 2.0 / opts["num_rounds"]
+            )  # use 2 epochs to warm up
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
             lr_list,
@@ -282,7 +285,10 @@ class Trainer:
 
         self.model.update_geometry_aux()
         self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
-        if self.current_round > self.opts["num_rounds_cam_init"]:
+        if (
+            self.current_round > self.opts["num_rounds_cam_init"]
+            and self.opts["absorb_base"]
+        ):
             self.model.update_camera_aux()
 
         self.model.train()

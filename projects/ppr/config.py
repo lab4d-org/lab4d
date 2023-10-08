@@ -17,6 +17,7 @@ class PPRConfig:
         "phys_vid", "0", "whether to optimize selected videos, e.g., 0,1,2"
     )
     flags.DEFINE_integer("phys_vis_interval", 100, "visualization interval")
+    flags.DEFINE_integer("warmup_iters", 0, "warmup iterations, only >0 for DR+DP")
     flags.DEFINE_float("phys_learning_rate", 5e-4, "learning rate")
 
     # weights
