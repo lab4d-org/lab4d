@@ -113,19 +113,13 @@ class PyRenderWrapper:
             mesh_pyrender = Mesh.from_trimesh(input_dict["bone"], smooth=False)
             mesh_pyrender.primitives[0].material = self.material
             scene.add_node(Node(mesh=mesh_pyrender))
-
-            # make shape transparent and gray
-            input_dict["shape"].visual.vertex_colors[:3] = 102
-            input_dict["shape"].visual.vertex_colors[3:] = 192
         # else:
         #     # make shape gray
         #     input_dict["shape"].visual.vertex_colors[:, :3] = 102
 
         if "scene" in input_dict:
             # add scene
-            scene_mesh = input_dict["scene"]
-            scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
-            mesh_pyrender = Mesh.from_trimesh(scene_mesh, smooth=False)
+            mesh_pyrender = Mesh.from_trimesh(input_dict["scene"], smooth=False)
             mesh_pyrender.primitives[0].material = self.material
             scene.add_node(Node(mesh=mesh_pyrender))
 
@@ -134,8 +128,7 @@ class PyRenderWrapper:
         mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))
         if "ghost" in input_dict:
-            mesh_shape = trimesh.util.concatenate(input_dict["ghost"])
-            mesh_pyrender = Mesh.from_trimesh(mesh_shape, smooth=False)
+            mesh_pyrender = Mesh.from_trimesh(input_dict["ghost"], smooth=False)
             mesh_pyrender.primitives[0].material = self.material
             scene.add_node(Node(mesh=mesh_pyrender))
 

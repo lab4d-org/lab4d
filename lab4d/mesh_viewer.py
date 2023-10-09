@@ -1,18 +1,35 @@
 """modified from https://github.com/nerfstudio-project/viser/blob/main/examples/07_record3d_visualizer.py
+python lab4d/mesh_viewer.py --testdir logdir//ama-bouncing-4v-ppr-exp/export_0000/
 """
 
+import os, sys
 import time
 from pathlib import Path
 from typing import List
+import argparse
 
 import numpy as np
-import trimesh
 import tyro
 from tqdm.auto import tqdm
 
 import viser
 import viser.extras
 import viser.transforms as tf
+
+cwd = os.getcwd()
+if cwd not in sys.path:
+    sys.path.insert(0, cwd)
+from lab4d.utils.mesh_loader import MeshLoader
+
+
+parser = argparse.ArgumentParser(description="script to render extraced meshes")
+parser.add_argument("--testdir", default="", help="path to the directory with results")
+parser.add_argument("--fps", default=30, type=int, help="fps of the video")
+parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
+parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
+parser.add_argument("--ghosting", action="store_true", help="ghosting")
+parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
+args = parser.parse_args()
 
 
 def main(
@@ -21,11 +38,12 @@ def main(
     server = viser.ViserServer(share=share)
 
     print("Loading frames!")
-    mesh_path = "logdir/cat-pikachu-0-ppr-rand-aggre/export_0000/fg/mesh"
-    mesh_list = [trimesh.load(path) for path in Path(mesh_path).glob("*.obj")][:10]
-    num_frames = len(mesh_list)
-    assert num_frames > 0
-    fps = 10
+    loader = MeshLoader(args.testdir, args.mode, args.compose_mode)
+    loader.print_info()
+    loader.load_files(ghosting=args.ghosting)
+
+    num_frames = len(loader)
+    fps = args.fps
 
     # Add playback UI.
     with server.add_gui_folder("Playback"):
@@ -88,16 +106,17 @@ def main(
         show_axes=True,
     )
     frame_nodes: List[viser.FrameHandle] = []
+    input_dict = loader.query_frame(0)
+    if "scene" in input_dict:
+        server.add_mesh_trimesh(name=f"/frames/scene", mesh=input_dict["scene"])
     for i in tqdm(range(num_frames)):
-        mesh = mesh_list[i]
-
         # Add base frame.
         frame_nodes.append(server.add_frame(f"/frames/t{i}", show_axes=False))
 
-        server.add_mesh_trimesh(
-            name=f"/frames/t{i}/mesh",
-            mesh=mesh,
-        )
+        input_dict = loader.query_frame(i)
+        server.add_mesh_trimesh(name=f"/frames/t{i}/shape", mesh=input_dict["shape"])
+        if "bone" in input_dict:
+            server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
 
         # # Place the frustum.
         # fov = 2 * onp.arctan2(frame.rgb.shape[0] / 2, frame.K[0, 0])
@@ -133,4 +152,5 @@ def main(
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    # tyro.cli(main)
+    main()

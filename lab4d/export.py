@@ -208,6 +208,21 @@ def extract_motion_params(model, opts, data_info):
         use_extend_aabb=opts["extend_aabb"],
     )
 
+    # get deformation
+    motion_tuples = {}
+    for cate, field in model.fields.field_params.items():
+        meshes_rest[cate], motion_tuples[cate] = extract_deformation(
+            field, meshes_rest[cate], opts["inst_id"]
+        )
+
+    # scale
+    if "bg" in model.fields.field_params.keys():
+        bg_field = model.fields.field_params["bg"]
+        bg_scale = bg_field.logscale.exp().cpu().numpy()
+    if "fg" in model.fields.field_params.keys():
+        fg_field = model.fields.field_params["fg"]
+        fg_scale = fg_field.logscale.exp().cpu().numpy()
+
     if (
         "bg" in model.fields.field_params.keys()
         and model.fields.field_params["bg"].valid_field2world()
@@ -216,31 +231,10 @@ def extract_motion_params(model, opts, data_info):
         field2world = (
             model.fields.field_params["bg"].get_field2world(opts["inst_id"]).cpu()
         )
-        field2world[..., :3, 3] *= model.fields.field_params["bg"].logscale.exp().cpu()
-        meshes_rest["bg"] = append_xz_plane(meshes_rest["bg"], field2world.inverse())
-
-    # get deformation
-    motion_tuples = {}
-    for cate, field in model.fields.field_params.items():
-        meshes_rest[cate], motion_tuples[cate] = extract_deformation(
-            field, meshes_rest[cate], opts["inst_id"]
+        field2world[..., :3, 3] *= bg_scale
+        meshes_rest["bg"] = append_xz_plane(
+            meshes_rest["bg"], field2world.inverse(), scale=20 * bg_scale
         )
-    # rescale to urdf scale if skeleton is used, otherwise to world scale
-    if "bg" in model.fields.field_params.keys():
-        bg_field = model.fields.field_params["bg"]
-        bg_scale = bg_field.logscale.exp().cpu().numpy()
-    if "fg" in model.fields.field_params.keys():
-        fg_field = model.fields.field_params["fg"]
-        fg_scale = fg_field.logscale.exp().cpu().numpy()
-        # if (
-        #     hasattr(fg_field, "warp")
-        #     and isinstance(fg_field.warp, SkinningWarp)
-        #     and isinstance(fg_field.warp.articulation, ArticulationSkelMLP)
-        # ):
-        #     skel_scale = fg_field.warp.articulation.logscale.exp().cpu().numpy()
-        #     if "bg" in model.fields.field_params.keys():
-        #         bg_scale = bg_scale / fg_scale * skel_scale
-        #     fg_scale = skel_scale
 
     if "fg" in model.fields.field_params.keys():
         meshes_rest["fg"] = meshes_rest["fg"].apply_scale(1.0 / fg_scale)

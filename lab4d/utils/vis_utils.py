@@ -414,7 +414,7 @@ def create_floor_mesh(scale=20, gl=True):
     floor1.visual.vertex_colors[:, 2] = 102
     floor1.visual.vertex_colors[:, 3] = 102
 
-    floor2 = create_plane(scale / 4, [0, 0.01, 0])
+    floor2 = create_plane(scale / 4, [0, scale * 0.001, 0])
     floor2.visual.vertex_colors[:, 0] = 10
     floor2.visual.vertex_colors[:, 1] = 102
     floor2.visual.vertex_colors[:, 2] = 255

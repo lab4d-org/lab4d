@@ -1227,8 +1227,9 @@ class NeRF(nn.Module):
         field2world = self.get_field2world(inst_id)
         world2field = field2world.inverse().cpu()
         mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
-        mesh.vertices /= self.logscale.exp().cpu().numpy()
-        mesh = append_xz_plane(mesh, world2field, gl=False)
+        scale = self.logscale.exp().cpu().numpy()
+        mesh.vertices /= scale
+        mesh = append_xz_plane(mesh, world2field, gl=False, scale=20 * scale)
         if to_world:
             mesh.apply_transform(field2world.cpu().numpy())
         return mesh
