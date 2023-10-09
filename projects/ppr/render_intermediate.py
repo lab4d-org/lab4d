@@ -15,7 +15,7 @@ cwd = os.getcwd()
 if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.utils.io import save_vid
-from lab4d.utils.mesh_render_utils import PyRenderWrapper
+from lab4d.utils.pyrender_wrapper import PyRenderWrapper
 
 parser = argparse.ArgumentParser(description="script to render cameras over epochs")
 parser.add_argument("--testdir", default="", help="path to test dir")
