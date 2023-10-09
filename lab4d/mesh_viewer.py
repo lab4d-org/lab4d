@@ -3,11 +3,13 @@ python lab4d/mesh_viewer.py --testdir logdir//ama-bouncing-4v-ppr-exp/export_000
 """
 
 import os, sys
+import pdb
 import time
 from pathlib import Path
 from typing import List
 import argparse
 
+import cv2
 import numpy as np
 import tyro
 from tqdm.auto import tqdm
@@ -32,18 +34,37 @@ parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
 args = parser.parse_args()
 
 
+def find_seqname(testdir):
+    with open(os.path.join(testdir, "../", "opts.log"), "r") as file:
+        for line in file:
+            if "--seqname" in line:
+                seqname = line.split("--")[1].split("=")[1].strip()
+                break
+    if "seqname" not in locals():
+        raise ValueError("Could not find seqname in opts.log")
+    inst_id = int(testdir.split("/")[-2].split("_")[-1])
+    seqname = "%s-%04d" % (seqname, inst_id)
+    return seqname
+
+
 def main(
     share: bool = False,
 ) -> None:
     server = viser.ViserServer(share=share)
 
+    downsample_factor = 4
     print("Loading frames!")
     loader = MeshLoader(args.testdir, args.mode, args.compose_mode)
     loader.print_info()
     loader.load_files(ghosting=args.ghosting)
-
     num_frames = len(loader)
     fps = args.fps
+
+    # load images
+    seqname = find_seqname(args.testdir)
+    img_dir = "database/processed/JPEGImages/Full-Resolution/%s/" % seqname
+    rgb_list = [cv2.imread("%s/%05d.jpg" % (img_dir, i)) for i in range(num_frames)]
+    rgb_list = [rgb[::downsample_factor, ::downsample_factor, ::-1] for rgb in rgb_list]
 
     # Add playback UI.
     with server.add_gui_folder("Playback"):
@@ -118,25 +139,28 @@ def main(
         if "bone" in input_dict:
             server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
 
-        # # Place the frustum.
-        # fov = 2 * onp.arctan2(frame.rgb.shape[0] / 2, frame.K[0, 0])
-        # aspect = frame.rgb.shape[1] / frame.rgb.shape[0]
-        # server.add_camera_frustum(
-        #     f"/frames/t{i}/frustum",
-        #     fov=fov,
-        #     aspect=aspect,
-        #     scale=0.15,
-        #     image=frame.rgb[::downsample_factor, ::downsample_factor],
-        #     wxyz=tf.SO3.from_matrix(frame.T_world_camera[:3, :3]).wxyz,
-        #     position=frame.T_world_camera[:3, 3],
-        # )
+        # Place the frustum.
+        rgb = rgb_list[i]
+        extrinsics = np.linalg.inv(loader.extr_dict[i])
+        intrinsics = loader.intrinsics[i] / downsample_factor
+        fov = 2 * np.arctan2(rgb.shape[0] / 2, intrinsics[0])
+        aspect = rgb.shape[1] / rgb.shape[0]
+        server.add_camera_frustum(
+            f"/frames/t{i}/frustum",
+            fov=fov,
+            aspect=aspect,
+            scale=0.3,
+            image=rgb,
+            wxyz=tf.SO3.from_matrix(extrinsics[:3, :3]).wxyz,
+            position=extrinsics[:3, 3],
+        )
 
-        # # Add some axes.
-        # server.add_frame(
-        #     f"/frames/t{i}/frustum/axes",
-        #     axes_length=0.05,
-        #     axes_radius=0.005,
-        # )
+        # Add some axes.
+        server.add_frame(
+            f"/frames/t{i}/frustum/axes",
+            axes_length=0.01,
+            axes_radius=0.005,
+        )
 
     # Hide all but the current frame.
     for i, frame_node in enumerate(frame_nodes):
