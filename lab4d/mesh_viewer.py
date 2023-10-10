@@ -35,14 +35,17 @@ args = parser.parse_args()
 
 
 def find_seqname(testdir):
-    with open(os.path.join(testdir, "../", "opts.log"), "r") as file:
+    parts = [part for part in testdir.split("/") if part]
+    logdir = "/".join(parts[:2])
+    logdir = os.path.join(logdir, "opts.log")
+    with open(logdir, "r") as file:
         for line in file:
             if "--seqname" in line:
                 seqname = line.split("--")[1].split("=")[1].strip()
                 break
     if "seqname" not in locals():
         raise ValueError("Could not find seqname in opts.log")
-    inst_id = int(testdir.split("/")[-2].split("_")[-1])
+    inst_id = int(parts[2].split("_")[-1])
     seqname = "%s-%04d" % (seqname, inst_id)
     return seqname
 

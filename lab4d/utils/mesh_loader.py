@@ -23,7 +23,7 @@ class MeshLoader:
         path_list = sorted([i for i in glob.glob("%s/mesh/*.obj" % (primary_dir))])
         if len(path_list) == 0:
             print("no mesh found that matches %s*" % (primary_dir))
-            return
+            raise ValueError
 
         # check render mode
         if mode != "":
