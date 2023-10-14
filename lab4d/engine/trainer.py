@@ -691,8 +691,8 @@ class Trainer:
                     grad_dict["grad_med/" + name] = med_grad
                     if grad > scale_threshold * med_grad:
                         torch.nn.utils.clip_grad_norm_(p, med_grad)
-                        if get_local_rank() == 0:
-                            print("large grad: %.2f, clear %s" % (grad, name))
+                        # if get_local_rank() == 0:
+                        #     print("large grad: %.2f, clear %s" % (grad, name))
                     else:
                         self.grad_queue[name].append(grad)
                         self.grad_queue[name].pop(0)

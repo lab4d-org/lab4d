@@ -652,6 +652,14 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
     # xz plane
     bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, -1, 0])
 
+    # further transform the xz plane center to align with origin
+    mesh_rectified = mesh.copy()
+    mesh_rectified.apply_transform(bg2world)
+    bounds = mesh_rectified.bounds
+    center = (bounds[0] + bounds[1]) / 2
+    bg2world[0, 3] -= center[0]
+    bg2world[2, 3] -= center[2]
+
     # # DEBUG only
     # mesh.export("tmp/raw.obj")
     # mesh.apply_transform(bg2world)

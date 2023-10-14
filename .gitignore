@@ -6,6 +6,7 @@ run-long.sh
 /database/configs
 /database/raw
 /database/ama
+/database/polycam
 /logdir
 /tmp
 projects/csim
