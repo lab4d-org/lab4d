@@ -24,8 +24,10 @@ class FrameInfo:
 
     def __init__(self, ref_list):
         self.num_frames = len(ref_list)
+        # need the raw frame index to apply Fourier time embedding
         raw_dir = ref_list[0].rsplit("/", 1)[0].replace("JPEGImages", "JPEGImagesRaw")
         self.num_frames_raw = len(glob.glob(raw_dir + "/*.jpg"))
+        assert self.num_frames_raw > 0 
         self.frame_map = [int(path.split("/")[-1].split(".")[0]) for path in ref_list]
 
 
