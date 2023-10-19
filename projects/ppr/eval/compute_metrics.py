@@ -120,7 +120,7 @@ def main():
     renderer_pred = PyRenderWrapper(raw_size)
     frames = []
     for fidx, mesh_obj in tqdm.tqdm(gt_mesh_dict.items(), desc=f"Rendering:"):
-        world_to_cam_pred = extrinsics_bg[fidx] @ world2field
+        # world_to_cam_pred = extrinsics_bg[fidx] @ world2field
         mesh_obj = append_xz_plane(mesh_obj, Gmat_gt)
         gt_cd_dict[fidx] = append_xz_plane(gt_cd_dict[fidx], Gmat_gt)
         pred_mesh_dict[fidx] = append_xz_plane(pred_mesh_dict[fidx], Gmat_gt)
