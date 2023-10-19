@@ -234,7 +234,7 @@ class PPRTrainer(Trainer):
 
         # warmup phys
         if self.current_round_phys == 0 and self.opts["warmup_iters"] > 0:
-            self.run_phys_cycle(secs_per_wdw, num_iters=self.opts["warmup_iters"])
+            self.run_phys_cycle(0.2, num_iters=self.opts["warmup_iters"])
 
         # run physics cycle
         if self.phys_model.copy_weights:
@@ -255,6 +255,7 @@ class PPRTrainer(Trainer):
         total_timesteps = ses_per_wdw / opts["timestep"]
         num_envs = int(96000 / total_timesteps)
         frames_per_wdw = int(ses_per_wdw / self.phys_model.frame_interval) + 1
+        overwrite = self.opts["warmup_iters"] > 0
         print("num_envs:", num_envs)
         print("frames_per_wdw:", frames_per_wdw)
         self.phys_model.train()
@@ -262,7 +263,7 @@ class PPRTrainer(Trainer):
             num_envs,
             frames_per_wdw=frames_per_wdw,
             is_eval=False,
-            overwrite=False,
+            overwrite=overwrite,
         )
 
     def run_phys_cycle(self, secs_per_wdw, num_iters=0):
