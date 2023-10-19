@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
-# python scripts/render_intermediate.py --testdir logdir/human-48-category-comp/
+# python lab4d/render_intermediate.py --testdir logdir/human-48-category-comp/
 import sys, os
 import pdb
 

@@ -6,11 +6,12 @@ channels:
 dependencies:
   - python=3.9
   - pip
-  - pytorch
-  - torchvision
+  - pytorch=2.0.0
+  - pytorch-cuda=11.7
+  - torchvision=0.15.2
   - cudatoolkit-dev=11.7
-  - gcc_linux-64=11
-  - gxx_linux-64=11
+  - gcc_linux-64=10
+  - gxx_linux-64=10
   - matplotlib
   - ninja
   - absl-py 
@@ -37,3 +38,5 @@ dependencies:
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
     - openmim
     - pyrender
+    - open3d==0.17.0
+    - geomloss==0.2.6
