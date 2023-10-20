@@ -56,9 +56,9 @@ def read_images_densepose(imglist):
 
 
 @record_function("read_frame_data")
-def read_frame_data(imgpath, crop_size, use_full, component_id, with_flow=True):
+def read_frame_data(imgpath, crop_size, use_full, component_id):
     # compute intrincs for the cropped images
-    data_dict0 = read_raw(imgpath, 1, crop_size, use_full, with_flow=with_flow)
+    data_dict0 = read_raw(imgpath, 1, crop_size, use_full, with_flow=False)
     depth = data_dict0["depth"]
     rgb = data_dict0["img"]
     mask = data_dict0["mask"][..., 0].astype(int) == component_id

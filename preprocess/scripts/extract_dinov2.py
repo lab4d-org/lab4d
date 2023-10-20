@@ -74,9 +74,7 @@ def extract_dinov2_seq(seqname, crop_size, use_full, component_id, pca_save):
     for it, impath in enumerate(imglist):
         # print(impath)
         # rgb: (s, s, 3), 0-1
-        rgb, _, mask, _ = read_frame_data(
-            impath, crop_size, use_full, component_id, with_flow=False
-        )
+        rgb, _, mask, _ = read_frame_data(impath, crop_size, use_full, component_id)
         rgb = (rgb * 255).astype(np.uint8)  # to RGB
         mask = mask.astype(np.uint8)
         h, w, _ = rgb.shape
@@ -136,9 +134,7 @@ def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0]):
     for it, impath in enumerate(imglist_all_perm[:100]):
         # print(impath)
         # rgb: (s, s, 3), 0-1
-        rgb, _, mask, _ = read_frame_data(
-            impath, crop_size, False, component_id, with_flow=False
-        )
+        rgb, _, mask, _ = read_frame_data(impath, crop_size, False, component_id)
         rgb = (rgb * 255).astype(np.uint8)  # to RGB
         mask = mask.astype(np.uint8)
 

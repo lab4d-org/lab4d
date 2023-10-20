@@ -388,6 +388,8 @@ class Trainer:
             progress = (self.current_steps - self.first_step) / self.total_steps
             self.model.set_progress(self.current_steps, progress)
 
+            self.model.convert_img_to_pixel(batch)
+
             loss_dict = self.model(batch)
             total_loss = torch.sum(torch.stack(list(loss_dict.values())))
             total_loss.mean().backward()
@@ -423,18 +425,19 @@ class Trainer:
         opts_dict["data_prefix"] = "%s-%d" % (opts["data_prefix"], opts["train_res"])
         opts_dict["feature_type"] = opts["feature_type"]
         opts_dict["field_type"] = opts["field_type"]
-        opts_dict["eval_res"] = opts["eval_res"]
         opts_dict["dataset_constructor"] = dataset_constructor
 
         if is_eval:
             opts_dict["multiply"] = False
             opts_dict["pixels_per_image"] = -1
             opts_dict["delta_list"] = []
+            opts_dict["res"] = opts["eval_res"]
         else:
             # duplicate dataset to fix number of iterations per round
             opts_dict["multiply"] = True
             opts_dict["pixels_per_image"] = opts["pixels_per_image"]
             opts_dict["delta_list"] = [2, 4, 8]
+            opts_dict["res"] = opts["train_res"]
             opts_dict["num_workers"] = opts["num_workers"]
 
             opts_dict["imgs_per_gpu"] = opts["imgs_per_gpu"]

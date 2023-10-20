@@ -50,6 +50,20 @@ class dvr_model(nn.Module):
         self.fields.mlp_init()
         self.intrinsics.mlp_init()
 
+    def convert_img_to_pixel(self, batch):
+        """Check that batch shape matches pixel array, otherwise convert to expected shape
+        Args:
+            batch (Dict): Batch of dataloader samples. Keys: "rgb" (M,2,N,3),
+                "mask" (M,2,N,1), "depth" (M,2,N,1), "feature" (M,2,N,16),
+                "flow" (M,2,N,2), "flow_uct" (M,2,N,1), "vis2d" (M,2,N,1),
+                "crop2raw" (M,2,4), "dataid" (M,2), "frameid_sub" (M,2),
+                "hxy" (M,2,N,3), and "is_detected" (M,2)
+        """
+        for k, v in batch.items():
+            if len(v.shape) == 5:
+                M, _, H, W, K = v.shape
+                batch[k] = v.view(M, -1, H * W, K)
+
     def forward(self, batch):
         """Run forward pass and compute losses
 
@@ -338,7 +352,10 @@ class dvr_model(nn.Module):
             results["aux_dict"]["fg"]: "xy_reproj" (M,N,2) and "feature" (M,N,16)
         """
         samples_dict = self.get_samples(batch)
-        results = self.render_samples_chunk(samples_dict, flow_thresh=flow_thresh)
+        if self.training:
+            results = self.render_samples(samples_dict, flow_thresh=flow_thresh)
+        else:
+            results = self.render_samples_chunk(samples_dict, flow_thresh=flow_thresh)
         return results
 
     def get_samples(self, batch):

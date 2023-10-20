@@ -67,6 +67,30 @@ def extract_crop(seqname, crop_size, use_full):
             flowfw_list[delta].append(data_dict0["flow"])
             flowbw_list[delta].append(data_dict1["flow"])
 
+    # check flow correctness with by frame warping
+    # import pdb
+
+    # # insert path of current file
+    # sys.path.insert(
+    #     0,
+    #     "%s/../../third_party/vcnplus" % os.path.join(os.path.dirname(__file__)),
+    # )
+    # from flowutils.flowlib import warp_flow
+
+    # # warp flow
+    # import cv2
+
+    # delta = 1
+    # cv2.imwrite("tmp/0.jpg", (rgb_list[0] * 255).astype(np.uint8))
+    # cv2.imwrite(
+    #     "tmp/1.jpg",
+    #     warp_flow(
+    #         (rgb_list[delta] * 255).astype(np.uint8),
+    #         flowfw_list[delta][0].astype(np.float32)[..., :2],
+    #     ),
+    # )
+    # pdb.set_trace()
+
     # save cropped data
     for delta in delta_list:
         if len(flowfw_list[delta]) == 0:

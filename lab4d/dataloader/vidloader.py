@@ -68,7 +68,7 @@ class VidDataset(Dataset):
         self.ks = ks
         self.raw_size = raw_size
         self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
-        self.res = (opts["eval_res"], opts["eval_res"])
+        self.res = (opts["res"], opts["res"])
         self.load_data_list(self.dict_list)
 
         self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
@@ -174,11 +174,12 @@ class VidDataset(Dataset):
                 self.mmap_list[k] = np.load(path, mmap_mode="r")
             except:
                 print(f"Warning: cannot load {path}")
-                if k=="feature":
+                if k == "feature":
                     self.mmap_list[k] = np.random.rand(self.__len__() + 1, 112, 112, 16)
                 else:
-                    self.mmap_list[k] = np.random.rand(self.__len__() + 1, self.img_size[0], self.img_size[1], 3)
-
+                    self.mmap_list[k] = np.random.rand(
+                        self.__len__() + 1, self.img_size[0], self.img_size[1], 3
+                    )
 
     def __len__(self):
         return len(self.dict_list["ref"]) - 1
