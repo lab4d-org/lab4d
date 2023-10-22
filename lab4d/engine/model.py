@@ -114,6 +114,7 @@ class dvr_model(nn.Module):
             current_steps (int): Number of optimization steps so far
             progress (float): Fraction of training completed (in the current stage)
         """
+        self.progress = progress
         self.current_steps = current_steps
         config = self.config
         if self.config["use_freq_anneal"]:
@@ -336,6 +337,55 @@ class dvr_model(nn.Module):
         """Export proxy geometry for all neural fields"""
         return self.fields.export_geometry_aux(path)
 
+    def construct_rand_batch(self, num_imgs):
+        """
+        Returns:
+            batch (Dict): Batch of input metadata. Keys: "dataid" (M,),
+                "frameid_sub" (M,), "crop2raw" (M,4), "feature" (M,N,16),
+                "hxy" (M,N,3), and "frameid" (M,)
+        """
+        opts = self.config
+        batch = {}
+        inst_id = np.random.randint(
+            0, len(self.data_info["frame_info"]["frame_offset"]) - 1, (num_imgs,)
+        )
+        frameid = np.random.randint(0, self.data_info["total_frames"], (num_imgs,))
+        frameid[:] = 0
+        frameid_sub = frameid - self.data_info["frame_info"]["frame_offset"][inst_id]
+
+        camera_int = np.zeros((len(frameid_sub), 4))
+        camera_int[:, :2] = opts["train_res"] * 2
+        camera_int[:, 2:] = opts["train_res"] / 2
+
+        from lab4d.utils.camera_utils import (
+            get_object_to_camera_matrix,
+            construct_batch,
+        )
+
+        field2cam = {"fg": []}
+        for idx in range(len(frameid_sub)):
+            theta = np.random.rand(1) * 360
+            axis = np.random.rand(3)
+            distance = 10
+            rtmat = get_object_to_camera_matrix(theta, axis, distance)
+            field2cam["fg"].append(rtmat)
+        field2cam["fg"] = np.stack(field2cam["fg"], 0)
+
+        batch = construct_batch(
+            inst_id=inst_id,
+            frameid_sub=frameid_sub,
+            eval_res=opts["train_res"],
+            field2cam=field2cam,
+            camera_int=camera_int,
+            crop2raw=None,
+            device=self.device,
+        )
+        inst_id = torch.tensor(
+            self.data_info["frame_info"]["frame_offset"][inst_id], device=self.device
+        )
+        batch["frameid"] = batch["frameid_sub"] + inst_id
+        return batch
+
     def render(self, batch, flow_thresh=None):
         """Render model outputs
 
@@ -526,7 +576,7 @@ class dvr_model(nn.Module):
         loss_dict = {}
         self.compute_recon_loss(loss_dict, results, batch, config, self.current_steps)
         self.mask_losses(loss_dict, batch, config)
-        self.compute_reg_loss(loss_dict, results)
+        self.compute_reg_loss(loss_dict, batch, results)
         motion_scale = torch.tensor(self.data_info["motion_scales"], device=self.device)
         motion_scale = motion_scale[batch["dataid"]]
         self.apply_loss_weights(loss_dict, config, motion_scale)
@@ -649,7 +699,7 @@ class dvr_model(nn.Module):
         # for k in density_related_loss:
         #     loss_dict[k] = loss_dict[k] * rendered["mask"].detach()
 
-    def compute_reg_loss(self, loss_dict, results):
+    def compute_reg_loss(self, loss_dict, batch, results):
         """Compute regularization losses.
 
         Args:
@@ -674,6 +724,85 @@ class dvr_model(nn.Module):
             loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
+
+        # render rgb from a random view
+        if self.config["reg_diffusion_prior_wt"] > 0:
+            batch_constructed = self.construct_rand_batch(1)
+            rendered = self.render(batch_constructed)["rendered"]
+            rgb = rendered["rgb"]
+            mask = rendered["mask"]
+            # rgb = rgb * mask[..., None].detach()
+            loss_dict["reg_diffusion_prior"] = self.diffusion_prior_sd(
+                batch["rgb"], rgb, self.progress
+            )
+            rgb = rgb.view(-1, self.config["train_res"], self.config["train_res"], 3)
+            mask = mask.view(-1, self.config["train_res"], self.config["train_res"])
+            # debug
+            import cv2
+
+            cv2.imwrite("tmp/0.jpg", rgb[0].detach().cpu().numpy()[..., ::-1] * 255)
+            cv2.imwrite("tmp/1.jpg", mask[0].detach().cpu().numpy() * 255)
+
+    def diffusion_prior_sd(self, ref, rgb, progress):
+        """Compute diffusion loss
+        Args:
+            rgb: (M,N,3)
+            progress: float
+
+        """
+        if not hasattr(self, "guidance_sd"):
+            print(f"[INFO] loading SD...")
+            from lab4d.third_party.guidance.sd_utils import StableDiffusion
+
+            self.guidance_sd = StableDiffusion(self.device)
+            print(f"[INFO] loaded SD!")
+
+        # M,N,C => (N, C, d1, d2, ...,dK)
+        bs = rgb.shape[0]
+        res = self.config["train_res"]
+        rgb = rgb.permute(0, 2, 1).reshape(bs, 3, res, res)
+        self.guidance_sd.get_text_embeds(["car"], [""])
+
+        loss = self.guidance_sd.train_step(rgb, progress)
+        return loss
+
+    def diffusion_prior(self, ref, rgb, progress):
+        """Compute diffusion loss
+        Args:
+            rgb: (M,N,3)
+            progress: float
+
+        """
+        if not hasattr(self, "guidance_zero123"):
+            from lab4d.third_party.guidance.zero123_utils import Zero123
+
+            self.guidance_zero123 = Zero123(self.device)
+            print(f"[INFO] loaded zero123!")
+
+        # M,N,C => (N, C, d1, d2, ...,dK)
+        bs = ref.shape[0]
+        res = self.config["train_res"]
+        ref = ref.permute(0, 2, 1).reshape(bs, 3, res, res)
+        rgb = rgb.permute(0, 2, 1).reshape(bs, 3, res, res)
+        self.guidance_zero123.get_img_embeds(ref[:1])
+
+        elevation = 0
+        min_ver = max(min(-30, -30 - elevation), -80 - elevation)
+        max_ver = min(max(30, 30 - elevation), 80 - elevation)
+        polar = [np.random.randint(min_ver, max_ver)] * bs
+        azimuth = [np.random.randint(-180, 180)] * bs
+        radius = [0] * bs
+
+        # debug
+        outputs = self.guidance_zero123.refine(
+            ref,
+            polar=polar,
+            azimuth=azimuth,
+            radius=radius,
+            strength=0,
+        )
+
+        self.guidance_zero123.train_step(rgb, polar, azimuth, radius, progress)
 
     @staticmethod
     def mask_losses(loss_dict, batch, config):

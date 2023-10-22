@@ -168,6 +168,10 @@ def construct_batch(
     """
     batch = {}
     batch["frameid_sub"] = torch.tensor(frameid_sub, dtype=torch.long, device=device)
+    if isinstance(inst_id, int):
+        inst_id = inst_id
+    else:
+        inst_id = torch.tensor(inst_id, dtype=torch.long, device=device)
     batch["dataid"] = inst_id * torch.ones_like(batch["frameid_sub"])
 
     hxy = Trainer.create_xy_grid(eval_res, device)

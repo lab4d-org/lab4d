@@ -650,12 +650,13 @@ class NeRF(nn.Module):
         else:
             field2cam = self.camera_mlp.get_vals(frame_id)
 
-        # compute near-far
-        if self.training:
-            near_far = self.near_far.to(device)
-            near_far = near_far[batch["frameid"]]
-        else:
-            near_far = self.get_near_far(frame_id, field2cam)
+        # # compute near-far
+        # if self.training:
+        #     near_far = self.near_far.to(device)
+        #     near_far = near_far[batch["frameid"]]
+        # else:
+        #     near_far = self.get_near_far(frame_id, field2cam)
+        near_far = self.get_near_far(frame_id, field2cam)
 
         # auxiliary outputs
         samples_dict = {}

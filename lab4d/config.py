@@ -36,6 +36,7 @@ class TrainModelConfig:
         "reg_gauss_mask_wt", 0.01, "weight for gauss mask regularization"
     )
     flags.DEFINE_float("reg_soft_deform_wt", 100.0, "weight for soft deformation reg")
+    flags.DEFINE_float("reg_diffusion_prior_wt", 0.0, "weight for diffusion prior")
 
     # model
     flags.DEFINE_string("field_type", "fg", "{bg, fg, comp}")

@@ -6,11 +6,16 @@ if cwd not in sys.path:
 
 from preprocess.scripts.crop import extract_crop
 from preprocess.third_party.omnivision.normal import extract_normal
+from preprocess.scripts.extract_dinov2 import extract_dinov2
 
 
+vidname = "car-turnaround-2"
 seqname = "car-turnaround-2-0000"
 
 # extract_normal(seqname)
 
-extract_crop(seqname, 64, 0)
-extract_crop(seqname, 64, 1)
+res = 32
+extract_crop(seqname, res, 0)
+extract_crop(seqname, res, 1)
+
+extract_dinov2(vidname, res)
