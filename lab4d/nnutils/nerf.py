@@ -409,7 +409,7 @@ class NeRF(nn.Module):
         bounds = self.proxy_geometry.bounds
         if bounds is not None:
             aabb = torch.tensor(bounds, dtype=torch.float32, device=device)
-            # aabb = extend_aabb(aabb, factor=0.2)  # 1.4x larger
+            aabb = extend_aabb(aabb, factor=0.2)  # 1.4x larger
             self.aabb = self.aabb * beta + aabb * (1 - beta)
 
     def update_near_far(self, beta=0.9):

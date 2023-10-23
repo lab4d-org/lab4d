@@ -17,16 +17,13 @@ bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname bg \
 # foreground reconstruction
 # rm -rf logdir/$seqname-fg-urdf
 bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname fg-urdf --fg_motion urdf-human --num_rounds 20 --feature_type cse --freeze_intrinsics
-# rm -rf logdir/$seqname-fg-urdf-proj
-bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname fg-urdf-proj --fg_motion urdf-human --num_rounds 20 --feature_type cse --depth_wt 0.0 \
-    --load_path logdir/$seqname-fg-urdf/ckpt_latest.pth --pose_correction --noreset_steps
 
 # physical reconstruction
 # rm -rf logdir/$seqname-ppr
 bash scripts/train.sh projects/ppr/train.py 0 --seqname $seqname --logname ppr --field_type comp --fg_motion urdf-human --feature_type cse --nosingle_scene \
-    --num_rounds 20  --iters_per_round 100 --ratio_phys_cycle 0.5 --phys_vis_interval 20 --frame_interval 0.0333 --secs_per_wdw 2.0 \
+    --num_rounds 20  --iters_per_round 100 --ratio_phys_cycle 0.5 --phys_vis_interval 20 --frame_interval 0.0333 --secs_per_wdw 2.0 --warmup_iters 100 \
     --pixels_per_image 12 --noreset_steps --learning_rate 1e-4 --noabsorb_base \
-    --load_path logdir/$seqname-fg-urdf-proj/ckpt_latest.pth \
+    --load_path logdir/$seqname-fg-urdf/ckpt_latest.pth \
     --load_path_bg logdir/$seqname-bg/ckpt_latest.pth
     
 # export meshes and visualize results, run

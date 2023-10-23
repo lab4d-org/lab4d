@@ -338,7 +338,10 @@ class dvr_model(nn.Module):
             results["aux_dict"]["fg"]: "xy_reproj" (M,N,2) and "feature" (M,N,16)
         """
         samples_dict = self.get_samples(batch)
-        results = self.render_samples_chunk(samples_dict, flow_thresh=flow_thresh)
+        if self.training:
+            results = self.render_samples(samples_dict, flow_thresh=flow_thresh)
+        else:
+            results = self.render_samples_chunk(samples_dict, flow_thresh=flow_thresh)
         return results
 
     def get_samples(self, batch):
