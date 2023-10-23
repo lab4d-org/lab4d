@@ -89,7 +89,7 @@ class FeatureNeRF(NeRF):
             final_act=False,
         )
 
-        sigma = torch.tensor([100.0])
+        sigma = torch.tensor([10.0])
         self.logsigma = nn.Parameter(sigma.log())
         self.set_match_region(sample_around_surface=True)
 
@@ -254,7 +254,7 @@ class FeatureNeRF(NeRF):
         feat_px,
         feat_canonical,
         xyz_canonical,
-        num_grad=1,
+        num_grad=128,
     ):
         """Match pixel features to canonical features, which combats local
         minima in differentiable rendering optimization
@@ -279,7 +279,7 @@ class FeatureNeRF(NeRF):
             xyz_canonical = xyz_canonical[idx]
 
         # soft argmin
-        score = score.detach()  # do not backprop to features
+        # score = score.detach()  # do not backprop to features
         score = score * self.logsigma.exp()  # temperature
         prob = torch.softmax(score, dim=1)
         xyz_matched = torch.sum(prob.unsqueeze(-1) * xyz_canonical, dim=1)

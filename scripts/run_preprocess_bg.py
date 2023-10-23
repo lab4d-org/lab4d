@@ -21,6 +21,7 @@ from preprocess.scripts.extract_dinov2 import extract_dinov2
 from preprocess.scripts.extract_frames import extract_frames
 from preprocess.scripts.tsdf_fusion import tsdf_fusion
 from preprocess.scripts.write_config import write_config
+from preprocess.scripts.fake_data import create_fake_masks
 from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
@@ -54,18 +55,6 @@ def run_extract_frames(seqname, outdir, infile, use_filter_frames, fps):
         run_bash_command(f"rm -rf {outpath}")
         os.makedirs(outpath, exist_ok=True)
         run_bash_command(f"cp {imgpath}/* {outpath}/")
-
-
-def create_fake_masks(seqname, outdir):
-    anno_dir = f"{outdir}/Annotations/Full-Resolution/{seqname}"
-    os.makedirs(anno_dir, exist_ok=True)
-    ref_list = sorted(glob.glob(f"{outdir}/JPEGImages/Full-Resolution/{seqname}/*"))
-    shape = cv2.imread(ref_list[0]).shape[:2]
-    mask = -1 * np.ones(shape).astype(np.int8)
-    for ref in ref_list:
-        img_ext = ref.split("/")[-1].split(".")[0]
-        save_path = "%s/%s.npy" % (anno_dir, img_ext)
-        np.save(save_path, mask)
 
 
 def run_extract_priors(seqname, outdir):
