@@ -34,6 +34,52 @@ from lab4d.utils.vis_utils import draw_cams
 from lab4d.utils.torch_utils import reinit_model
 
 
+class CameraConst(nn.Module):
+    """Constant camera pose
+
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+    """
+
+    def __init__(self, rtmat, frame_info=None):
+        super().__init__()
+        if frame_info is None:
+            num_frames = len(rtmat)
+            frame_info = {
+                "frame_offset": np.asarray([0, num_frames]),
+                "frame_mapping": list(range(num_frames)),
+                "frame_offset_raw": np.asarray([0, num_frames]),
+            }
+
+        # camera pose: field to camera
+        rtmat = torch.tensor(rtmat, dtype=torch.float32)
+        trans = rtmat[:, :3, 3]
+        quat = matrix_to_quaternion(rtmat[:, :3, :3])
+        self.register_buffer("trans", trans, persistent=False)
+        self.register_buffer("quat", quat, persistent=False)
+
+    def mlp_init(self):
+        pass
+
+    def get_vals(self, frame_id=None):
+        """Compute camera pose at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute values at all frames
+        Returns:
+            quat: (M, 4) Output camera rotations
+            trans: (M, 3) Output camera translations
+        """
+        if frame_id is None:
+            quat = self.quat
+            trans = self.trans
+        else:
+            quat = self.quat[frame_id]
+            trans = self.trans[frame_id]
+        return quat, trans
+
+
 class CameraMLP(TimeMLP):
     """Encode camera pose over time (rotation + translation) with an MLP
 

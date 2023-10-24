@@ -11,7 +11,7 @@ from torch.autograd.functional import jacobian
 from lab4d.nnutils.appearance import AppearanceEmbedding
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
-from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3
+from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3, CameraConst
 from lab4d.nnutils.visibility import VisField
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import (
@@ -81,6 +81,7 @@ class NeRF(nn.Module):
         init_scale=0.1,
         color_act=True,
         field_arch=CondMLP,
+        extrinsics_type="mlp",
     ):
         rtmat = data_info["rtmat"]
         frame_info = data_info["frame_info"]
@@ -93,6 +94,7 @@ class NeRF(nn.Module):
         # dataset info
         self.frame_offset = frame_offset
         self.frame_offset_raw = frame_offset_raw
+        self.frame_mapping = frame_info["frame_mapping"]
         self.num_frames = frame_offset[-1]
         self.num_inst = num_inst
 
@@ -155,9 +157,7 @@ class NeRF(nn.Module):
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
-        self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
-        # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
-
+        self.construct_extrinsics(rtmat, frame_info, extrinsics_type)
         # visibility mlp
         self.vis_mlp = VisField(self.num_inst, field_arch=field_arch)
 
@@ -175,6 +175,15 @@ class NeRF(nn.Module):
 
         # inverse sampling
         self.use_importance_sampling = True
+
+    def construct_extrinsics(self, rtmat, frame_info, extrinsics_type):
+        if extrinsics_type == "mlp":
+            self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
+            # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
+        elif extrinsics_type == "const":
+            self.camera_mlp = CameraConst(rtmat, frame_info=frame_info)
+        else:
+            raise NotImplementedError
 
     def forward(self, xyz, dir=None, frame_id=None, inst_id=None):
         """
@@ -428,7 +437,7 @@ class NeRF(nn.Module):
         if verts is not None:
             proxy_pts = torch.tensor(verts, dtype=torch.float32, device=device)
             near_far = get_near_far(proxy_pts, rtmat).to(device)
-            frame_mapping = self.camera_mlp.time_embedding.frame_mapping
+            frame_mapping = self.frame_mapping
             self.near_far.data[frame_mapping] = self.near_far.data[
                 frame_mapping
             ] * beta + near_far * (1 - beta)
@@ -1178,6 +1187,8 @@ class NeRF(nn.Module):
         Returns:
             loss: (0,) Mean squared error of camera SE(3) transforms to priors
         """
+        if isinstance(self.camera_mlp, CameraConst):
+            return torch.zeros(1, device=self.parameters().__next__().device)
         loss = self.camera_mlp.compute_distance_to_prior()
         return loss
 

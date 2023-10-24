@@ -60,7 +60,7 @@ class MotionParamsExpl(NamedTuple):
 
 def extract_deformation(field, mesh_rest, inst_id):
     # get corresponding frame ids
-    frame_mapping = field.camera_mlp.time_embedding.frame_mapping
+    frame_mapping = field.frame_mapping
     frame_offset = field.frame_offset
     frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
     start_id = frame_ids[0]
@@ -126,7 +126,7 @@ def extract_deformation(field, mesh_rest, inst_id):
             mesh_t=mesh_t,
             bone_t=mesh_bones_t,
         )
-        frame_id_sub = (frame_id[0] - start_id).cpu()
+        frame_id_sub = frame_id[0] - start_id
         motion_tuples[frame_id_sub] = motion_expl
 
     if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):

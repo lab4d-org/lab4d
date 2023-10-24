@@ -3,6 +3,35 @@ import torch
 import torch.nn as nn
 
 
+def resolve_size_mismatch(model, ckpt_states):
+    """Resolve size mismatch between model and model_states
+    Rules:
+      Stack if shape is different by one, e.g., N vs M, N
+      Repeat if shape is the same but the first dimension is 1 vs N
+    """
+    model_states = model.state_dict()
+    for k, v in ckpt_states.items():
+        # find corresponding model parameter
+        if k not in model_states:
+            continue
+        model_v = model_states[k]
+        if v.shape == model_v.shape:
+            continue
+        # resolve size mismatch
+        if len(model_v.shape) == len(v.shape) + 1 and model_v.shape[1:] == v.shape:
+            # stack
+            ckpt_states[k] = torch.stack([v] * model_v.shape[0], dim=0)
+            print("Warning: stacking {} to {}".format(v.shape, model_v.shape))
+        elif len(model_v.shape) == len(v.shape) and v.shape[0] == 1:
+            # repeat
+            ckpt_states[k] = torch.repeat_interleave(v, model_v.shape[0], dim=0)
+            print("Warning: repeating {} to {}".format(v.shape, model_v.shape))
+        else:
+            raise ValueError(
+                "Size mismatch for {}: {} vs {}".format(k, model_v.shape, v.shape)
+            )
+
+
 def reinit_model(model, std=1):
     for m in model.modules():
         if isinstance(m, nn.Linear):

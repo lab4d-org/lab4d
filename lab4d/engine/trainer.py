@@ -22,7 +22,7 @@ from lab4d.engine.train_utils import (
     match_param_name,
 )
 from lab4d.utils.profile_utils import torch_profile
-from lab4d.utils.torch_utils import remove_ddp_prefix
+from lab4d.utils.torch_utils import remove_ddp_prefix, resolve_size_mismatch
 from lab4d.utils.vis_utils import img2color, make_image_grid
 
 
@@ -343,6 +343,9 @@ class Trainer:
         model_states = checkpoint["model"]
         if not isinstance(model, torch.nn.parallel.DistributedDataParallel):
             model_states = remove_ddp_prefix(model_states)
+
+        resolve_size_mismatch(model, model_states)
+
         model.load_state_dict(model_states, strict=False)
 
         # reset near_far

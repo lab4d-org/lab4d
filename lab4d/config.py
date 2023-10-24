@@ -45,6 +45,8 @@ class TrainModelConfig:
     )
     flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
     flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
+    flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
+    flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")
 
 
 class TrainOptConfig:

@@ -35,6 +35,7 @@ class MultiFields(nn.Module):
         fg_motion="rigid",
         single_inst=True,
         single_scene=True,
+        extrinsics_type="mlp",
     ):
         vis_info = data_info["vis_info"]
 
@@ -44,6 +45,7 @@ class MultiFields(nn.Module):
         self.fg_motion = fg_motion
         self.single_inst = single_inst
         self.single_scene = single_scene
+        self.extrinsic_type = extrinsics_type
 
         # specify field type
         if field_type == "comp":
@@ -94,11 +96,13 @@ class MultiFields(nn.Module):
             nerf = bg_arch(
                 data_info,
                 D=8,
+                skips=[1, 2, 3, 4, 5, 6, 7],
                 num_freq_dir=0,
                 appr_channels=0,
                 num_inst=num_inst,
                 init_scale=0.05,
                 # init_scale=0.2,
+                extrinsics_type=self.extrinsic_type,
             )
         else:  # exit with an error
             raise ValueError("Invalid category")

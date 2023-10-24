@@ -7,7 +7,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from lab4d.engine.train_utils import get_local_rank
-from lab4d.nnutils.intrinsics import IntrinsicsMLP, IntrinsicsMLP_delta
+from lab4d.nnutils.intrinsics import IntrinsicsMLP, IntrinsicsConst, IntrinsicsMLP_delta
 from lab4d.nnutils.pose import CameraMLP_so3
 from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.multifields import MultiFields
@@ -36,12 +36,26 @@ class dvr_model(nn.Module):
             fg_motion=config["fg_motion"],
             single_inst=config["single_inst"],
             single_scene=config["single_scene"],
+            extrinsics_type=config["extrinsics_type"],
         )
-        self.intrinsics = IntrinsicsMLP(
-            self.data_info["intrinsics"],
-            frame_info=self.data_info["frame_info"],
-            num_freq_t=0,
-        )
+        self.construct_intrinsics(data_info)
+
+    def construct_intrinsics(self, data_info):
+        """Construct camera intrinsics module"""
+        config = self.config
+        if config["intrinsics_type"] == "mlp":
+            self.intrinsics = IntrinsicsMLP(
+                self.data_info["intrinsics"],
+                frame_info=self.data_info["frame_info"],
+                num_freq_t=0,
+            )
+        elif config["intrinsics_type"] == "const":
+            self.intrinsics = IntrinsicsConst(
+                self.data_info["intrinsics"],
+                frame_info=self.data_info["frame_info"],
+            )
+        else:
+            raise NotImplementedError
 
     def mlp_init(self):
         """Initialize camera transforms, geometry, articulations, and camera

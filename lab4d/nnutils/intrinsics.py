@@ -7,6 +7,59 @@ from lab4d.nnutils.time import TimeMLP
 from lab4d.utils.torch_utils import reinit_model
 
 
+class IntrinsicsConst(nn.Module):
+    """Constant camera intrinsics
+
+    Args:
+        intrinsics: (N,4) Camera intrinsics (fx, fy, cx, cy)
+        frame_info (Dict): Metadata about the frames in a dataset
+    """
+
+    def __init__(self, intrinsics, frame_info=None):
+        super().__init__()
+        if frame_info is None:
+            num_frames = len(intrinsics)
+            frame_info = {
+                "frame_offset": np.asarray([0, num_frames]),
+                "frame_mapping": list(range(num_frames)),
+                "frame_offset_raw": np.asarray([0, num_frames]),
+            }
+        self.frame_info = frame_info
+        # camera intrinsics: fx,fy,px,py
+        self.register_buffer(
+            "intrinsics",
+            torch.tensor(intrinsics, dtype=torch.float32),
+            persistent=False,
+        )
+
+    def mlp_init(self):
+        pass
+
+    def get_vals(self, frame_id=None):
+        """Compute camera intrinsics at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute at all frames
+        Returns:
+            intrinsics: (..., 4) Output camera intrinsics
+        """
+        if frame_id is None:
+            intrinsics = self.intrinsics
+        intrinsics = self.intrinsics[frame_id]
+        return intrinsics
+
+    def get_intrinsics(self, inst_id=None):
+        if inst_id is None:
+            frame_id = None
+        else:
+            frame_id = np.arange(
+                self.frame_info["frame_offset"][inst_id],
+                self.frame_info["frame_offset"][inst_id + 1],
+            )
+        intrinsics = self.get_vals(frame_id=frame_id)
+        return intrinsics
+
+
 class IntrinsicsMLP(TimeMLP):
     """Encode camera intrinsics over time with an MLP
 
