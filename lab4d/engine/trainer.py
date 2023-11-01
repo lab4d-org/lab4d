@@ -164,6 +164,23 @@ class Trainer:
             ".orient": lr_explicit,
         }
 
+        if opts["freeze_field"]:
+            param_lr_with_freeze_field = {
+                "module.fields.field_params.bg.basefield.": 0.0,
+                "module.fields.field_params.bg.colorfield.": 0.0,
+                "module.fields.field_params.bg.sdf.": 0.0,
+                "module.fields.field_params.bg.rgb.": 0.0,
+                "module.fields.field_params.bg.vis_mlp.": 0.0,
+                "module.fields.field_params.bg.feature_field": 0.0,
+            }
+            param_lr_with.update(param_lr_with_freeze_field)
+        if opts["freeze_scale"]:
+            del param_lr_with[".logscale"]
+            param_lr_with_freeze_scale = {
+                "module.fields.field_params.bg.logscale": 0.0,
+            }
+            param_lr_with.update(param_lr_with_freeze_scale)
+
         if pose_correction:
             del param_lr_with[".logscale"]
             del param_lr_with[".log_gauss"]
@@ -374,6 +391,10 @@ class Trainer:
                 self.first_round = self.current_round
                 self.first_step = self.current_steps
 
+        # # TODO fix it
+        if self.opts["reset_beta"]:
+            self.model.module.fields.reset_beta(beta=0.01)
+
     def train_one_round(self):
         """Train a single round (going over mini-batches)"""
         opts = self.opts
@@ -406,8 +427,14 @@ class Trainer:
 
             if get_local_rank() == 0:
                 # update scalar dict
+                # move all to loss
+                new_loss_dict = {}
+                for k, v in loss_dict.items():
+                    new_loss_dict["loss/%s" % k] = v
+                del loss_dict
+                loss_dict = new_loss_dict
                 loss_dict["loss/total"] = total_loss
-                loss_dict.update(self.model.get_field_betas())
+                loss_dict.update(self.model.get_field_params())
                 loss_dict.update(grad_dict)
                 self.add_scalar(self.log, loss_dict, self.current_steps)
             self.current_steps += 1
@@ -484,16 +511,30 @@ class Trainer:
         """
         if len(xyz_matches) == 0:
             return
-        xyz = xyz[0].view(-1, 3).detach().cpu().numpy()
-        xyz_matches = xyz_matches[0].view(-1, 3).detach().cpu().numpy()
+        xyz = xyz[6].view(-1, 3).detach().cpu().numpy()
+        xyz_matches = xyz_matches[6].view(-1, 3).detach().cpu().numpy()
+
+        nsample = 100
+        idx = np.random.permutation(len(xyz))[:nsample]
+        xyz = xyz[idx]
+        xyz_matches = xyz_matches[idx]
+        # draw lines
+        lines = []
+        for i in range(nsample):
+            segment = np.stack([xyz[i], xyz_matches[i]], 0)
+            line = trimesh.creation.cylinder(0.0001, segment=segment, sections=5)
+            lines.append(line)
+        lines = trimesh.util.concatenate(lines)
+
         xyz = trimesh.Trimesh(vertices=xyz)
         xyz_matches = trimesh.Trimesh(vertices=xyz_matches)
+        xyz.visual.vertex_colors = [255, 0, 0, 255]  # red
+        xyz_matches.visual.vertex_colors = [0, 255, 0, 255]  # green
 
-        xyz.visual.vertex_colors = [255, 0, 0, 255]
-        xyz_matches.visual.vertex_colors = [0, 255, 0, 255]
         xyz_cat = trimesh.util.concatenate([xyz, xyz_matches])
 
         xyz_cat.export("%s/%03d-%s.obj" % (self.save_dir, self.current_round, tag))
+        lines.export("%s/%03d-%s-lines.obj" % (self.save_dir, self.current_round, tag))
 
     @staticmethod
     def load_batch(dataset, fids):

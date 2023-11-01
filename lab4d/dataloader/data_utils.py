@@ -28,7 +28,7 @@ class FrameInfo:
         # need the raw frame index to apply Fourier time embedding
         raw_dir = ref_list[0].rsplit("/", 1)[0].replace("JPEGImages", "JPEGImagesRaw")
         self.num_frames_raw = len(glob.glob(raw_dir + "/*.jpg"))
-        assert self.num_frames_raw > 0 
+        assert self.num_frames_raw > 0
         self.frame_map = [int(path.split("/")[-1].split(".")[0]) for path in ref_list]
 
 
@@ -247,7 +247,8 @@ def get_data_info(loader):
         intrinsics += [dataset.ks] * frame_info.num_frames
         raw_size += [dataset.raw_size]
 
-        feature_array = dataset.mmap_list["feature"].reshape(-1, 16)
+        feature_channels = dataset.mmap_list["feature"].shape[-1]
+        feature_array = dataset.mmap_list["feature"].reshape(-1, feature_channels)
         # # randomly sample 1k pixels for PCA per-video:
         # rand_idx = np.random.permutation(len(feature_array))[:1000]
         # feature_pxs.append(feature_array[rand_idx])

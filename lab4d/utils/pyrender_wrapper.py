@@ -31,6 +31,7 @@ class PyRenderWrapper:
         self.light_pose = np.eye(4)
         self.set_light_topdown()
         self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
+        self.ambient_light = 0.1 * np.asarray([1.0, 1.0, 1.0, 1.0])
         self.material = MetallicRoughnessMaterial(
             roughnessFactor=0.75, metallicFactor=0.75, alphaMode="BLEND"
         )
@@ -42,6 +43,11 @@ class PyRenderWrapper:
         self.flip_pose[0, 0] = 1
         self.flip_pose[-1, -1] = 1
         self.set_camera(np.eye(4))
+
+    def set_ambient_light(self):
+        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=0.0)
+        self.ambient_light = 1.0 * np.asarray([1.0, 1.0, 1.0, 1.0])
+        self.material = None
 
     def set_camera_bev(self, depth, gl=False):
         # object to camera transforms
@@ -105,7 +111,7 @@ class PyRenderWrapper:
             color: (H,W,3)
             depth: (H,W)
         """
-        scene = Scene(ambient_light=0.1 * np.asarray([1.0, 1.0, 1.0, 1.0]))
+        scene = Scene(ambient_light=self.ambient_light)
 
         # add shape / camera
         if "bone" in input_dict:
@@ -125,7 +131,8 @@ class PyRenderWrapper:
 
         # shape
         mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
-        mesh_pyrender.primitives[0].material = self.material
+        if self.material is not None:
+            mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))
         if "ghost" in input_dict:
             mesh_pyrender = Mesh.from_trimesh(input_dict["ghost"], smooth=False)
@@ -142,7 +149,10 @@ class PyRenderWrapper:
         if "ghost" in input_dict:
             flags = 0
         else:
-            flags = pyrender.RenderFlags.SHADOWS_DIRECTIONAL
+            flags = (
+                pyrender.RenderFlags.SHADOWS_DIRECTIONAL
+                | pyrender.RenderFlags.SKIP_CULL_FACES
+            )
         color, depth = self.r.render(scene, flags=flags)
         color = color[: self.image_size[0], : self.image_size[1]]
         depth = depth[: self.image_size[0], : self.image_size[1]]

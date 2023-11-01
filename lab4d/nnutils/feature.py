@@ -5,7 +5,7 @@ import trimesh
 import cv2
 from torch import nn
 
-from lab4d.nnutils.base import BaseMLP
+from lab4d.nnutils.base import BaseMLP, CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
 from lab4d.nnutils.nerf import NeRF
 from lab4d.utils.decorator import train_only_fields
@@ -62,6 +62,8 @@ class FeatureNeRF(NeRF):
         init_scale=0.1,
         color_act=True,
         feature_channels=16,
+        field_arch=CondMLP,
+        extrinsics_type="mlp",
     ):
         super().__init__(
             data_info,
@@ -78,7 +80,15 @@ class FeatureNeRF(NeRF):
             init_beta=init_beta,
             init_scale=init_scale,
             color_act=color_act,
+            field_arch=field_arch,
+            extrinsics_type=extrinsics_type,
         )
+
+        if feature_channels <= 0:
+            self.use_feature = False
+            return
+
+        self.use_feature = True
 
         self.feat_pos_embedding = PosEmbedding(3, N_freqs=6)  # lower frequency
         self.feature_field = BaseMLP(
@@ -89,7 +99,7 @@ class FeatureNeRF(NeRF):
             final_act=False,
         )
 
-        sigma = torch.tensor([10.0])
+        sigma = torch.tensor([1.0])
         self.logsigma = nn.Parameter(sigma.log())
         self.set_match_region(sample_around_surface=True)
 
@@ -116,6 +126,8 @@ class FeatureNeRF(NeRF):
         feat_dict, deltas, aux_dict = super(FeatureNeRF, self).query_field(
             samples_dict, flow_thresh=flow_thresh
         )
+        if not self.use_feature:
+            return feat_dict, deltas, aux_dict
         xyz = feat_dict["xyz"]
         field2cam = samples_dict["field2cam"]
         Kinv = samples_dict["Kinv"]

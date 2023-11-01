@@ -38,7 +38,7 @@ def main():
     renderer = PyRenderWrapper(raw_size)
     print("Rendering [%s]:" % args.view)
     frames = []
-    for frame_idx, mesh_obj in tqdm.tqdm(loader.mesh_dict.items()):
+    for frame_idx, _ in tqdm.tqdm(loader.extr_dict.items()):
         # input dict
         input_dict = loader.query_frame(frame_idx)
 

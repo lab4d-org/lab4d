@@ -59,15 +59,15 @@ class MotionParamsExpl(NamedTuple):
 
 
 def extract_deformation(field, mesh_rest, inst_id):
+    device = next(field.parameters()).device
     # get corresponding frame ids
-    frame_mapping = field.frame_mapping
+    frame_mapping = torch.tensor(field.frame_mapping, device=device)
     frame_offset = field.frame_offset
     frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
     start_id = frame_ids[0]
     print("Extracting motion parameters for inst id:", inst_id)
     print("Frame ids with the video:", frame_ids - start_id)
 
-    device = next(field.parameters()).device
     xyz = torch.tensor(mesh_rest.vertices, dtype=torch.float32, device=device)
     inst_id = torch.tensor([inst_id], dtype=torch.long, device=device)
 
@@ -169,12 +169,25 @@ def rescale_motion_tuples(motion_tuples, field_scale):
 def save_motion_params(meshes_rest, motion_tuples, save_dir):
     for cate, mesh_rest in meshes_rest.items():
         mesh_rest.export("%s/%s-mesh.obj" % (save_dir, cate))
-        motion_params = {"field2cam": [], "t_articulation": [], "joint_so3": []}
+        motion_params = {"field2cam": {}, "t_articulation": {}, "joint_so3": {}}
         os.makedirs("%s/fg/mesh/" % save_dir, exist_ok=True)
         os.makedirs("%s/bg/mesh/" % save_dir, exist_ok=True)
         os.makedirs("%s/fg/bone/" % save_dir, exist_ok=True)
         for frame_id, motion_expl in motion_tuples[cate].items():
+            frame_id = int(frame_id)
+            # save motion params
+            motion_params["field2cam"][frame_id] = motion_expl.field2cam.tolist()
+
+            if motion_expl.t_articulation is not None:
+                motion_params["t_articulation"][
+                    frame_id
+                ] = motion_expl.t_articulation.tolist()
+
+            if motion_expl.so3 is not None:
+                motion_params["joint_so3"][frame_id] = motion_expl.so3.tolist()  # K,3
             # save mesh
+            if cate == "bg" and frame_id != 0:
+                continue
             motion_expl.mesh_t.export(
                 "%s/%s/mesh/%05d.obj" % (save_dir, cate, frame_id)
             )
@@ -182,16 +195,6 @@ def save_motion_params(meshes_rest, motion_tuples, save_dir):
                 motion_expl.bone_t.export(
                     "%s/%s/bone/%05d.obj" % (save_dir, cate, frame_id)
                 )
-
-            # save motion params
-            motion_params["field2cam"].append(motion_expl.field2cam.tolist())
-
-            if motion_expl.t_articulation is not None:
-                motion_params["t_articulation"].append(
-                    motion_expl.t_articulation.tolist()
-                )
-            if motion_expl.so3 is not None:
-                motion_params["joint_so3"].append(motion_expl.so3.tolist())  # K,3
 
         with open("%s/%s/motion.json" % (save_dir, cate), "w") as fp:
             json.dump(motion_params, fp)
@@ -269,6 +272,10 @@ def export(opts):
         camera_info = {}
         camera_info["raw_size"] = data_info["raw_size"][opts["inst_id"]].tolist()
         camera_info["intrinsics"] = intrinsics.cpu().numpy().tolist()
+        if "bg" in model.fields.field_params.keys():
+            bg_field = model.fields.field_params["bg"]
+            bg_scale = bg_field.logscale.exp().cpu().numpy().tolist()
+            camera_info["bg_scale"] = bg_scale
         json.dump(camera_info, open("%s/camera.json" % (save_dir), "w"))
 
     # save reference images

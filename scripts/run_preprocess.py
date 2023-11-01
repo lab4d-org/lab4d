@@ -53,7 +53,7 @@ def run_extract_frames(seqname, outdir, infile, use_filter_frames):
     imgpath = f"{outdir}/JPEGImagesRaw/Full-Resolution/{seqname}"
     run_bash_command(f"rm -rf {imgpath}")
     os.makedirs(imgpath, exist_ok=True)
-    extract_frames(infile, imgpath)
+    extract_frames(infile, imgpath, desired_fps=10)
 
     # remove existing dirs for preprocessing
     remove_exist_dir(seqname, outdir)

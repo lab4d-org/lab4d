@@ -70,6 +70,7 @@ def extract_dinov2_seq(seqname, crop_size, use_full, component_id, pca_save):
     imgdir = "database/processed/JPEGImages/Full-Resolution/%s" % seqname
     save_path = imgdir.replace("JPEGImages", "Cameras")
     imglist = sorted(glob.glob("%s/*.jpg" % imgdir))
+    print("extracting dino features from %s" % imgdir)
     feats = []
     for it, impath in enumerate(imglist):
         # print(impath)
@@ -82,7 +83,8 @@ def extract_dinov2_seq(seqname, crop_size, use_full, component_id, pca_save):
         with torch.no_grad():
             feat = extract_dino_feat(dinov2_model, rgb, size=(112, 112))
         feat = feat.reshape(-1, feat.shape[-1])
-        feat = pca_save.transform(feat)
+        if pca_save is not None:
+            feat = pca_save.transform(feat)
         feat = feat.reshape(112, 112, -1)
         feat = feat / np.linalg.norm(feat, axis=-1)[..., None]
         mask = cv2.resize(mask, (112, 112))
@@ -115,7 +117,7 @@ def extract_dinov2_seq(seqname, crop_size, use_full, component_id, pca_save):
     print("dino features saved to %s" % save_path_dp)
 
 
-def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0]):
+def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0], ndim=16):
     dinov2_model = load_dino_model(gpu_id=gpulist[0])
     # compute pca matrix over all frames
     # load image path
@@ -150,8 +152,11 @@ def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0]):
         pca_vis = PCA(n_components=3)
         pca_vis.fit(feat_sampled)
 
-        pca_save = PCA(n_components=16)
-        pca_save.fit(feat_sampled)
+        if ndim == -1:
+            pca_save = None
+        else:
+            pca_save = PCA(n_components=ndim)
+            pca_save.fit(feat_sampled)
 
     # compute features with pca
     args = []

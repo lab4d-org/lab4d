@@ -2,6 +2,8 @@
 import json
 import glob
 import numpy as np
+import pdb
+import os
 import cv2
 import argparse
 import trimesh
@@ -9,7 +11,7 @@ import tqdm
 
 
 class MeshLoader:
-    def __init__(self, testdir, mode, compose_mode):
+    def __init__(self, testdir, mode="", compose_mode=""):
         # io
         camera_info = json.load(open("%s/camera.json" % (testdir), "r"))
         intrinsics = np.asarray(camera_info["intrinsics"], dtype=np.float32)
@@ -68,7 +70,7 @@ class MeshLoader:
             self.world2field = None
 
     def __len__(self):
-        return len(self.path_list)
+        return len(self.field2cam_fg_dict)
 
     def load_files(self, ghosting=False):
         mode = self.mode
@@ -86,13 +88,18 @@ class MeshLoader:
         ghost_dict = {}
         aabb_min = np.asarray([np.inf, np.inf])
         aabb_max = np.asarray([-np.inf, -np.inf])
-        for counter, mesh_path in enumerate(path_list):
-            frame_idx = int(mesh_path.split("/")[-1].split(".")[0])
-            mesh = trimesh.load(mesh_path, process=False)
-            mesh.visual.vertex_colors = (
-                mesh.visual.vertex_colors
-            )  # visual.kind = 'vertex'
-            field2cam_fg = np.asarray(field2cam_fg_dict[frame_idx])
+        for counter in range(self.__len__()):
+            frame_idx = int(list(self.field2cam_fg_dict.keys())[counter])
+            if counter > 0 and len(path_list) == 1:
+                pass
+            else:
+                mesh_path = path_list[counter]
+                mesh = trimesh.load(mesh_path, process=False)
+                mesh.visual.vertex_colors = (
+                    mesh.visual.vertex_colors
+                )  # visual.kind = 'vertex'
+
+            field2cam_fg = np.asarray(field2cam_fg_dict[str(frame_idx)])
 
             # post-modify the scale of the fg
             # mesh.vertices = mesh.vertices / 2
@@ -109,19 +116,23 @@ class MeshLoader:
                 bone_dict[frame_idx] = bone
 
             if compose_mode == "compose":
-                # load scene
                 scene_path = mesh_path.replace("fg/mesh", "bg/mesh")
-                scene = trimesh.load(scene_path, process=False)
-                scene.visual.vertex_colors = scene.visual.vertex_colors
+                if counter > 0 and os.path.exists(scene_path) == False:
+                    pass
+                else:
+                    # load scene
+                    scene = trimesh.load(scene_path, process=False)
+                    scene.visual.vertex_colors = scene.visual.vertex_colors
 
                 # align bg floor with xz plane
-                scene.vertices = (
-                    scene.vertices @ field2world[:3, :3].T + field2world[:3, 3]
+                scene_t = scene.copy()
+                scene_t.vertices = (
+                    scene_t.vertices @ field2world[:3, :3].T + field2world[:3, 3]
                 )
                 field2cam_bg = field2cam_bg_dict[frame_idx] @ world2field
                 field2cam_bg_dict[frame_idx] = field2cam_bg
 
-                scene_dict[frame_idx] = scene
+                scene_dict[frame_idx] = scene_t
                 # use scene camera
                 extr_dict[frame_idx] = field2cam_bg_dict[frame_idx]
                 # transform to scene

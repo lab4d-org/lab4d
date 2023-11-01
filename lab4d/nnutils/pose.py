@@ -34,6 +34,49 @@ from lab4d.utils.vis_utils import draw_cams
 from lab4d.utils.torch_utils import reinit_model
 
 
+class CameraMix(nn.Module):
+    """Mix multiple camera models based on sequence id
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+        const_id: (N,) Sequence id whose camera pose is constant
+    """
+
+    def __init__(self, rtmat, frame_info=None, const_vid_id=0):
+        super().__init__()
+        self.camera_const = CameraConst(rtmat, frame_info)
+        self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
+        self.frame_info = frame_info
+        self.const_vid_id = const_vid_id
+
+    def mlp_init(self):
+        self.camera_mlp.mlp_init()
+
+    def get_vals(self, frame_id=None):
+        """Compute camera pose at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute values at all frames
+        Returns:
+            quat: (M, 4) Output camera rotations
+            trans: (M, 3) Output camera translations
+        """
+        # compute all
+        quat_const, trans_const = self.camera_const.get_vals(frame_id)
+        quat, trans = self.camera_mlp.get_vals(frame_id)
+        # mix based on sequence id
+        if frame_id is None:
+            frame_id = self.camera_mlp.time_embedding.frame_mapping
+
+        raw_fid_to_vid = self.camera_mlp.time_embedding.raw_fid_to_vid
+        const_frame_id = raw_fid_to_vid[frame_id] == self.const_vid_id
+        if const_frame_id.sum() > 0:
+            quat[const_frame_id] = quat_const[const_frame_id]
+            trans[const_frame_id] = trans_const[const_frame_id]
+
+        return quat, trans
+
+
 class CameraConst(nn.Module):
     """Constant camera pose
 
@@ -51,6 +94,10 @@ class CameraConst(nn.Module):
                 "frame_mapping": list(range(num_frames)),
                 "frame_offset_raw": np.asarray([0, num_frames]),
             }
+        frame_mapping = torch.tensor(frame_info["frame_mapping"])
+        frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
+        frame_mapping_inv[frame_mapping] = torch.arange(len(frame_mapping))
+        self.register_buffer("frame_mapping_inv", frame_mapping_inv, persistent=False)
 
         # camera pose: field to camera
         rtmat = torch.tensor(rtmat, dtype=torch.float32)
@@ -71,10 +118,13 @@ class CameraConst(nn.Module):
             quat: (M, 4) Output camera rotations
             trans: (M, 3) Output camera translations
         """
+        # TODO: frame_id is absolute, need to fix
+        # frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
         if frame_id is None:
             quat = self.quat
             trans = self.trans
         else:
+            frame_id = self.frame_mapping_inv[frame_id.long()]
             quat = self.quat[frame_id]
             trans = self.trans[frame_id]
         return quat, trans

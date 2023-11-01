@@ -31,6 +31,7 @@ class TrainModelConfig:
     flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
     # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
+    flags.DEFINE_float("reg_cam_smooth_wt", 0.0, "scale for camera smoothness reg")
     flags.DEFINE_float("reg_skel_prior_wt", 0.01, "weight for skeleton regularization")
     flags.DEFINE_float(
         "reg_gauss_mask_wt", 0.01, "weight for gauss mask regularization"
@@ -47,6 +48,7 @@ class TrainModelConfig:
     flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
     flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")
+    flags.DEFINE_integer("feature_channels", 16, "number of channels in features mlp")
 
 
 class TrainOptConfig:
@@ -78,9 +80,14 @@ class TrainOptConfig:
         "reset steps of loss scheduling, set to False if resuming training",
     )
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
+    flags.DEFINE_boolean("freeze_field", False, "whether to freeze field for alignment")
+    flags.DEFINE_boolean("freeze_scale", False, "whether to freeze scale")
     flags.DEFINE_boolean("alter_flow", False, "alternatve between flow and all terms")
     flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")
     flags.DEFINE_boolean("absorb_base", True, "whether to absorb se3 into base")
+    flags.DEFINE_boolean("reset_beta", False, "whether to reset transparency to blury")
+    flags.DEFINE_float("init_scale_fg", 0.2, "initial scale for the fg field")
+    flags.DEFINE_float("init_scale_bg", 0.05, "initial scale for the bg field")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

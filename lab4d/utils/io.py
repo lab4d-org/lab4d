@@ -39,6 +39,7 @@ def save_vid(
     upsample_frame=0,
     fps=10,
     target_size=None,
+    max_pixels=4e6,
 ):
     """Save frames to video
 
@@ -62,6 +63,9 @@ def save_vid(
         frame = frame.astype(np.uint8)
         if target_size is not None:
             frame = cv2.resize(frame, target_size[::-1])
+        elif frame.shape[0] * frame.shape[1] > max_pixels:
+            fxy = np.sqrt(max_pixels / (frame.shape[0] * frame.shape[1]))
+            frame = cv2.resize(frame, None, fx=fxy, fy=fxy)
         if suffix == ".gif":
             h, w = frame.shape[:2]
             fxy = np.sqrt(4e4 / (h * w))

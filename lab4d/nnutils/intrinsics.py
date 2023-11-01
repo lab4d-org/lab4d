@@ -7,6 +7,60 @@ from lab4d.nnutils.time import TimeMLP
 from lab4d.utils.torch_utils import reinit_model
 
 
+class IntrinsicsMix(nn.Module):
+    """Mix of constant and MLP camera intrinsics
+
+    Args:
+        intrinsics: (N,4) Camera intrinsics (fx, fy, cx, cy)
+        frame_info (Dict): Metadata about the frames in a dataset
+        const_vid_id (int): Video id to use for constant intrinsics
+    """
+
+    def __init__(self, intrinsics, frame_info=None, num_freq_t=0, const_vid_id=0):
+        super().__init__()
+        self.intrinsics_const = IntrinsicsConst(intrinsics, frame_info=frame_info)
+        self.intrinsics_mlp = IntrinsicsMLP(
+            intrinsics, frame_info=frame_info, num_freq_t=num_freq_t
+        )
+        self.frame_info = frame_info
+        self.const_vid_id = const_vid_id
+
+    def mlp_init(self):
+        self.intrinsics_mlp.mlp_init()
+
+    def get_vals(self, frame_id=None):
+        """Compute camera intrinsics at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute at all frames
+        Returns:
+            intrinsics: (..., 4) Output camera intrinsics
+        """
+        intrinsics_const = self.intrinsics_const.get_vals(frame_id=frame_id)
+        intrinsics = self.intrinsics_mlp.get_vals(frame_id=frame_id)
+
+        # mix based on sequence id
+        if frame_id is None:
+            frame_id = self.intrinsics_mlp.time_embedding.frame_mapping
+
+        raw_fid_to_vid = self.intrinsics_mlp.time_embedding.raw_fid_to_vid
+        const_frame_id = raw_fid_to_vid[frame_id] == self.const_vid_id
+        if const_frame_id.sum() > 0:
+            intrinsics[const_frame_id] = intrinsics_const[const_frame_id]
+        return intrinsics
+
+    def get_intrinsics(self, inst_id=None):
+        if inst_id is None:
+            frame_id = None
+        else:
+            frame_id = np.arange(
+                self.frame_info["frame_offset"][inst_id],
+                self.frame_info["frame_offset"][inst_id + 1],
+            )
+        intrinsics = self.get_vals(frame_id=frame_id)
+        return intrinsics
+
+
 class IntrinsicsConst(nn.Module):
     """Constant camera intrinsics
 
@@ -25,6 +79,10 @@ class IntrinsicsConst(nn.Module):
                 "frame_offset_raw": np.asarray([0, num_frames]),
             }
         self.frame_info = frame_info
+        frame_mapping = torch.tensor(frame_info["frame_mapping"])
+        frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
+        frame_mapping_inv[frame_mapping] = torch.arange(len(frame_mapping))
+        self.register_buffer("frame_mapping_inv", frame_mapping_inv, persistent=False)
         # camera intrinsics: fx,fy,px,py
         self.register_buffer(
             "intrinsics",
@@ -45,6 +103,7 @@ class IntrinsicsConst(nn.Module):
         """
         if frame_id is None:
             intrinsics = self.intrinsics
+        frame_id = self.frame_mapping_inv[frame_id]
         intrinsics = self.intrinsics[frame_id]
         return intrinsics
 

@@ -50,6 +50,8 @@ def extract_depth(seqname):
         # print(img_path)
         image = Image.open(img_path)
         depth = zoe.infer_pil(image)
+        # # TODO empirically depth is 0.48 times the real depth
+        # depth = depth * 0.48
         depth = resize_to_target(depth, is_flow=False).astype(np.float16)
         out_path = f"{output_dir}/{os.path.basename(img_path).replace('.jpg', '.npy')}"
         np.save(out_path, depth)

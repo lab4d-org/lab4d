@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import List
 import argparse
+import configparser
 
 import cv2
 import numpy as np
@@ -26,6 +27,7 @@ from lab4d.utils.mesh_loader import MeshLoader
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
+parser.add_argument("--seqname", default="", help="path to the directory of inputs")
 parser.add_argument("--fps", default=30, type=int, help="fps of the video")
 parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
@@ -46,8 +48,7 @@ def find_seqname(testdir):
     if "seqname" not in locals():
         raise ValueError("Could not find seqname in opts.log")
     inst_id = int(parts[2].split("_")[-1])
-    seqname = "%s-%04d" % (seqname, inst_id)
-    return seqname
+    return seqname, inst_id
 
 
 def main(
@@ -64,8 +65,11 @@ def main(
     fps = args.fps
 
     # load images
-    seqname = find_seqname(args.testdir)
-    img_dir = "database/processed/JPEGImages/Full-Resolution/%s/" % seqname
+    seqname, inst_id = find_seqname(args.testdir)
+    config = configparser.RawConfigParser()
+    config.read("database/configs/%s.config" % seqname)
+    img_dir = config.get("data_%d" % inst_id, "img_path")
+    print("Loading images from %s" % img_dir)
     rgb_list = [cv2.imread("%s/%05d.jpg" % (img_dir, i)) for i in range(num_frames)]
     rgb_list = [rgb[::downsample_factor, ::downsample_factor, ::-1] for rgb in rgb_list]
 
@@ -133,12 +137,19 @@ def main(
     input_dict = loader.query_frame(0)
     if "scene" in input_dict:
         server.add_mesh_trimesh(name=f"/frames/scene", mesh=input_dict["scene"])
+    if len(loader.path_list) == 1:
+        # for background-only
+        server.add_mesh_trimesh(name=f"/frames/scene", mesh=input_dict["shape"])
     for i in tqdm(range(num_frames)):
         # Add base frame.
         frame_nodes.append(server.add_frame(f"/frames/t{i}", show_axes=False))
 
         input_dict = loader.query_frame(i)
-        server.add_mesh_trimesh(name=f"/frames/t{i}/shape", mesh=input_dict["shape"])
+        if len(loader.path_list) > 1:
+            # for foreground
+            server.add_mesh_trimesh(
+                name=f"/frames/t{i}/shape", mesh=input_dict["shape"]
+            )
         if "bone" in input_dict:
             server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
 

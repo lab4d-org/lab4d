@@ -11,7 +11,7 @@ from torch.autograd.functional import jacobian
 from lab4d.nnutils.appearance import AppearanceEmbedding
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
-from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3, CameraConst
+from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3, CameraConst, CameraMix
 from lab4d.nnutils.visibility import VisField
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import (
@@ -24,7 +24,7 @@ from lab4d.utils.geom_utils import (
     check_inside_aabb,
     compute_rectification_se3,
 )
-from lab4d.utils.loss_utils import align_tensors
+from lab4d.utils.loss_utils import align_tensors, compute_se3_smooth_loss
 from lab4d.utils.quat_transform import (
     quaternion_apply,
     quaternion_translation_inverse,
@@ -117,7 +117,7 @@ class NeRF(nn.Module):
         )
 
         # color
-        self.pos_embedding_color = PosEmbedding(3, 12)
+        self.pos_embedding_color = PosEmbedding(3, num_freq_xyz + 2)
         self.colorfield = field_arch(
             num_inst=self.num_inst,
             D=2,
@@ -182,6 +182,8 @@ class NeRF(nn.Module):
             # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
         elif extrinsics_type == "const":
             self.camera_mlp = CameraConst(rtmat, frame_info=frame_info)
+        elif extrinsics_type == "mix":
+            self.camera_mlp = CameraMix(rtmat, frame_info=frame_info, const_vid_id=0)
         else:
             raise NotImplementedError
 
@@ -632,6 +634,12 @@ class NeRF(nn.Module):
 
         return valid_idx
 
+    def reset_beta(self, beta):
+        """Reset beta to initial value"""
+        print(f"Resetting beta to {beta}")
+        beta = torch.tensor([beta], device=next(self.parameters()).device)
+        self.logibeta.data = -beta.log()
+
     def get_samples(self, Kinv, batch):
         """Compute time-dependent camera and articulation parameters.
 
@@ -661,8 +669,7 @@ class NeRF(nn.Module):
 
         # # compute near-far
         # if self.training:
-        #     near_far = self.near_far.to(device)
-        #     near_far = near_far[batch["frameid"]]
+        #     near_far = self.near_far[frame_id]
         # else:
         #     near_far = self.get_near_far(frame_id, field2cam)
         near_far = self.get_near_far(frame_id, field2cam)
@@ -1189,7 +1196,25 @@ class NeRF(nn.Module):
         """
         if isinstance(self.camera_mlp, CameraConst):
             return torch.zeros(1, device=self.parameters().__next__().device)
+        if isinstance(self.camera_mlp, CameraMix):
+            return self.camera_mlp.camera_mlp.compute_distance_to_prior()
         loss = self.camera_mlp.compute_distance_to_prior()
+        return loss
+
+    def cam_smooth_loss(self):
+        """Encourage camera transforms over time to be smooth.
+
+        Returns:
+            loss: (0,) Mean squared error of camera SE(3) transforms to priors
+        """
+        if isinstance(self.camera_mlp, CameraConst):
+            return torch.zeros(1, device=self.parameters().__next__().device)
+        if isinstance(self.camera_mlp, CameraMix):
+            extrinsics = self.get_camera()
+
+        # compute smoothness
+        extrinsics = self.get_camera()
+        loss = compute_se3_smooth_loss(extrinsics, self.frame_offset)
         return loss
 
     def get_camera(self, frame_id=None):

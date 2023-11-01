@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from lab4d.nnutils.nerf import NeRF
+from lab4d.nnutils.feature import FeatureNeRF
 
 import trimesh
 from pysdf import SDF
@@ -11,17 +12,18 @@ from lab4d.nnutils.base import MixMLP, MultiMLP, CondMLP, DictMLP
 from lab4d.nnutils.visibility import VisField
 
 
-class BGNeRF(NeRF):
+# class BGNeRF(NeRF):
+class BGNeRF(FeatureNeRF):
     """A static neural radiance field with an MLP backbone. Specialized to background."""
 
-    # def __init__(self, data_info, field_arch=CondMLP, D=5, W=128, **kwargs):
     # def __init__(self, data_info, field_arch=MixMLP, D=1, W=64, **kwargs):
-    def __init__(self, data_info, field_arch=DictMLP, D=8, W=256, **kwargs):
+    # def __init__(self, data_info, field_arch=DictMLP, D=8, W=256, **kwargs):
+    def __init__(self, data_info, field_arch=CondMLP, D=8, W=256, **kwargs):
         super(BGNeRF, self).__init__(
             data_info, field_arch=field_arch, D=D, W=W, **kwargs
         )
         # self.vis_mlp = VisField(self.num_inst, D=D, W=W, field_arch=field_arch)
-        self.vis_mlp = VisField(self.num_inst, D=1, W=64, field_arch=MixMLP)
+        # self.vis_mlp = VisField(self.num_inst, D=1, W=64, field_arch=MixMLP)
         # TODO: update per-scene beta
         # TODO: update per-scene scale
 
@@ -133,6 +135,7 @@ class BGNeRF(NeRF):
         field2cam_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])
 
         near_far_all = []
+        frame_id = frame_id.cpu().numpy()
         for inst_id in range(self.num_inst):
             frame_id_sel = frame_id_all[
                 frame_offset[inst_id] : frame_offset[inst_id + 1]

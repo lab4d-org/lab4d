@@ -3,6 +3,44 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 
+from lab4d.utils.geom_utils import rot_angle
+
+
+def compute_se3_smooth_loss(rtk_all, data_offset, vid=None):
+    """
+    2nd order loss
+    """
+    rot_sm_loss = []
+    trn_sm_loss = []
+    for didx in range(len(data_offset) - 1):
+        if vid is not None and didx not in vid:
+            continue
+        stt_idx = data_offset[didx]
+        end_idx = data_offset[didx + 1]
+
+        stt_rtk = rtk_all[stt_idx : end_idx - 2]
+        mid_rtk = rtk_all[stt_idx + 1 : end_idx - 1]
+        end_rtk = rtk_all[stt_idx + 2 : end_idx]
+
+        rot_sub1 = stt_rtk[:, :3, :3].matmul(mid_rtk[:, :3, :3].permute(0, 2, 1))
+        rot_sub2 = mid_rtk[:, :3, :3].matmul(end_rtk[:, :3, :3].permute(0, 2, 1))
+
+        trn_sub1 = stt_rtk[:, :3, 3] - mid_rtk[:, :3, 3]
+        trn_sub2 = mid_rtk[:, :3, 3] - end_rtk[:, :3, 3]
+
+        rot_sm_sub = rot_sub1.matmul(rot_sub2.permute(0, 2, 1))
+        trn_sm_sub = trn_sub1 - trn_sub2
+
+        rot_sm_loss.append(rot_sm_sub)
+        trn_sm_loss.append(trn_sm_sub)
+    rot_sm_loss = torch.cat(rot_sm_loss, 0)
+    rot_sm_loss = rot_angle(rot_sm_loss).mean() * 1e-1
+    trn_sm_loss = torch.cat(trn_sm_loss, 0)
+    trn_sm_loss = trn_sm_loss.norm(2, -1).mean()
+    root_sm_loss = rot_sm_loss + trn_sm_loss
+    root_sm_loss = root_sm_loss * 0.1
+    return root_sm_loss
+
 
 def entropy_loss(prob, dim=-1):
     """Compute entropy of a probability distribution

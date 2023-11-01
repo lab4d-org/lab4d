@@ -7,7 +7,12 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from lab4d.engine.train_utils import get_local_rank
-from lab4d.nnutils.intrinsics import IntrinsicsMLP, IntrinsicsConst, IntrinsicsMLP_delta
+from lab4d.nnutils.intrinsics import (
+    IntrinsicsMLP,
+    IntrinsicsConst,
+    IntrinsicsMix,
+    IntrinsicsMLP_delta,
+)
 from lab4d.nnutils.pose import CameraMLP_so3
 from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.multifields import MultiFields
@@ -37,6 +42,9 @@ class dvr_model(nn.Module):
             single_inst=config["single_inst"],
             single_scene=config["single_scene"],
             extrinsics_type=config["extrinsics_type"],
+            feature_channels=config["feature_channels"],
+            init_scale_fg=config["init_scale_fg"],
+            init_scale_bg=config["init_scale_bg"],
         )
         self.construct_intrinsics(data_info)
 
@@ -53,6 +61,12 @@ class dvr_model(nn.Module):
             self.intrinsics = IntrinsicsConst(
                 self.data_info["intrinsics"],
                 frame_info=self.data_info["frame_info"],
+            )
+        elif config["intrinsics_type"] == "mix":
+            self.intrinsics = IntrinsicsMix(
+                self.data_info["intrinsics"],
+                frame_info=self.data_info["frame_info"],
+                num_freq_t=0,
             )
         else:
             raise NotImplementedError
@@ -181,6 +195,7 @@ class dvr_model(nn.Module):
                 "rgb_wt",
                 "normal_wt",
                 "reg_gauss_mask_wt",
+                "feature_wt",
             ]
             if current_steps < 1600 and current_steps % 2 == 0:
                 # set to 0
@@ -318,7 +333,9 @@ class dvr_model(nn.Module):
         for k, v in rendered.items():
             if "mask" in k:
                 continue
-            elif "xyz_matches" in k or "xyz_reproj" in k:
+            elif (
+                "xyz_matches" in k or "xyz_reproj" in k
+            ) and "mask_id-fg" in rendered.keys():
                 rendered[k] = rendered[k] * (rendered["mask_id-fg"] > 0.5).float()
             elif "xy_reproj" in k:
                 mask = batch["feature"][::div_factor].norm(2, -1, keepdim=True) > 0
@@ -552,6 +569,10 @@ class dvr_model(nn.Module):
             if "xyz_matches" in aux_dict["fg"].keys():
                 rendered["xyz_matches"] = aux_dict["fg"]["xyz_matches"]
                 rendered["xyz_reproj"] = aux_dict["fg"]["xyz_reproj"]
+        elif "bg" in aux_dict.keys():
+            if "xyz_matches" in aux_dict["bg"].keys():
+                rendered["xyz_matches"] = aux_dict["bg"]["xyz_matches"]
+                rendered["xyz_reproj"] = aux_dict["bg"]["xyz_reproj"]
 
         results = {"rendered": rendered, "aux_dict": aux_dict}
         return results
@@ -667,10 +688,39 @@ class dvr_model(nn.Module):
             raise ("field_type %s not supported" % config["field_type"])
 
         if config["field_type"] == "fg" or config["field_type"] == "comp":
-            loss_dict["feature"] = (aux_dict["fg"]["feature"] - batch["feature"]).norm(
-                2, -1, keepdim=True
-            )
-            loss_dict["feat_reproj"] = aux_dict["fg"]["xy_reproj"]
+            feature_loss_fg = aux_dict["fg"]["feature"] - batch["feature"]
+            feature_loss_fg = feature_loss_fg.norm(2, -1, keepdim=True)
+            feature_loss_fg = feature_loss_fg * batch["mask"].float()
+            feat_reproj_loss_fg = aux_dict["fg"]["xy_reproj"] * batch["mask"].float()
+        if config["field_type"] == "bg":
+            feature_loss_bg = aux_dict["bg"]["feature"] - batch["feature"]
+            feature_loss_bg = feature_loss_bg.norm(2, -1, keepdim=True)
+            feature_loss_bg = feature_loss_bg * (1 - batch["mask"].float())
+            # lfeat_reproj_loss_bg = aux_dict["bg"]["xy_reproj"]
+            # 3D matching loss (not working due to ambituities)
+            feat_reproj_loss_bg = aux_dict["bg"]["xyz"] - aux_dict["bg"]["xyz_matches"]
+            feat_reproj_loss_bg = 100 * feat_reproj_loss_bg.norm(2, -1, keepdim=True)
+            feat_reproj_loss_bg = feat_reproj_loss_bg * (1 - batch["mask"].float())
+        if config["field_type"] == "comp":
+            loss_dict["feature"] = feature_loss_fg + feature_loss_bg
+            loss_dict["feat_reproj"] = feat_reproj_loss_fg + feat_reproj_loss_bg
+        elif config["field_type"] == "fg":
+            loss_dict["feature"] = feature_loss_fg
+            loss_dict["feat_reproj"] = feat_reproj_loss_fg
+        elif config["field_type"] == "bg":
+            loss_dict["feature"] = feature_loss_bg
+            loss_dict["feat_reproj"] = feat_reproj_loss_bg
+
+        # else:
+        #     if "bg" in aux_dict.keys() and "feature" in aux_dict["bg"].keys():
+        #         loss_dict["feature"] = (
+        #             aux_dict["bg"]["feature"] - batch["feature"]
+        #         ).norm(2, -1, keepdim=True)
+        #         # loss_dict["feat_reproj"] = aux_dict["bg"]["xy_reproj"]
+        #         # 3D matching loss (not working due to ambituities)
+        #         loss_dict["feat_reproj"] = 100 * (
+        #             aux_dict["bg"]["xyz"] - aux_dict["bg"]["xyz_matches"]
+        #         ).norm(2, -1, keepdim=True)
 
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
         loss_dict["depth"] = (rendered["depth"] - batch["depth"]).abs()
@@ -737,6 +787,7 @@ class dvr_model(nn.Module):
         if self.config["reg_gauss_skin_wt"] > 0:
             loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
+        loss_dict["reg_cam_smooth"] = self.fields.cam_smooth_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
 
         # render rgb from a random view
@@ -838,10 +889,16 @@ class dvr_model(nn.Module):
         keys_ignore_masking = ["reg_gauss_mask"]
         # always mask-out non-visible (out-of-frame) pixels
         keys_allpix = ["mask"]
-        # always mask-out non-object pixels
-        keys_fg = ["feature", "feat_reproj"]
         # field type specific keys
-        keys_type_specific = ["rgb", "depth", "flow", "vis", "normal"]
+        keys_type_specific = [
+            "rgb",
+            "depth",
+            "flow",
+            "vis",
+            "normal",
+            "feature",
+            "feat_reproj",
+        ]
 
         # type-specific masking rules
         vis2d = batch["vis2d"].float()
@@ -861,19 +918,12 @@ class dvr_model(nn.Module):
                 continue
             elif k in keys_allpix:
                 loss_dict[k] = v * vis2d
-            elif k in keys_fg:
-                loss_dict[k] = v * maskfg
             elif k in keys_type_specific:
                 loss_dict[k] = v * mask
             else:
                 raise ("loss %s not defined" % k)
 
-        # mask out the following losses if obj is not detected
-        keys_mask_not_detected = ["feature", "feat_reproj"]
         is_detected = batch["is_detected"].float()[:, None, None]
-        for k, v in loss_dict.items():
-            if k in keys_mask_not_detected:
-                loss_dict[k] = v * is_detected
 
         # remove mask loss for frames without detection
         if config["field_type"] == "fg" or config["field_type"] == "comp":
@@ -918,7 +968,8 @@ class dvr_model(nn.Module):
             if wt_name in config.keys():
                 loss_dict[k] *= config[wt_name]
 
-    def get_field_betas(self):
+    @torch.no_grad()
+    def get_field_params(self):
         """Get beta values for all neural fields
 
         Returns:
@@ -927,4 +978,5 @@ class dvr_model(nn.Module):
         beta_dicts = {}
         for field in self.fields.field_params.values():
             beta_dicts["beta/%s" % field.category] = field.logibeta.exp()
+            beta_dicts["scale/%s" % field.category] = field.logscale.exp()
         return beta_dicts

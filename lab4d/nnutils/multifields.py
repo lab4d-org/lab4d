@@ -8,6 +8,7 @@ from torch import nn
 
 from lab4d.nnutils.deformable import Deformable
 from lab4d.nnutils.nerf import NeRF
+from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.bgnerf import BGNeRF
 from lab4d.nnutils.pose import ArticulationSkelMLP, CameraMLP_so3
 from lab4d.nnutils.warping import ComposedWarp, SkinningWarp
@@ -36,6 +37,9 @@ class MultiFields(nn.Module):
         single_inst=True,
         single_scene=True,
         extrinsics_type="mlp",
+        feature_channels=16,
+        init_scale_fg=0.2,
+        init_scale_bg=0.05,
     ):
         vis_info = data_info["vis_info"]
 
@@ -46,6 +50,9 @@ class MultiFields(nn.Module):
         self.single_inst = single_inst
         self.single_scene = single_scene
         self.extrinsic_type = extrinsics_type
+        self.feature_channels = feature_channels
+        self.init_scale_fg = init_scale_fg
+        self.init_scale_bg = init_scale_bg
 
         # specify field type
         if field_type == "comp":
@@ -85,14 +92,17 @@ class MultiFields(nn.Module):
                 num_freq_dir=-1,
                 appr_channels=32,
                 num_inst=1 if self.single_inst else num_inst,
-                init_scale=0.2,
+                init_scale=self.init_scale_fg,
+                feature_channels=self.feature_channels,
             )
             # no directional encoding
         elif category == "bg":
             if self.single_scene:
-                bg_arch = NeRF
+                bg_arch = FeatureNeRF
             else:
                 bg_arch = BGNeRF
+            # increase freq according to scale
+            num_freq_xyz = int(np.log2(self.init_scale_bg / 0.05) + 10)
             nerf = bg_arch(
                 data_info,
                 D=8,
@@ -100,9 +110,10 @@ class MultiFields(nn.Module):
                 num_freq_dir=0,
                 appr_channels=0,
                 num_inst=num_inst,
-                init_scale=0.05,
-                # init_scale=0.2,
+                init_scale=self.init_scale_bg,
+                num_freq_xyz=num_freq_xyz,
                 extrinsics_type=self.extrinsic_type,
+                feature_channels=self.feature_channels,
             )
         else:  # exit with an error
             raise ValueError("Invalid category")
@@ -160,6 +171,11 @@ class MultiFields(nn.Module):
             field.update_proxy()
             field.update_aabb(beta=0)
             field.update_near_far(beta=0)
+
+    def reset_beta(self, beta):
+        """Reset beta for all child fields"""
+        for field in self.field_params.values():
+            field.reset_beta(beta)
 
     @torch.no_grad()
     def extract_canonical_meshes(
@@ -279,6 +295,19 @@ class MultiFields(nn.Module):
         loss = []
         for field in self.field_params.values():
             loss.append(field.cam_prior_loss())
+        loss = torch.stack(loss, 0).sum(0).mean()
+        return loss
+
+    def cam_smooth_loss(self):
+        """Compute mean camera smoothness loss over all child fields.
+        Encourage camera transforms over time to be smooth.
+
+        Returns:
+            loss: (0,) Mean camera smoothness loss
+        """
+        loss = []
+        for field in self.field_params.values():
+            loss.append(field.cam_smooth_loss())
         loss = torch.stack(loss, 0).sum(0).mean()
         return loss
 
@@ -418,6 +447,7 @@ class MultiFields(nn.Module):
             deltas = torch.gather(deltas, 2, z_idx.expand_as(deltas))
         return field_dict, deltas
 
+    @torch.no_grad()
     def get_cameras(self, frame_id=None):
         """Compute camera matrices in world units
 
@@ -431,6 +461,7 @@ class MultiFields(nn.Module):
             field2cam[cate] = quaternion_translation_to_se3(quat, trans)
         return field2cam
 
+    @torch.no_grad()
     def get_aabb(self, inst_id=None):
         """Compute axis aligned bounding box
         Args:

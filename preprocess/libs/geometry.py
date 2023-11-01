@@ -50,6 +50,41 @@ def compute_procrustes_robust(pts0, pts1):
     return sol
 
 
+def compute_procrustes_median(pts0, pts1):
+    """
+    analytical solution of R/t from correspondence
+    ignore large errors
+    pts0: N x 3
+    pts1: N x 3
+    """
+    if pts0.shape[0] < 10:
+        print("Warning: too few points for procrustes. Return identity.")
+        return np.eye(3), np.zeros(3), 100.0
+
+    num_samples = 100
+    min_samples = 10
+
+    errors = []
+    samples = []
+    idx_array = np.arange(pts0.shape[0])
+    for i in range(num_samples):
+        sample = np.random.choice(idx_array, size=min_samples, replace=False)
+        sol = compute_procrustes(pts0[sample], pts1[sample])
+
+        # evaluate inliers
+        R, t = sol
+        pts2 = R @ pts0.T + t[:, np.newaxis]
+        dist = np.linalg.norm(pts2.T - pts1, 2, axis=1)
+        errors.append(np.median(dist))
+        samples.append(sample)
+
+    best_idx = np.argmin(errors)
+    print("median error: ", errors[best_idx])
+    best_sample = samples[best_idx]
+    sol = compute_procrustes(pts0[best_sample], pts1[best_sample])
+    return sol + (errors[best_idx],)
+
+
 @record_function("compute_procrustes")
 def compute_procrustes(pts0, pts1):
     """
@@ -74,9 +109,9 @@ def compute_procrustes(pts0, pts1):
 
     # pts2 = R @ pts0.T + t[:, np.newaxis]
     # pts2 = pts2.T
-    # trimesh.Trimesh(pts0).export('tmp/0.obj')
-    # trimesh.Trimesh(pts1).export('tmp/1.obj')
-    # trimesh.Trimesh(pts2).export('tmp/2.obj')
+    # trimesh.Trimesh(pts0).export("tmp/0.obj")
+    # trimesh.Trimesh(pts1).export("tmp/1.obj")
+    # trimesh.Trimesh(pts2).export("tmp/2.obj")
     return R, t
 
 
