@@ -36,5 +36,4 @@ class PPRConfig:
     flags.DEFINE_float("reg_phys_ja_wt", 0.02, "weight for soft physics regularization")
 
     # io-related
-    flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")
     flags.DEFINE_string("load_suffix_phys", "", "sufix of params, {latest, 0, 10, ...}")

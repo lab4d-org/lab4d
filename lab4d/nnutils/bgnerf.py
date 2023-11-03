@@ -129,24 +129,29 @@ class BGNeRF(FeatureNeRF):
         self.near_far.data = torch.cat(near_far_all, 0)
 
     def get_near_far(self, frame_id, field2cam):
+        """
+        Args:
+            frame_id: (N,) Frame ids
+            field2cam: (N,4,4) SE(3) camera transforms
+        Returns:
+            near_far: (N,2) Near-far bounds
+        """
         device = next(self.parameters()).device
         frame_id_all = list(range(self.num_frames))
         frame_offset = self.frame_offset
         field2cam_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])
 
-        near_far_all = []
         frame_id = frame_id.cpu().numpy()
+        near_far = torch.zeros(len(frame_id), 2, device=device)
         for inst_id in range(self.num_inst):
-            frame_id_sel = frame_id_all[
+            frame_id_inst = frame_id_all[
                 frame_offset[inst_id] : frame_offset[inst_id + 1]
             ]
             # find the overlap of frame_id and frame_id_sel
-            id_sel = [i for i, x in enumerate(frame_id) if x in frame_id_sel]
+            id_sel = [i for i, x in enumerate(frame_id) if x in frame_id_inst]
             if len(id_sel) == 0:
                 continue
             corners = trimesh.bounds.corners(self.proxy_geometry[inst_id].bounds)
             corners = torch.tensor(corners, dtype=torch.float32, device=device)
-            near_far = get_near_far(corners, field2cam_mat[id_sel], tol_fac=1.5)
-            near_far_all.append(near_far)
-        near_far = torch.cat(near_far_all, 0)
+            near_far[id_sel] = get_near_far(corners, field2cam_mat[id_sel], tol_fac=1.5)
         return near_far

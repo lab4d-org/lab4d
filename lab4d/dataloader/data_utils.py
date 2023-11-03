@@ -83,7 +83,7 @@ def eval_loader(opts_dict):
     """
     num_workers = 0
 
-    dataset = config_to_dataset(opts_dict, is_eval=True)
+    dataset = config_to_dataset(opts_dict)
     dataset = DataLoader(
         dataset,
         batch_size=1,
@@ -114,7 +114,7 @@ def duplicate_dataset(opts, datalist):
     return datalist_mul
 
 
-def config_to_dataset(opts, is_eval=False, gpuid=[]):
+def config_to_dataset(opts):
     """Construct a PyTorch dataset that includes all videos in a sequence.
 
     Args:
@@ -136,11 +136,6 @@ def config_to_dataset(opts, is_eval=False, gpuid=[]):
     if opts["multiply"]:
         datalist = duplicate_dataset(opts, datalist)
 
-    # select a subset based on gpuid (for npy generation)
-    if len(gpuid) == 2:  # current id, total
-        vid_per_gpu = int(np.ceil(len(datalist) / gpuid[1]))
-        id_start = gpuid[0] * vid_per_gpu
-        datalist = datalist[id_start : id_start + vid_per_gpu]
     dataset = torch.utils.data.ConcatDataset(datalist)
     return dataset
 

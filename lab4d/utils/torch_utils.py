@@ -18,6 +18,7 @@ def resolve_size_mismatch(model, ckpt_states):
         if v.shape == model_v.shape:
             continue
         # resolve size mismatch
+        print("Resolving size mismatch for {}".format(k))
         if len(model_v.shape) == len(v.shape) + 1 and model_v.shape[1:] == v.shape:
             # stack
             ckpt_states[k] = torch.stack([v] * model_v.shape[0], dim=0)
@@ -27,9 +28,18 @@ def resolve_size_mismatch(model, ckpt_states):
             ckpt_states[k] = torch.repeat_interleave(v, model_v.shape[0], dim=0)
             print("Warning: repeating {} to {}".format(v.shape, model_v.shape))
         else:
-            raise ValueError(
-                "Size mismatch for {}: {} vs {}".format(k, model_v.shape, v.shape)
-            )
+            if k.endswith("time_embedding.mapping1.weight"):
+                model_v[..., : v.shape[-1]] = v
+                model_v[..., v.shape[-1] :] = 0
+                ckpt_states[k] = model_v
+                print("Warning: copying {} to {}".format(v.shape, model_v.shape))
+            elif k.endswith("base_quat") or k.endswith("base_trans"):
+                model_v[-v.shape[0] :] = v
+                ckpt_states[k] = model_v
+                print("Warning: copying {} to {}".format(v.shape, model_v.shape))
+            else:
+                print("ignored")
+                ckpt_states[k] = model_v
 
 
 def reinit_model(model, std=1):

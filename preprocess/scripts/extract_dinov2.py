@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
-# python preprocess/scripts/extract_dinov2.py cat-pikachu 256 "0"
+# python preprocess/scripts/extract_dinov2.py cat-pikachu 256 1 "0"
 # this assumes one component (object) per video
 import configparser
 import glob
@@ -171,6 +171,7 @@ def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0], ndim=16):
 if __name__ == "__main__":
     seqname = sys.argv[1]
     crop_size = int(sys.argv[2])
-    gpulist = [int(n) for n in sys.argv[3].split(",")]
+    component_id = int(sys.argv[3])
+    gpulist = [int(n) for n in sys.argv[4].split(",")]
 
-    extract_dinov2(seqname, crop_size, gpulist=gpulist)
+    extract_dinov2(seqname, crop_size, component_id, gpulist=gpulist, ndim=-1)

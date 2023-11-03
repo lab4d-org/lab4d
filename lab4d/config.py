@@ -63,6 +63,7 @@ class TrainOptConfig:
     flags.DEFINE_string("load_suffix", "", "sufix of params, {latest, 0, 10, ...}")
     flags.DEFINE_string("feature_type", "dinov2", "{dinov2, cse}")
     flags.DEFINE_string("load_path", "", "path to load pretrained model")
+    flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")
 
     # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")

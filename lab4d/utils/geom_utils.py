@@ -624,7 +624,7 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
     hypos = []
-    n_hypo = 5
+    n_hypo = 10
     for _ in range(n_hypo):
         if len(pcd.points) < 3:
             break
@@ -639,6 +639,7 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
         # print("segmented plane pts: ", len(segmented_pts.points) / len(mesh.vertices))
         score = np.asarray(up_direction).dot(best_eq[:3])
         hypos.append((best_eq, segmented_pts, score))
+        # trimesh.Trimesh(segmented_pts.points).export("tmp/segmented_{}.obj".format(_))
     # find the one with best score
     best_eq, segmented_pts, score = sorted(hypos, key=lambda x: x[-1])[-1]
 
@@ -648,6 +649,9 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
     dist = (center * plane_n).sum() + best_eq[3]
     plane_o = center - plane_n * dist
     plane = np.concatenate([plane_o, plane_n])
+
+    # hacky way to specify plane location
+    # plane = np.asarray([0.11, 0.018, 0.05, 0, -1, 0])
 
     # xz plane
     bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, -1, 0])

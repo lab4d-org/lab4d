@@ -47,7 +47,7 @@ class MeshLoader:
         field2cam_fg_dict = field2cam_fg_dict["field2cam"]
         if compose_mode == "compose":
             field2cam_bg_dict = json.load(open("%s/motion.json" % (secondary_dir), "r"))
-            field2cam_bg_dict = np.asarray(field2cam_bg_dict["field2cam"])
+            field2cam_bg_dict = field2cam_bg_dict["field2cam"]
 
             field2world_path = "%s/bg/field2world.json" % (testdir)
             field2world = np.asarray(json.load(open(field2world_path, "r")))
@@ -90,6 +90,7 @@ class MeshLoader:
         aabb_max = np.asarray([-np.inf, -np.inf])
         for counter in range(self.__len__()):
             frame_idx = int(list(self.field2cam_fg_dict.keys())[counter])
+            fid_str = str(frame_idx)
             if counter > 0 and len(path_list) == 1:
                 pass
             else:
@@ -99,7 +100,7 @@ class MeshLoader:
                     mesh.visual.vertex_colors
                 )  # visual.kind = 'vertex'
 
-            field2cam_fg = np.asarray(field2cam_fg_dict[str(frame_idx)])
+            field2cam_fg = np.asarray(field2cam_fg_dict[fid_str])
 
             # post-modify the scale of the fg
             # mesh.vertices = mesh.vertices / 2
@@ -129,15 +130,15 @@ class MeshLoader:
                 scene_t.vertices = (
                     scene_t.vertices @ field2world[:3, :3].T + field2world[:3, 3]
                 )
-                field2cam_bg = field2cam_bg_dict[frame_idx] @ world2field
-                field2cam_bg_dict[frame_idx] = field2cam_bg
+                field2cam_bg = field2cam_bg_dict[fid_str] @ world2field
+                field2cam_bg_dict[fid_str] = field2cam_bg
 
                 scene_dict[frame_idx] = scene_t
                 # use scene camera
-                extr_dict[frame_idx] = field2cam_bg_dict[frame_idx]
+                extr_dict[frame_idx] = field2cam_bg_dict[fid_str]
                 # transform to scene
                 object_to_scene = (
-                    np.linalg.inv(field2cam_bg_dict[frame_idx]) @ field2cam_fg
+                    np.linalg.inv(field2cam_bg_dict[fid_str]) @ field2cam_fg
                 )
                 mesh_dict[frame_idx].apply_transform(object_to_scene)
                 if mode == "bone":
@@ -193,3 +194,17 @@ class MeshLoader:
             "[mode=%s, compose=%s] rendering %d meshes from %s"
             % (self.mode, self.compose_mode, len(self), self.testdir)
         )
+
+    def query_canonical_mesh(self, inst_id, data_class="bg"):
+        path = self.testdir + "/../export_%04d/%s-mesh.obj" % (inst_id, data_class)
+        mesh = trimesh.load(path, process=False)
+        if data_class == "bg":
+            field2world_path = (
+                self.testdir + "/../export_%04d/bg/field2world.json" % inst_id
+            )
+            if os.path.exists(field2world_path):
+                field2world = np.asarray(json.load(open(field2world_path, "r")))
+                mesh.vertices = (
+                    mesh.vertices @ field2world[:3, :3].T + field2world[:3, 3]
+                )
+        return mesh

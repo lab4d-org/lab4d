@@ -133,7 +133,13 @@ class dvr_model(nn.Module):
                 dtype=torch.long,
             )
         # convert frameid_sub to frameid
-        batch["frameid"] = batch["frameid_sub"] + self.offset_cache[batch["dataid"]]
+        if "motion_id" in batch.keys():
+            # indicator for reanimation
+            motion_id = batch["motion_id"]
+            del batch["motion_id"]
+        else:
+            motion_id = batch["dataid"]
+        batch["frameid"] = batch["frameid_sub"] + self.offset_cache[motion_id]
 
     def set_progress(self, current_steps, progress):
         """Adjust loss weights and other constants throughout training
@@ -692,7 +698,7 @@ class dvr_model(nn.Module):
             feature_loss_fg = feature_loss_fg.norm(2, -1, keepdim=True)
             feature_loss_fg = feature_loss_fg * batch["mask"].float()
             feat_reproj_loss_fg = aux_dict["fg"]["xy_reproj"] * batch["mask"].float()
-        if config["field_type"] == "bg":
+        if config["field_type"] == "bg" or config["field_type"] == "comp":
             feature_loss_bg = aux_dict["bg"]["feature"] - batch["feature"]
             feature_loss_bg = feature_loss_bg.norm(2, -1, keepdim=True)
             feature_loss_bg = feature_loss_bg * (1 - batch["mask"].float())

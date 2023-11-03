@@ -69,7 +69,7 @@ class CameraMix(nn.Module):
             frame_id = self.camera_mlp.time_embedding.frame_mapping
 
         raw_fid_to_vid = self.camera_mlp.time_embedding.raw_fid_to_vid
-        const_frame_id = raw_fid_to_vid[frame_id] == self.const_vid_id
+        const_frame_id = raw_fid_to_vid[frame_id.long()] == self.const_vid_id
         if const_frame_id.sum() > 0:
             quat[const_frame_id] = quat_const[const_frame_id]
             trans[const_frame_id] = trans_const[const_frame_id]

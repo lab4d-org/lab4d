@@ -4,6 +4,7 @@ import time
 from collections import defaultdict
 from copy import deepcopy
 import gc
+import tqdm
 
 import numpy as np
 import torch
@@ -78,10 +79,6 @@ class Trainer:
         self.first_round = 0  # 0
         self.first_step = 0  # 0
 
-        # 0-last image in eval dataset
-        self.eval_fid = np.linspace(0, len(self.evalloader) - 1, 9).astype(int)
-        # self.eval_fid = np.linspace(1200, 1200, 9).astype(int)
-
         # torch.manual_seed(8)  # do it again
         # torch.cuda.manual_seed(1)
 
@@ -99,6 +96,10 @@ class Trainer:
         self.total_steps = opts["num_rounds"] * min(
             opts["iters_per_round"], len(self.trainloader)
         )
+
+        # 0-last image in eval dataset
+        self.eval_fid = np.linspace(0, len(self.evalloader) - 1, 9).astype(int)
+        # self.eval_fid = np.linspace(1200, 1200, 9).astype(int)
 
     def init_model(self):
         """Initialize camera transforms, geometry, articulations, and camera
@@ -294,12 +295,7 @@ class Trainer:
                 )
             self.save_checkpoint(round_count=self.current_round)
 
-    def run_one_round(self):
-        """Evaluation and training for a single round"""
-        if get_local_rank() == 0:
-            if self.current_round == self.first_round:
-                self.model_eval()
-
+    def update_aux_vars(self):
         self.model.update_geometry_aux()
         self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
         if (
@@ -307,6 +303,14 @@ class Trainer:
             and self.opts["absorb_base"]
         ):
             self.model.update_camera_aux()
+
+    def run_one_round(self):
+        """Evaluation and training for a single round"""
+        if get_local_rank() == 0:
+            if self.current_round == self.first_round:
+                self.model_eval()
+
+        self.update_aux_vars()
 
         self.model.train()
         self.train_one_round()
@@ -380,6 +384,12 @@ class Trainer:
         """Load a checkpoint at training time and update the current step count
         and round count
         """
+        if self.opts["load_path_bg"] != "":
+            # load background and intrinsics model
+            checkpoint = torch.load(self.opts["load_path_bg"])
+            model_states = checkpoint["model"]
+            self.model.load_state_dict(model_states, strict=False)
+
         if self.opts["load_path"] != "":
             # training time
             checkpoint = self.load_checkpoint(
@@ -391,9 +401,10 @@ class Trainer:
                 self.first_round = self.current_round
                 self.first_step = self.current_steps
 
-        # # TODO fix it
         if self.opts["reset_beta"]:
             self.model.module.fields.reset_beta(beta=0.01)
+
+        self.model.fields.reset_geometry_aux()
 
     def train_one_round(self):
         """Train a single round (going over mini-batches)"""
@@ -405,7 +416,7 @@ class Trainer:
 
         # necessary for shuffling
         self.trainloader.sampler.set_epoch(self.current_round)
-        for i, batch in enumerate(self.trainloader):
+        for i, batch in tqdm.tqdm(enumerate(self.trainloader)):
             if i == opts["iters_per_round"]:
                 break
 
@@ -495,10 +506,11 @@ class Trainer:
         rendered = self.model.evaluate(batch)
         self.add_image_togrid(ref_dict)
         self.add_image_togrid(rendered)
-        self.visualize_matches(rendered["xyz"], rendered["xyz_matches"], tag="xyz")
-        self.visualize_matches(
-            rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
-        )
+        if "xyz" in rendered.keys():
+            self.visualize_matches(rendered["xyz"], rendered["xyz_matches"], tag="xyz")
+            self.visualize_matches(
+                rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
+            )
 
     def visualize_matches(self, xyz, xyz_matches, tag):
         """Visualize dense correspondences outputted by canonical registration

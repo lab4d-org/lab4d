@@ -177,7 +177,9 @@ class VidDataset(Dataset):
             except:
                 print(f"Warning: cannot load {path}")
                 if k == "feature":
-                    self.mmap_list[k] = np.random.rand(self.__len__() + 1, 112, 112, 16)
+                    self.mmap_list[k] = np.random.rand(
+                        self.__len__() + 1, 112, 112, 384
+                    )
                 else:
                     self.mmap_list[k] = np.random.rand(
                         self.__len__() + 1, self.img_size[0], self.img_size[1], 3

@@ -83,12 +83,6 @@ class PPRTrainer(Trainer):
         opts["urdf_template"] = opts["fg_motion"].split("-")[1].split("_")[0]
 
         super().__init__(opts)
-        self.model.fields.field_params["bg"].compute_field2world()
-        for vidid in opts["phys_vid"]:
-            mesh = self.model.fields.field_params["bg"].visualize_floor_mesh(
-                vidid, to_world=True
-            )
-            mesh.export("%s/floor_%02d.obj" % (self.save_dir, vidid))
 
         # after loading the ckeckpoints
         self.floor_fitting()
@@ -120,7 +114,7 @@ class PPRTrainer(Trainer):
         for vidid in self.opts["phys_vid"]:
             vid_frame = range(frame_offset_raw[vidid], frame_offset_raw[vidid + 1])
             vid_frames += vid_frame
-        self.phys_model.correct_scale(vid_frames)
+        self.phys_model.correct_scale(vid_frames[:1])
         if get_local_rank() == 0:
             self.run_phys_visualization(tag="kinematics")
 
@@ -168,24 +162,6 @@ class PPRTrainer(Trainer):
         phys_model = phys_interface(opts, model_dict, dt=opts["timestep"])
         return phys_model
 
-    def load_checkpoint_train(self):
-        """Load a checkpoint at training time and update the current step count
-        and round count
-        """
-        if self.opts["load_path_bg"] != "":
-            # load background and intrinsics model
-            checkpoint = torch.load(self.opts["load_path_bg"])
-            model_states = checkpoint["model"]
-            self.model.load_state_dict(model_states, strict=False)
-        super().load_checkpoint_train()
-
-        # # reset beta
-        # beta = torch.tensor([0.01]).to(self.device)
-        # self.model.fields.field_params["fg"].logibeta.data = -beta.log()
-        # self.model.fields.field_params["bg"].logibeta.data = -beta.log()
-
-        self.model.fields.reset_geometry_aux()
-
     def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters
 
@@ -216,7 +192,8 @@ class PPRTrainer(Trainer):
                 "module.fields.field_params.bg.camera_mlp.": 0.0,
             }
         )
-        del param_lr_with[".logscale"]  # do not update scale of the urdf
+        if ".logscale" in param_lr_with.keys():
+            del param_lr_with[".logscale"]  # do not update scale with 10x lr
         return param_lr_startwith, param_lr_with
 
     def run_one_round(self):

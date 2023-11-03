@@ -140,6 +140,12 @@ def main(
     if len(loader.path_list) == 1:
         # for background-only
         server.add_mesh_trimesh(name=f"/frames/scene", mesh=input_dict["shape"])
+
+    if "scene" in input_dict or len(loader.path_list) == 1:
+        mesh_canonical = loader.query_canonical_mesh(inst_id=0)
+        # add canonical geometry for background
+        server.add_mesh_trimesh(name=f"/frames/canonical", mesh=mesh_canonical)
+
     for i in tqdm(range(num_frames)):
         # Add base frame.
         frame_nodes.append(server.add_frame(f"/frames/t{i}", show_axes=False))
@@ -163,7 +169,7 @@ def main(
             f"/frames/t{i}/frustum",
             fov=fov,
             aspect=aspect,
-            scale=0.3,
+            scale=0.1,
             image=rgb,
             wxyz=tf.SO3.from_matrix(extrinsics[:3, :3]).wxyz,
             position=extrinsics[:3, 3],

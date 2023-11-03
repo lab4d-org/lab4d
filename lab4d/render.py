@@ -199,9 +199,17 @@ def render(opts, construct_batch_func):
     if opts["render_res"] == opts["eval_res"] and opts["viewpoint"] == "ref":
         feature = ref_dict["ref_feature"].reshape(-1, opts["eval_res"] ** 2, 16)
         batch["feature"] = torch.tensor(feature, device="cuda")
-    save_dir = make_save_dir(
-        opts, sub_dir="renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
-    )
+    if "motion_id" in opts:
+        # re-animate
+        sub_dir = "transfer_%04d_%04d/%s" % (
+            opts["inst_id"],
+            opts["motion_id"],
+            opts["viewpoint"],
+        )
+    else:
+        # standard rendering
+        sub_dir = "renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
+    save_dir = make_save_dir(opts, sub_dir=sub_dir)
 
     # render
     with torch_profile(save_dir, "profile", enabled=opts["profile"]):
