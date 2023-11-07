@@ -15,7 +15,9 @@ class ResNetConv(nn.Module):
 
     def __init__(self, in_channels):
         super(ResNetConv, self).__init__()
-        self.resnet = torchvision.models.resnet18(pretrained=True)
+        self.resnet = torchvision.models.resnet18(
+            weights="ResNet18_Weights.IMAGENET1K_V1"
+        )
         if in_channels != 3:
             self.resnet.conv1 = nn.Conv2d(
                 in_channels,

@@ -37,8 +37,9 @@ def run_inference(opts):
     model.cuda()
     model.eval()
     # load a new image
-    rgb_input, extr = model.data_generator.sample(np.asarray(range(0, 200, 10)))
-    rgb_input_new = []
+    # rgb_input, extr = model.data_generator.sample(np.asarray(range(0, 200, 10)))
+    rgb_input = []
+    depth_input = []
     for path in sorted(
         glob.glob(os.path.join(opts["image_dir"], "*.jpg"))
         # glob.glob(
@@ -47,10 +48,12 @@ def run_inference(opts):
         # glob.glob("database/polycam/Oct5at10-49AM-poly/keyframes/images/*.jpg")
         # glob.glob("database/polycam/Oct31at1-13AM-poly/keyframes/images/*.jpg")
     ):
-        img = cv2.imread(path)[..., ::-1]
-
-        # remove foreground
+        depth_path = path.replace("JPEGImages", "Depth").replace(".jpg", ".npy")
         sil_path = path.replace("JPEGImages", "Annotations").replace(".jpg", ".npy")
+
+        img = cv2.imread(path)[..., ::-1]
+        depth = np.load(depth_path).astype(np.float32)
+
         if os.path.exists(sil_path):
             sil = np.load(sil_path)
             # find the bbox
@@ -66,17 +69,25 @@ def run_inference(opts):
                 sil = sil[..., None]
                 img = img * sil + img[sil[..., 0] > 0].mean() * (1 - sil)
 
+                sil = cv2.resize(
+                    sil, depth.shape[::-1], interpolation=cv2.INTER_NEAREST
+                )
+                depth = depth * sil + depth[sil > 0].mean() * (1 - sil)
+
         if "poly" in path:
             # flip the image
             img = np.transpose(img, (1, 0, 2))[:, ::-1]
+            depth = depth.T[:, ::-1]
 
         # resize
         img = cv2.resize(img, dsize=None, fx=0.25, fy=0.25)
-        rgb_input_new.append(img)
-    rgb_input_new = np.stack(rgb_input_new, 0)
-    rgb_input = rgb_input_new
+        depth = cv2.resize(depth, dsize=None, fx=0.25, fy=0.25)
+        rgb_input.append(img)
+        depth_input.append(depth)
+    rgb_input = np.stack(rgb_input, 0)
+    depth_input = np.stack(depth_input, 0)
 
-    batch = model.data_generator.convert_to_batch(rgb_input)
+    batch = model.data_generator.convert_to_batch(rgb_input, depth_input)
     # predict pose and visualize
     re_rgb, extrinsics, uncertainty = model.predict_batch(batch)
 

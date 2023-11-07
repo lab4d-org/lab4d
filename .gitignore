@@ -7,9 +7,9 @@ run-long.sh
 /database/raw
 /database/ama
 /database/polycam
+/database/record3d
 /logdir
 /tmp
-projects/csim
 
 lab4d.egg-info
 __pycache__/

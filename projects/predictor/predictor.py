@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import pdb
 import cv2
 import tqdm
+import trimesh
 
 from projects.predictor.dataloader.dataset import PolyGenerator
 from lab4d.utils.quat_transform import matrix_to_quaternion, quaternion_to_matrix
@@ -20,13 +21,7 @@ class RegressionHead(nn.Module):
         self.fc = nn.Linear(in_channels, out_channels)
 
     def forward(self, x):
-        if len(x.shape) == 4:
-            pooled = x.max(dim=(2, 3))
-        else:
-            pooled = x
-        pooled = pooled.view(pooled.shape[0], -1)
-
-        return self.fc(pooled)
+        return self.fc(x)
 
 
 class RotationHead(nn.Module):
@@ -77,9 +72,8 @@ class DINOv2Encoder(nn.Module):
             feat = self.backbone.forward_features(img, masks=masks)[
                 "x_norm_patchtokens"
             ]
-            feat = feat.permute(0, 2, 1)
-            feat = feat.reshape(-1, 384, 16, 16)
-            feat = F.interpolate(feat, size=(112, 112), mode="bilinear").detach()
+            feat = feat.permute(0, 2, 1).reshape(-1, 384, 16, 16)  # N, 384, 16*16
+        feat = F.interpolate(feat, size=(112, 112), mode="bilinear")
         feat = self.encoder(feat)
         return feat
 
@@ -93,10 +87,10 @@ class Predictor(nn.Module):
             T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         )
         # # dino
-        # self.encoder = DINOv2Encoder(in_channels=3, out_channels=384)
+        self.encoder = DINOv2Encoder(in_channels=3, out_channels=384)
 
         # resnet
-        self.encoder = Encoder(in_channels=3, out_channels=384)
+        # self.depth_encoder = Encoder(in_channels=1, out_channels=384)
 
         # regression heads
         self.head_trans = TranslationHead(384)
@@ -164,16 +158,32 @@ class Predictor(nn.Module):
 
         return img
 
-    def predict(self, img):
+    def predict(self, img, depth):
         # transform pipeline
         img = self.transforms(img)
 
         feat = self.encoder(img)
 
+        # depth_feat = self.depth_encoder(depth)
+        # feat = feat + depth_feat
+
         trans = self.head_trans(feat)
         quat = self.head_quat(feat)
         uncertainty = self.head_uncertainty(feat)[..., 0]
         return quat, trans, uncertainty
+
+    @staticmethod
+    def xyz_to_canonical(xyz, extrinsics):
+        """
+        xyz: N, H, W, 3
+        extrinsics: N, 4, 4
+        """
+        xyz_homo = torch.cat([xyz, torch.ones_like(xyz[..., :1])], dim=-1)
+        # N,HW,4
+        extrinsics = torch.inverse(extrinsics)  # view to world
+        xyz_canonical = extrinsics[:, None] @ xyz_homo.view(xyz_homo.shape[0], -1, 4, 1)
+        xyz_canonical = xyz_canonical[..., :3, 0].view(xyz.shape)
+        return xyz_canonical
 
     def forward(self, batch):
         loss_dict = {}
@@ -185,8 +195,11 @@ class Predictor(nn.Module):
         # trans_gt = torch.zeros(1, 3, device="cuda")
         # load data
         img = batch["img"]
+        xyz = batch["xyz"]
+        depth = xyz[..., 2]
         quat_gt = matrix_to_quaternion(batch["extrinsics"][:, :3, :3])
         trans_gt = batch["extrinsics"][:, :3, 3]
+        xyz_gt = self.xyz_to_canonical(xyz, batch["extrinsics"])
 
         # # TODO unit test: load croped image / dinofeature and check thedifference
         # import numpy as np
@@ -205,15 +218,29 @@ class Predictor(nn.Module):
         # pred = pred.permute(0, 2, 3, 1)
         # pred = F.normalize(pred, dim=-1)
 
-        quat, trans, uncertainty = self.predict(img)
+        quat, trans, uncertainty = self.predict(img, depth)
+        extrinsics_pred = torch.zeros_like(batch["extrinsics"])
+        extrinsics_pred[:, :3, :3] = quaternion_to_matrix(quat)
+        extrinsics_pred[:, :3, 3] = trans
+        extrinsics_pred[:, 3, 3] = 1
+        xyz_pred = self.xyz_to_canonical(xyz, extrinsics_pred)
 
         # loss
+        # pdb.set_trace()
+        # trimesh.Trimesh(vertices=xyz_pred[0].view(-1, 3).detach().cpu()).export(
+        #     "tmp/0.obj"
+        # )
+        # trimesh.Trimesh(vertices=xyz_gt[0].view(-1, 3).detach().cpu()).export(
+        #     "tmp/1.obj"
+        # )
         loss_dict = self.compute_metrics(
-            quat, quat_gt, trans, trans_gt, uncertainty=uncertainty
+            quat, quat_gt, trans, trans_gt, xyz_pred, xyz_gt, uncertainty=uncertainty
         )
         return loss_dict
 
-    def compute_metrics(self, quat, quat_gt, trans, trans_gt, uncertainty=None):
+    def compute_metrics(
+        self, quat, quat_gt, trans, trans_gt, xyz=None, xyz_gt=None, uncertainty=None
+    ):
         loss_dict = {}
         so3 = quaternion_to_matrix(quat)
         so3_gt = quaternion_to_matrix(quat_gt)
@@ -224,6 +251,10 @@ class Predictor(nn.Module):
         # loss_dict["camera_pose_loss"] = camera_pose_loss.mean()
         loss_dict["rot_loss"] = rot_loss.mean()
         loss_dict["trans_loss"] = trans_loss.mean()
+        if xyz is not None and xyz_gt is not None:
+            loss_dict["xyz_loss"] = (xyz - xyz_gt).pow(2).mean() * 2e-4
+            # not optimizing it
+            loss_dict["xyz_loss"] = loss_dict["xyz_loss"].detach()
 
         # weight by uncertainty: error = error / uncertainty
         if uncertainty is not None:
@@ -254,7 +285,13 @@ class Predictor(nn.Module):
         pred_uncertainty = []
         # predict pose and re-render
         for idx, img in tqdm.tqdm(enumerate(batch["img"])):
-            quat, trans, uncertainty = self.predict(img[None])
+            if "depth" in batch:
+                depth = batch["depth"][idx]
+            elif "xyz" in batch:
+                depth = batch["xyz"][idx][..., 2]
+            else:
+                raise ValueError("no depth or xyz in batch")
+            quat, trans, uncertainty = self.predict(img[None], depth[None])
             # get extrinsics
             extrinsics = np.eye(4)
             extrinsics[:3, :3] = quaternion_to_matrix(quat)[0].cpu().numpy()

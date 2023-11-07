@@ -44,7 +44,12 @@ class PolyGenerator:
         return color_batch, extrinsics_batch
 
     def generate(
-        self, first_idx=0, last_idx=-1, azimuth_limit=np.pi, crop_to_size=True
+        self,
+        first_idx=0,
+        last_idx=-1,
+        azimuth_limit=np.pi,
+        crop_to_size=True,
+        return_xyz=False,
     ):
         if last_idx == -1:
             last_idx = len(self.polycam_loader)
@@ -57,19 +62,27 @@ class PolyGenerator:
             azimuth_limit=azimuth_limit,
             aabb=self.polycam_loader.aabb,
         )
-        color, depth = self.polycam_loader.render(
-            frame_idx, extrinsics=extrinsics, crop_to_size=crop_to_size
+        color, xyz = self.polycam_loader.render(
+            frame_idx,
+            extrinsics=extrinsics,
+            crop_to_size=crop_to_size,
+            return_xyz=return_xyz,
         )
-        return color, extrinsics
+        return color, xyz, extrinsics
 
-    def convert_to_batch(self, color_batch, extrinsics_batch=None):
+    def convert_to_batch(
+        self, color_batch, xyz_batch=None, depth_batch=None, extrinsics_batch=None
+    ):
         # conver to torch
-        color_batch = color_batch.copy()
-        color_batch = torch.tensor(color_batch, dtype=torch.float32, device="cuda")
-        color_batch = color_batch.permute(0, 3, 1, 2) / 255.0
-
         batch = {}
-        batch["img"] = color_batch
+        color_batch = torch.tensor(color_batch, dtype=torch.float32, device="cuda")
+        batch["img"] = color_batch.permute(0, 3, 1, 2) / 255.0
+        if xyz_batch is not None:
+            xyz_batch = torch.tensor(xyz_batch, dtype=torch.float32, device="cuda")
+            batch["xyz"] = xyz_batch
+        if depth_batch is not None:
+            depth_batch = torch.tensor(depth_batch, dtype=torch.float32, device="cuda")
+            batch["depth"] = depth_batch
         if extrinsics_batch is not None:
             batch["extrinsics"] = torch.tensor(
                 extrinsics_batch, dtype=torch.float32, device="cuda"
@@ -78,34 +91,36 @@ class PolyGenerator:
 
     def generate_batch(self, num_images, first_idx=0, last_idx=-1, azimuth_limit=np.pi):
         color_batch = []
+        xyz_batch = []
         extrinsics_batch = []
         for i in range(num_images):
-            color, extrinsics = self.generate(
+            color, xyz, extrinsics = self.generate(
                 first_idx=first_idx,
                 last_idx=last_idx,
                 azimuth_limit=azimuth_limit,
                 crop_to_size=False,
+                return_xyz=True,
             )
             color_batch.append(color)
+            xyz_batch.append(xyz)
             extrinsics_batch.append(extrinsics)
         color_batch = np.stack(color_batch)
+        xyz_batch = np.stack(xyz_batch)
         extrinsics_batch = np.stack(extrinsics_batch)
 
         # randomly crop the image
         cropped_size = int(np.random.uniform(0.5, 1.0) * np.asarray(color.shape[1]))
-        start_location = np.random.randint(0, color.shape[1] - cropped_size)
+        start_loc = np.random.randint(0, color.shape[1] - cropped_size)
         if np.random.binomial(1, 0.5):
             # crop lengthwise
-            color_batch = color_batch[
-                :, start_location : start_location + cropped_size, :, :
-            ]
+            color_batch = color_batch[:, start_loc : start_loc + cropped_size, :, :]
+            xyz_batch = xyz_batch[:, start_loc : start_loc + cropped_size, :, :]
         else:
             # crop widthwise
-            color_batch = color_batch[
-                :, :, start_location : start_location + cropped_size, :
-            ]
+            color_batch = color_batch[:, :, start_loc : start_loc + cropped_size, :]
+            xyz_batch = xyz_batch[:, :, start_loc : start_loc + cropped_size, :]
 
-        batch = self.convert_to_batch(color_batch, extrinsics_batch)
+        batch = self.convert_to_batch(color_batch, xyz_batch, None, extrinsics_batch)
         return batch
 
 

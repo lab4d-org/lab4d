@@ -15,18 +15,21 @@ from pyrender import (
     MetallicRoughnessMaterial,
 )
 
+from lab4d.utils.cam_utils import depth_to_xyz
+
 os.environ["PYOPENGL_PLATFORM"] = "egl"
 
 
 class PyRenderWrapper:
     def __init__(self, image_size=(1024, 1024)) -> None:
         # renderer
-        self.image_size = image_size
         render_size = max(image_size)
         self.r = OffscreenRenderer(render_size, render_size)
         self.intrinsics = IntrinsicsCamera(
             render_size, render_size, render_size / 2, render_size / 2
         )
+        self.image_size = image_size
+        self.render_size = render_size
         # light
         self.light_pose = np.eye(4)
         self.set_light_topdown()
@@ -95,13 +98,23 @@ class PyRenderWrapper:
             intrinsics[0], intrinsics[1], intrinsics[2], intrinsics[3]
         )
 
+    def get_intrinsics(self):
+        return np.asarray(
+            [
+                self.intrinsics.fx,
+                self.intrinsics.fy,
+                self.intrinsics.cx,
+                self.intrinsics.cy,
+            ]
+        )
+
     def get_cam_to_scene(self):
         cam_to_scene = np.eye(4)
         cam_to_scene[:3, :3] = self.scene_to_cam[:3, :3].T
         cam_to_scene[:3, 3] = -self.scene_to_cam[:3, :3].T @ self.scene_to_cam[:3, 3]
         return cam_to_scene
 
-    def render(self, input_dict, crop_to_size=True):
+    def render(self, input_dict, crop_to_size=True, return_xyz=False):
         """
         Args:
             input_dict: Dict of trimesh objects. Keys: shape, bone
@@ -165,10 +178,31 @@ class PyRenderWrapper:
                 | pyrender.RenderFlags.SKIP_CULL_FACES
             )
         color, depth = self.r.render(scene, flags=flags)
+
         if crop_to_size:
             color = color[: self.image_size[0], : self.image_size[1]]
+
+        if return_xyz:
+            xyz = self.depth_to_xyz(depth)
+            xyz = xyz[: self.image_size[0], : self.image_size[1]]
+            return color, xyz
+        else:
             depth = depth[: self.image_size[0], : self.image_size[1]]
-        return color, depth
+            return color, depth
+
+    def get_xy_homogeneous(self):
+        W = self.render_size
+        H = self.render_size
+        xy = np.stack(np.meshgrid(np.arange(W), np.arange(H)), axis=-1)
+        xy = xy.reshape((-1, 2))
+        xy_homo = np.hstack((xy, np.ones((xy.shape[0], 1))))
+        return xy_homo
+
+    def depth_to_xyz(self, depth):
+        if not hasattr(self, "xy_homo"):
+            self.xy_homo = self.get_xy_homogeneous()
+        xyz = depth_to_xyz(depth, self.get_intrinsics(), xy_homo=self.xy_homo)
+        return xyz
 
     def delete(self):
         self.r.delete()

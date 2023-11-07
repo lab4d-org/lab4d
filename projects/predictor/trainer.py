@@ -31,7 +31,7 @@ class PredTrainer(Trainer):
             self.model,
             device_ids=[get_local_rank()],
             output_device=get_local_rank(),
-            find_unused_parameters=False,
+            find_unused_parameters=True,
         )
 
     def define_dataset(self):
@@ -65,8 +65,6 @@ class PredTrainer(Trainer):
         params_list = []
         lr_list = []
         for name, p in self.model.named_parameters():
-            if name.startswith("module.backbone"):
-                continue
             lr = self.opts["learning_rate"]
             params_ref_list.append({name: p})
             params_list.append({"params": p})
