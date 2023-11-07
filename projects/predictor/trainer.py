@@ -31,7 +31,7 @@ class PredTrainer(Trainer):
             self.model,
             device_ids=[get_local_rank()],
             output_device=get_local_rank(),
-            find_unused_parameters=True,
+            find_unused_parameters=False,
         )
 
     def define_dataset(self):

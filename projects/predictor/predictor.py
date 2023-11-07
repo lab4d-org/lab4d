@@ -64,6 +64,26 @@ class UncertaintyHead(nn.Module):
         return out
 
 
+class DINOv2Encoder(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
+        self.encoder = Encoder(in_channels=384, out_channels=out_channels)
+
+    def forward(self, img):
+        with torch.no_grad():
+            self.backbone.eval()
+            masks = torch.zeros(1, 16 * 16, device="cuda").bool()
+            feat = self.backbone.forward_features(img, masks=masks)[
+                "x_norm_patchtokens"
+            ]
+            feat = feat.permute(0, 2, 1)
+            feat = feat.reshape(-1, 384, 16, 16)
+            feat = F.interpolate(feat, size=(112, 112), mode="bilinear").detach()
+        feat = self.encoder(feat)
+        return feat
+
+
 class Predictor(nn.Module):
     def __init__(self, opts):
         super().__init__()
@@ -72,12 +92,13 @@ class Predictor(nn.Module):
             T.CenterCrop(224),
             T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         )
-        self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
-        self.encoder = nn.Sequential(
-            # Encoder(in_channels=3, out_channels=384),
-            Encoder(in_channels=384, out_channels=384),
-        )
+        # # dino
+        # self.encoder = DINOv2Encoder(in_channels=3, out_channels=384)
 
+        # resnet
+        self.encoder = Encoder(in_channels=3, out_channels=384)
+
+        # regression heads
         self.head_trans = TranslationHead(384)
         self.head_quat = RotationHead(384)
         self.head_uncertainty = UncertaintyHead(384)
@@ -147,19 +168,7 @@ class Predictor(nn.Module):
         # transform pipeline
         img = self.transforms(img)
 
-        # regression
-        with torch.no_grad():
-            self.backbone.eval()
-            masks = torch.zeros(1, 16 * 16, device="cuda").bool()
-            feat = self.backbone.forward_features(img, masks=masks)[
-                "x_norm_patchtokens"
-            ]
-            feat = feat.permute(0, 2, 1)
-            feat = feat.reshape(-1, 384, 16, 16)
-            feat = F.interpolate(feat, size=(112, 112), mode="bilinear")
-        feat = self.encoder(feat.detach())
-
-        # feat = self.encoder(img)
+        feat = self.encoder(img)
 
         trans = self.head_trans(feat)
         quat = self.head_quat(feat)
