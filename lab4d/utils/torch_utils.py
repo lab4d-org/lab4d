@@ -18,7 +18,7 @@ def resolve_size_mismatch(model, ckpt_states):
         if v.shape == model_v.shape:
             continue
         # resolve size mismatch
-        print("Resolving size mismatch for {}".format(k))
+        print("Found size mismatch for {}, {} vs {}".format(k, v.shape, model_v.shape))
         if len(model_v.shape) == len(v.shape) + 1 and model_v.shape[1:] == v.shape:
             # stack
             ckpt_states[k] = torch.stack([v] * model_v.shape[0], dim=0)

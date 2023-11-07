@@ -101,7 +101,7 @@ class PyRenderWrapper:
         cam_to_scene[:3, 3] = -self.scene_to_cam[:3, :3].T @ self.scene_to_cam[:3, 3]
         return cam_to_scene
 
-    def render(self, input_dict):
+    def render(self, input_dict, crop_to_size=True):
         """
         Args:
             input_dict: Dict of trimesh objects. Keys: shape, bone
@@ -130,7 +130,18 @@ class PyRenderWrapper:
             scene.add_node(Node(mesh=mesh_pyrender))
 
         # shape
-        mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
+        if "shape" not in input_dict:
+            # use cached shape to save time
+            if hasattr(self, "mesh_pyrender"):
+                mesh_pyrender = self.mesh_pyrender
+            else:
+                raise ValueError("shape not in input_dict")
+        else:
+            # use new shape
+            mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
+            self.mesh_pyrender = mesh_pyrender
+
+        # change material
         if self.material is not None:
             mesh_pyrender.primitives[0].material = self.material
         scene.add_node(Node(mesh=mesh_pyrender))
@@ -154,8 +165,9 @@ class PyRenderWrapper:
                 | pyrender.RenderFlags.SKIP_CULL_FACES
             )
         color, depth = self.r.render(scene, flags=flags)
-        color = color[: self.image_size[0], : self.image_size[1]]
-        depth = depth[: self.image_size[0], : self.image_size[1]]
+        if crop_to_size:
+            color = color[: self.image_size[0], : self.image_size[1]]
+            depth = depth[: self.image_size[0], : self.image_size[1]]
         return color, depth
 
     def delete(self):

@@ -45,17 +45,21 @@ class Trainer:
         self.define_model()
 
         # move model to ddp
+        self.move_to_ddp()
+
+        self.optimizer_init(is_resumed=opts["load_path"] != "")
+
+        # load model
+        self.load_checkpoint_train()
+
+    def move_to_ddp(self):
+        # move model to ddp
         self.model = DataParallelPassthrough(
             self.model,
             device_ids=[get_local_rank()],
             output_device=get_local_rank(),
             find_unused_parameters=False,
         )
-
-        self.optimizer_init(is_resumed=opts["load_path"] != "")
-
-        # load model
-        self.load_checkpoint_train()
 
     def trainer_init(self):
         """Initialize logger and other misc things"""
@@ -370,7 +374,8 @@ class Trainer:
         model.load_state_dict(model_states, strict=False)
 
         # reset near_far
-        model.fields.reset_geometry_aux()
+        if hasattr(model, "fields"):
+            model.fields.reset_geometry_aux()
 
         # if optimizer is not None:
         #     # use the new param_groups that contains the learning rate
@@ -503,7 +508,7 @@ class Trainer:
         torch.cuda.empty_cache()
         ref_dict, batch = self.load_batch(self.evalloader.dataset, self.eval_fid)
         self.construct_eval_batch(batch)
-        rendered = self.model.evaluate(batch)
+        rendered, scalars = self.model.evaluate(batch)
         self.add_image_togrid(ref_dict)
         self.add_image_togrid(rendered)
         if "xyz" in rendered.keys():
@@ -511,6 +516,7 @@ class Trainer:
             self.visualize_matches(
                 rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
             )
+        self.add_scalar(self.log, scalars, self.current_round)
 
     def visualize_matches(self, xyz, xyz_matches, tag):
         """Visualize dense correspondences outputted by canonical registration

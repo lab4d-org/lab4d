@@ -355,7 +355,8 @@ class dvr_model(nn.Module):
                 else:
                     mask = rendered["mask"]
                 rendered[k] = rendered[k] * mask
-        return rendered
+        scalars = {}
+        return rendered, scalars
 
     def update_geometry_aux(self):
         """Extract proxy geometry for all neural fields"""

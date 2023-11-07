@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import torch
 import pdb
 
@@ -10,7 +11,7 @@ from projects.csim.render_random import sample_extrinsics
 
 
 class PolyGenerator:
-    def __init__(self, poly_name="Oct31at1-13AM-poly", img_scale=0.1):
+    def __init__(self, poly_name="Oct31at1-13AM-poly", img_scale=0.25):
         image_size = (1024, 768)
         poly_path = "database/polycam/%s" % poly_name
 
@@ -21,37 +22,90 @@ class PolyGenerator:
         polycam_loader.renderer.set_ambient_light()
         self.polycam_loader = polycam_loader
 
-    def generate(self, azimuth_limit=np.pi):
-        frame_idx = np.random.randint(len(self.polycam_loader))
+    def sample(self, frame_indices):
+        color_batch = []
+        extrinsics_batch = []
+        for frame_idx in frame_indices:
+            extrinsics = self.polycam_loader.extrinsics[frame_idx]
+
+            # # random xyz direction from -1,1
+            # extrinsics = sample_extrinsics(
+            #     extrinsics,
+            #     azimuth_limit=0,
+            #     elevation_limit=0,
+            #     roll_limit=0,
+            # )
+
+            color, _ = self.polycam_loader.render(frame_idx, extrinsics=extrinsics)
+            color_batch.append(color)
+            extrinsics_batch.append(extrinsics)
+        color_batch = np.stack(color_batch)
+        extrinsics_batch = np.stack(extrinsics_batch)
+        return color_batch, extrinsics_batch
+
+    def generate(
+        self, first_idx=0, last_idx=-1, azimuth_limit=np.pi, crop_to_size=True
+    ):
+        if last_idx == -1:
+            last_idx = len(self.polycam_loader)
+        frame_idx = np.random.randint(first_idx, last_idx)
         extrinsics_base = self.polycam_loader.extrinsics[frame_idx]
 
         # random xyz direction from -1,1
         extrinsics = sample_extrinsics(
             extrinsics_base,
             azimuth_limit=azimuth_limit,
+            aabb=self.polycam_loader.aabb,
         )
-        color, depth = self.polycam_loader.render(frame_idx, extrinsics=extrinsics)
+        color, depth = self.polycam_loader.render(
+            frame_idx, extrinsics=extrinsics, crop_to_size=crop_to_size
+        )
         return color, extrinsics
 
-    def generate_batch(self, num_images, azimuth_limit=np.pi):
+    def convert_to_batch(self, color_batch, extrinsics_batch=None):
+        # conver to torch
+        color_batch = color_batch.copy()
+        color_batch = torch.tensor(color_batch, dtype=torch.float32, device="cuda")
+        color_batch = color_batch.permute(0, 3, 1, 2) / 255.0
+
+        batch = {}
+        batch["img"] = color_batch
+        if extrinsics_batch is not None:
+            batch["extrinsics"] = torch.tensor(
+                extrinsics_batch, dtype=torch.float32, device="cuda"
+            )
+        return batch
+
+    def generate_batch(self, num_images, first_idx=0, last_idx=-1, azimuth_limit=np.pi):
         color_batch = []
         extrinsics_batch = []
         for i in range(num_images):
-            color, extrinsics = self.generate(azimuth_limit=azimuth_limit)
+            color, extrinsics = self.generate(
+                first_idx=first_idx,
+                last_idx=last_idx,
+                azimuth_limit=azimuth_limit,
+                crop_to_size=False,
+            )
             color_batch.append(color)
             extrinsics_batch.append(extrinsics)
         color_batch = np.stack(color_batch)
         extrinsics_batch = np.stack(extrinsics_batch)
 
-        # conver to torch
-        color_batch = (
-            torch.from_numpy(color_batch).float().cuda().permute(0, 3, 1, 2) / 255.0
-        )
-        extrinsics_batch = torch.from_numpy(extrinsics_batch).float().cuda()
+        # randomly crop the image
+        cropped_size = int(np.random.uniform(0.5, 1.0) * np.asarray(color.shape[1]))
+        start_location = np.random.randint(0, color.shape[1] - cropped_size)
+        if np.random.binomial(1, 0.5):
+            # crop lengthwise
+            color_batch = color_batch[
+                :, start_location : start_location + cropped_size, :, :
+            ]
+        else:
+            # crop widthwise
+            color_batch = color_batch[
+                :, :, start_location : start_location + cropped_size, :
+            ]
 
-        batch = {}
-        batch["img"] = color_batch
-        batch["extrinsics"] = extrinsics_batch
+        batch = self.convert_to_batch(color_batch, extrinsics_batch)
         return batch
 
 

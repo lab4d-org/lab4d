@@ -48,7 +48,7 @@ class Encoder(nn.Module):
     This is sent to 2 fc layers with final output nz_feat.
     """
 
-    def __init__(self, input_shape, in_channels=3, out_channels=128, batch_norm=True):
+    def __init__(self, in_channels=3, out_channels=128, batch_norm=True):
         super(Encoder, self).__init__()
         self.resnet_conv = ResNetConv(in_channels=in_channels)
         self.conv1 = conv2d(batch_norm, 512, out_channels, stride=1, kernel_size=3)

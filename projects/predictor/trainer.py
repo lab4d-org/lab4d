@@ -8,12 +8,12 @@ from collections import defaultdict
 import gc
 
 from lab4d.engine.trainer import Trainer
-from lab4d.engine.trainer import get_local_rank
+from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
 from lab4d.engine.model import dvr_model
-from predictor import config
-from predictor.predictor import Predictor
+from projects.predictor import config
+from projects.predictor.predictor import Predictor
 
-from predictor.dataloader.loader import PredictorLoader
+from projects.predictor.dataloader.loader import PredictorLoader
 
 
 class PredTrainer(Trainer):
@@ -24,6 +24,15 @@ class PredTrainer(Trainer):
             opts (Dict): Command-line args from absl (defined in lab4d/config.py)
         """
         super().__init__(opts)
+
+    def move_to_ddp(self):
+        # move model to ddp
+        self.model = DataParallelPassthrough(
+            self.model,
+            device_ids=[get_local_rank()],
+            output_device=get_local_rank(),
+            find_unused_parameters=True,
+        )
 
     def define_dataset(self):
         opts = self.opts
@@ -56,6 +65,8 @@ class PredTrainer(Trainer):
         params_list = []
         lr_list = []
         for name, p in self.model.named_parameters():
+            if name.startswith("module.backbone"):
+                continue
             lr = self.opts["learning_rate"]
             params_ref_list.append({name: p})
             params_list.append({"params": p})
