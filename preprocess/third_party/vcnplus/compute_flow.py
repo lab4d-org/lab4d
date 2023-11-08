@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.utils.data
+import tqdm
 
 import glob
 from models.VCNplus import VCN
@@ -69,7 +70,7 @@ def compute_flow(seqname, outdir, dframe):
 
     # compute forward and backward flow
     img0, img0_noaug = process_flow_input(img0_o, model.mean_L, max_h, max_w)
-    for jnx in range(dframe, len(img_paths), dframe):
+    for jnx in tqdm.tqdm(range(dframe, len(img_paths), dframe)):
         # print("%s/%s" % (img_paths[inx], img_paths[jnx]))
         img1_path = img_paths[jnx]
         img1_o = cv2.imread(img1_path)[:, :, ::-1]

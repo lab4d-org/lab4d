@@ -59,6 +59,9 @@ def extract_dino_feat(dinov2_model, rgb, size=None):
 def load_dino_model(gpu_id=0):
     # load dinov2: small models producds smoother pca-ed features
     dinov2_model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
+    # dinov2_model = torch.hub.load(
+    #     "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
+    # )
     dinov2_model = dinov2_model.to("cuda:%d" % gpu_id)
     dinov2_model.eval()
     return dinov2_model

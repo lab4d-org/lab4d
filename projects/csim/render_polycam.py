@@ -71,7 +71,9 @@ class PolyCamRender:
         self.extrinsics = np.stack(self.extrinsics, axis=0)
         self.intrinsics = np.stack(self.intrinsics, axis=0)
 
-    def render(self, idx, intrinsics=None, extrinsics=None, crop_to_size=True):
+    def render(
+        self, idx, intrinsics=None, extrinsics=None, crop_to_size=True, return_xyz=False
+    ):
         if intrinsics is None:
             intrinsics = self.intrinsics[idx]
         if extrinsics is None:
@@ -82,10 +84,12 @@ class PolyCamRender:
 
         self.renderer.align_light_to_camera()
         if hasattr(self.renderer, "mesh_pyrender"):
-            color, xyz = self.renderer.render({}, crop_to_size=crop_to_size)
+            color, xyz = self.renderer.render(
+                {}, crop_to_size=crop_to_size, return_xyz=return_xyz
+            )
         else:
             color, xyz = self.renderer.render(
-                self.input_dict, crop_to_size=crop_to_size
+                self.input_dict, crop_to_size=crop_to_size, return_xyz=return_xyz
             )
         return color, xyz
 

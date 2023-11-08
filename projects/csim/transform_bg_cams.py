@@ -140,8 +140,9 @@ def transform_bg_cams(seqname):
     # rect_rot[2, 2] = -1
     # extrinsics_new_inv[:, :3, :3] = rect_rot
 
-    extrinsics_new = np.linalg.inv(extrinsics_new_inv)
+    # extrinsics_new = np.linalg.inv(extrinsics_new_inv)
     # extrinsics_new = filter_bad_frames(extrinsics_trg, errors)
+    extrinsics_new = extrinsics_trg
 
     cam_old = draw_cams(extrinsics_old)
     cam_new = draw_cams(extrinsics_new)
@@ -152,6 +153,7 @@ def transform_bg_cams(seqname):
     print("cameras vis exported to tmp/cameras_new.obj")
 
     np.save("%s/aligned-00.npy" % trg_dir, extrinsics_new)
+    cam_new.export("%s/cameras-00.obj" % trg_dir)
     print("aligned extrinsics saved to %s/aligned-00.npy" % trg_dir)
 
 

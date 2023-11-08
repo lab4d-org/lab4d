@@ -21,10 +21,11 @@ sys.path.insert(0, os.getcwd())
 from lab4d.utils.gpu_utils import gpu_map
 from lab4d.utils.io import save_vid
 from lab4d.utils.vis_utils import draw_cams
+from lab4d.utils.cam_utils import depth_to_canonical
 from lab4d.utils.geom_utils import K2mat
 from preprocess.third_party.vcnplus.flowutils.flowlib import compute_color
 from preprocess.scripts.extract_dinov2 import load_dino_model
-from projects.csim.render_polycam import PolyCamRender, depth_to_canonical
+from projects.csim.render_polycam import PolyCamRender
 from projects.csim.transform_bg_cams import transform_bg_cams
 
 

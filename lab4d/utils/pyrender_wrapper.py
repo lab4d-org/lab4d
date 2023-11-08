@@ -184,10 +184,12 @@ class PyRenderWrapper:
 
         if return_xyz:
             xyz = self.depth_to_xyz(depth)
-            xyz = xyz[: self.image_size[0], : self.image_size[1]]
+            if crop_to_size:
+                xyz = xyz[: self.image_size[0], : self.image_size[1]]
             return color, xyz
         else:
-            depth = depth[: self.image_size[0], : self.image_size[1]]
+            if crop_to_size:
+                depth = depth[: self.image_size[0], : self.image_size[1]]
             return color, depth
 
     def get_xy_homogeneous(self):

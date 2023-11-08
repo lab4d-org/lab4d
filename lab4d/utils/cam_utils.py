@@ -44,3 +44,17 @@ def xyz_to_canonical(xyz, extrinsics):
     xyz = xyz @ np.linalg.inv(extrinsics).T
     xyz = xyz[:, :3].reshape((H, W, 3))
     return xyz
+
+
+def depth_to_canonical(depth, intrinsics, extrinsics):
+    """
+    Args:
+        depth: (H,W)
+        intrinsics: (4,) fx,fy,px,py
+        extrinsics: (4,4)
+    Returns:
+        xyz: (H,W,3)
+    """
+    xyz = depth_to_xyz(depth, intrinsics)
+    xyz = xyz_to_canonical(xyz, extrinsics)
+    return xyz

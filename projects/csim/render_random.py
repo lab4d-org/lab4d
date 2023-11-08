@@ -25,7 +25,7 @@ def cartesian_to_spherical(xcoord, ycoord, zcoord):
 
 def sample_extrinsics(
     extrinsics_base,
-    elevation_limit=np.pi / 6,
+    elevation_limit=np.pi / 4,
     azimuth_limit=np.pi,
     roll_limit=np.pi / 6,
     trans_std=0.25,

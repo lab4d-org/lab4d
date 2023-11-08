@@ -109,8 +109,10 @@ class PolyGenerator:
         extrinsics_batch = np.stack(extrinsics_batch)
 
         # randomly crop the image
-        cropped_size = int(np.random.uniform(0.5, 1.0) * np.asarray(color.shape[1]))
-        start_loc = np.random.randint(0, color.shape[1] - cropped_size)
+        # always center crop to avoid translation / principle point ambiguity
+        # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
+        cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(color.shape[1]))
+        start_loc = (color.shape[1] - cropped_size) // 2
         if np.random.binomial(1, 0.5):
             # crop lengthwise
             color_batch = color_batch[:, start_loc : start_loc + cropped_size, :, :]

@@ -184,7 +184,7 @@ def construct_batch_from_opts(opts, model, data_info):
 def render_batch(model, batch):
     # render batch
     start_time = time.time()
-    rendered = model.evaluate(batch, is_pair=False)
+    rendered, _ = model.evaluate(batch, is_pair=False)
     print("rendering time: %.3f" % (time.time() - start_time))
 
     return rendered

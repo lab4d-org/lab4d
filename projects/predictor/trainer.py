@@ -119,5 +119,6 @@ class PredTrainer(Trainer):
 
         self.model.convert_img_to_pixel(batch_aggr)
         ref_dict["ref_rgb"] = batch_aggr["img"].permute(0, 2, 3, 1).cpu().numpy()
+        ref_dict["ref_depth"] = batch_aggr["xyz"][..., 2:].cpu().numpy()
 
         return ref_dict, batch_aggr

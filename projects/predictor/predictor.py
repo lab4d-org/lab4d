@@ -82,15 +82,18 @@ class Predictor(nn.Module):
     def __init__(self, opts):
         super().__init__()
         self.transforms = nn.Sequential(
-            T.Resize(224, antialias=True),
-            T.CenterCrop(224),
+            T.Resize((224, 224), antialias=True),
             T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        )
+        self.transforms_depth = nn.Sequential(
+            T.Resize((224, 224), antialias=True),
+            T.Normalize(mean=(0.0), std=(3.0)),
         )
         # # dino
         self.encoder = DINOv2Encoder(in_channels=3, out_channels=384)
 
         # resnet
-        # self.depth_encoder = Encoder(in_channels=1, out_channels=384)
+        self.depth_encoder = Encoder(in_channels=1, out_channels=384)
 
         # regression heads
         self.head_trans = TranslationHead(384)
@@ -120,7 +123,9 @@ class Predictor(nn.Module):
         )
         # augment data
         # if self.training:
-        data_batch["img"] = self.augment_data(data_batch["img"])
+        data_batch["img"], data_batch["xyz"] = self.augment_data(
+            data_batch["img"], data_batch["xyz"]
+        )
 
         batch.update(data_batch)
 
@@ -135,16 +140,18 @@ class Predictor(nn.Module):
         return sx, sy, cx, cy
 
     @staticmethod
-    def mask_aug(rendered, lb=0.1, ub=0.2):
-        _, h, w = rendered.shape
-        feat_mean = rendered.mean(-1).mean(-1)[:, None, None]
+    def mask_aug(img, xyz, lb=0.1, ub=0.2):
+        _, h, w = img.shape
+        mean_img = img.mean(-1).mean(-1)[:, None, None]
+        mean_xyz = xyz.mean(0).mean(0)[None, None]  # hw3
         if True:  # np.random.binomial(1, 0.5):
             for _ in range(5):
                 sx, sy, cx, cy = Predictor.get_rand_bbox(lb, ub, h, w)
-                rendered[:, cy - sy : cy + sy, cx - sx : cx + sx] = feat_mean
-        return rendered
+                img[:, cy - sy : cy + sy, cx - sx : cx + sx] = mean_img
+                xyz[cy - sy : cy + sy, cx - sx : cx + sx] = mean_xyz
+        return img, xyz
 
-    def augment_data(self, img):
+    def augment_data(self, img, xyz):
         """
         img: (N, 3, H, W)
         """
@@ -154,19 +161,21 @@ class Predictor(nn.Module):
         for i in range(img.shape[0]):
             img[i] = color_aug(img[i])
             # mask
-            img[i] = self.mask_aug(img[i])
+            img[i], xyz[i] = self.mask_aug(img[i], xyz[i])
 
-        return img
+        return img, xyz
 
     def predict(self, img, depth):
-        # transform pipeline
+        # image
         img = self.transforms(img)
-
         feat = self.encoder(img)
 
-        # depth_feat = self.depth_encoder(depth)
-        # feat = feat + depth_feat
+        # depth
+        depth = self.transforms_depth(depth[:, None])
+        depth_feat = self.depth_encoder(depth)
+        feat = feat + depth_feat
 
+        # prediction heads
         trans = self.head_trans(feat)
         quat = self.head_quat(feat)
         uncertainty = self.head_uncertainty(feat)[..., 0]
