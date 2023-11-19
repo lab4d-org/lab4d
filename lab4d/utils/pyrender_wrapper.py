@@ -173,10 +173,7 @@ class PyRenderWrapper:
         if "ghost" in input_dict:
             flags = 0
         else:
-            flags = (
-                pyrender.RenderFlags.SHADOWS_DIRECTIONAL
-                | pyrender.RenderFlags.SKIP_CULL_FACES
-            )
+            flags = pyrender.RenderFlags.SHADOWS_DIRECTIONAL
         color, depth = self.r.render(scene, flags=flags)
 
         if crop_to_size:

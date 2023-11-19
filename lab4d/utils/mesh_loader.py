@@ -50,7 +50,10 @@ class MeshLoader:
             field2cam_bg_dict = field2cam_bg_dict["field2cam"]
 
             field2world_path = "%s/bg/field2world.json" % (testdir)
-            field2world = np.asarray(json.load(open(field2world_path, "r")))
+            if os.path.exists(field2world_path):
+                field2world = np.asarray(json.load(open(field2world_path, "r")))
+            else:
+                field2world = np.eye(4)
             world2field = np.linalg.inv(field2world)
 
         self.mode = mode

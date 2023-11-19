@@ -580,7 +580,7 @@ def extract_dinov2(trg_path, ref_path, vis_threshold=0.6):
     np.save("tmp/dino/errors-%s.npy" % seqname, errors)
     print("video saved to tmp/dino/%s.mp4" % seqname)
 
-    transform_bg_cams(seqname)
+    transform_bg_cams(seqname, src_dir="tmp/dino/")
 
 
 if __name__ == "__main__":

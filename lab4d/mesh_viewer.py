@@ -43,7 +43,7 @@ def find_seqname(testdir):
     with open(logdir, "r") as file:
         for line in file:
             if "--seqname" in line:
-                seqname = line.split("--")[1].split("=")[1].strip()
+                seqname = line.split("--seqname=")[1].strip()
                 break
     if "seqname" not in locals():
         raise ValueError("Could not find seqname in opts.log")
@@ -66,6 +66,7 @@ def main(
 
     # load images
     seqname, inst_id = find_seqname(args.testdir)
+    print("seqname: %s, inst_id: %d" % (seqname, inst_id))
     config = configparser.RawConfigParser()
     config.read("database/configs/%s.config" % seqname)
     img_dir = config.get("data_%d" % inst_id, "img_path")

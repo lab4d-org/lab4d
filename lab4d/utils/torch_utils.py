@@ -29,12 +29,16 @@ def resolve_size_mismatch(model, ckpt_states):
             print("Warning: repeating {} to {}".format(v.shape, model_v.shape))
         else:
             if k.endswith("time_embedding.mapping1.weight"):
+                # different number of freqs
                 model_v[..., : v.shape[-1]] = v
                 model_v[..., v.shape[-1] :] = 0
                 ckpt_states[k] = model_v
                 print("Warning: copying {} to {}".format(v.shape, model_v.shape))
             elif k.endswith("base_quat") or k.endswith("base_trans"):
+                # setting last k frames to the loaded checkpoint (for fg)
                 model_v[-v.shape[0] :] = v
+                # # setting first k frames to the loaded checkpoint (for bg)
+                # model_v[: v.shape[0]] = v
                 ckpt_states[k] = model_v
                 print("Warning: copying {} to {}".format(v.shape, model_v.shape))
             else:

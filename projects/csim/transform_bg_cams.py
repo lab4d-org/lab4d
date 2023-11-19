@@ -111,21 +111,24 @@ def filter_bad_frames(extrinsics, errors):
     return extrinsics
 
 
-def transform_bg_cams(seqname):
-    src_dir = "tmp/dino/"
+def transform_bg_cams(seqname, src_dir="tmp/dino/"):
     extrinsics_trg = np.load("%s/extrinsics-%s.npy" % (src_dir, seqname))
-    errors = np.load("%s/errors-%s.npy" % (src_dir, seqname))
+    errors = np.load("%s/errors-%s.npy" % (src_dir, seqname)).reshape(-1)
 
     trg_dir = "database/processed/Cameras/Full-Resolution/%s/" % seqname
     extrinsics_old = np.load("%s/00.npy" % trg_dir)
     # TODO fix it
-    extrinsics_old[:, :3, 3] *= 0.48
+    # extrinsics_old[:, :3, 3] *= 0.48
 
     # find the best match and align the cameras accordingly
     # get the 25% quatile error
-    valid_idx = np.where(errors <= np.percentile(errors, 25))[0]
+    # valid_idx = np.where(errors <= np.percentile(errors, 25))[0]
     # valid_idx = np.where(errors <= np.median(errors))[0]
-    # valid_idx = [np.argmin(errors)]
+    valid_idx = [np.argmin(errors)]  # best one
+    # valid_idx = None
+    # valid_idx = [0]
+    # max_len = min(10, len(errors))  # top 20
+    # valid_idx = [i for i in np.argsort(errors)[:max_len]]
     inv_extrinsics_old = np.linalg.inv(extrinsics_old)
     inv_extrinsics_trg = np.linalg.inv(extrinsics_trg)
     extrinsics_new_inv = align_se3_using_dq(
@@ -140,9 +143,9 @@ def transform_bg_cams(seqname):
     # rect_rot[2, 2] = -1
     # extrinsics_new_inv[:, :3, :3] = rect_rot
 
-    # extrinsics_new = np.linalg.inv(extrinsics_new_inv)
+    extrinsics_new = np.linalg.inv(extrinsics_new_inv)
     # extrinsics_new = filter_bad_frames(extrinsics_trg, errors)
-    extrinsics_new = extrinsics_trg
+    # extrinsics_new = extrinsics_trg
 
     cam_old = draw_cams(extrinsics_old)
     cam_new = draw_cams(extrinsics_new)
@@ -150,7 +153,9 @@ def transform_bg_cams(seqname):
     cam_old.export("tmp/cameras_old.obj")
     cam_new.export("tmp/cameras_new.obj")
     cam_trg.export("tmp/cameras_trg.obj")
+    print("cameras vis exported to tmp/cameras_old.obj")
     print("cameras vis exported to tmp/cameras_new.obj")
+    print("cameras vis exported to tmp/cameras_trg.obj")
 
     np.save("%s/aligned-00.npy" % trg_dir, extrinsics_new)
     cam_new.export("%s/cameras-00.obj" % trg_dir)
@@ -159,4 +164,4 @@ def transform_bg_cams(seqname):
 
 if __name__ == "__main__":
     seqname = sys.argv[1]
-    transform_bg_cams(seqname)
+    transform_bg_cams(seqname, src_dir="tmp/predictor/")

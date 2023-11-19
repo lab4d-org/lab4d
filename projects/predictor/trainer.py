@@ -58,7 +58,16 @@ class PredTrainer(Trainer):
         self.model = self.model.to(self.device)
 
     def load_checkpoint_train(self):
-        pass
+        if self.opts["load_path"] != "":
+            # training time
+            checkpoint = self.load_checkpoint(
+                self.opts["load_path"], self.model, optimizer=self.optimizer
+            )
+            if not self.opts["reset_steps"]:
+                self.current_steps = checkpoint["current_steps"]
+                self.current_round = checkpoint["current_round"]
+                self.first_round = self.current_round
+                self.first_step = self.current_steps
 
     def get_optimizable_param_list(self):
         params_ref_list = []

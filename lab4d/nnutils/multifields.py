@@ -40,6 +40,7 @@ class MultiFields(nn.Module):
         feature_channels=16,
         init_scale_fg=0.2,
         init_scale_bg=0.05,
+        use_timesync=False,
     ):
         vis_info = data_info["vis_info"]
 
@@ -53,6 +54,7 @@ class MultiFields(nn.Module):
         self.feature_channels = feature_channels
         self.init_scale_fg = init_scale_fg
         self.init_scale_bg = init_scale_bg
+        self.use_timesync = use_timesync
 
         # specify field type
         if field_type == "comp":
@@ -94,13 +96,16 @@ class MultiFields(nn.Module):
                 num_inst=1 if self.single_inst else num_inst,
                 init_scale=self.init_scale_fg,
                 feature_channels=self.feature_channels,
+                use_timesync=self.use_timesync,
             )
             # no directional encoding
         elif category == "bg":
             if self.single_scene:
                 bg_arch = FeatureNeRF
+                num_inst_bg = 1 if self.single_inst else num_inst
             else:
                 bg_arch = BGNeRF
+                num_inst_bg = num_inst
             # increase freq according to scale
             num_freq_xyz = int(np.log2(self.init_scale_bg / 0.05) + 10)
             nerf = bg_arch(
@@ -109,7 +114,7 @@ class MultiFields(nn.Module):
                 skips=[1, 2, 3, 4, 5, 6, 7],
                 num_freq_dir=0,
                 appr_channels=0,
-                num_inst=num_inst,
+                num_inst=num_inst_bg,
                 init_scale=self.init_scale_bg,
                 num_freq_xyz=num_freq_xyz,
                 extrinsics_type=self.extrinsic_type,
@@ -154,8 +159,7 @@ class MultiFields(nn.Module):
             beta_prob (float): Instance code swapping probability, 0 to 1
         """
         for category, field in self.field_params.items():
-            if category == "fg":
-                field.basefield.inst_embedding.set_beta_prob(beta_prob)
+            field.basefield.inst_embedding.set_beta_prob(beta_prob)
 
     def update_geometry_aux(self):
         """Update proxy geometry and bounds for all child fields"""
@@ -164,13 +168,13 @@ class MultiFields(nn.Module):
             field.update_aabb()
             field.update_near_far()
 
-    def reset_geometry_aux(self):
-        """Reset proxy geometry and bounds for all child fields"""
-        for field in self.field_params.values():
-            print("resetting geometry aux for %s" % field.category)
-            field.update_proxy()
-            field.update_aabb(beta=0)
-            field.update_near_far(beta=0)
+    # def reset_geometry_aux(self):
+    #     """Reset proxy geometry and bounds for all child fields"""
+    #     for field in self.field_params.values():
+    #         print("resetting geometry aux for %s" % field.category)
+    #         field.update_proxy()
+    #         field.update_aabb(beta=0)
+    #         field.update_near_far(beta=0)
 
     def reset_beta(self, beta):
         """Reset beta for all child fields"""
@@ -295,6 +299,19 @@ class MultiFields(nn.Module):
         loss = []
         for field in self.field_params.values():
             loss.append(field.cam_prior_loss())
+        loss = torch.stack(loss, 0).sum(0).mean()
+        return loss
+
+    def cam_prior_relative_loss(self):
+        """Compute mean camera prior loss over all child fields.
+        Encourage camera transforms over time to match external priors.
+
+        Returns:
+            loss: (0,) Mean camera prior loss
+        """
+        loss = []
+        for field in self.field_params.values():
+            loss.append(field.cam_prior_relative_loss())
         loss = torch.stack(loss, 0).sum(0).mean()
         return loss
 

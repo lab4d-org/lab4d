@@ -1,0 +1,2 @@
+# bash scripts/train.sh lab4d/train.py 0 --seqname car-turnaround-2 --logname fg-rigid-32-b1 --fg_motion rigid --pixels_per_image -1 --imgs_per_gpu 1 --train_res 32
+bash scripts/train.sh lab4d/train.py 1 --seqname car-turnaround-2 --logname fg-rigid-32-diffuse --fg_motion rigid --train_res 32 --reg_diffusion_prior_wt 1e-6

@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from lab4d.nnutils.nerf import NeRF
@@ -36,8 +37,11 @@ class BGNeRF(FeatureNeRF):
         """
         meshes = []
         for geom_path in geom_paths:
-            mesh = trimesh.load(geom_path)
-            mesh.vertices = mesh.vertices * init_scale
+            if os.path.exists(geom_path):
+                mesh = trimesh.load(geom_path)
+                mesh.vertices = mesh.vertices * init_scale
+            else:
+                mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
             meshes.append(mesh)
         self.proxy_geometry = meshes
 

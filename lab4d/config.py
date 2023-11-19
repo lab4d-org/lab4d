@@ -26,11 +26,14 @@ class TrainModelConfig:
     flags.DEFINE_float(
         "reg_deform_cyc_wt", 0.05, "weight for deform cyc regularization"
     )
-    flags.DEFINE_float("reg_delta_skin_wt", 5e-3, "weight for delta skinning reg")
+    flags.DEFINE_float("reg_delta_skin_wt", 1e-3, "weight for delta skinning reg")
     flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
     flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
     # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
+    flags.DEFINE_float(
+        "reg_cam_prior_relative_wt", 0.0, "weight for relative camera regularization"
+    )
     flags.DEFINE_float("reg_cam_smooth_wt", 0.0, "scale for camera smoothness reg")
     flags.DEFINE_float("reg_skel_prior_wt", 0.01, "weight for skeleton regularization")
     flags.DEFINE_float(
@@ -45,6 +48,7 @@ class TrainModelConfig:
         "fg_motion", "rigid", "{rigid, dense, bob, skel-human, skel-quad}"
     )
     flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
+    flags.DEFINE_float("beta_prob_final", 0.2, "probability of final morphology beta")
     flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
     flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")
@@ -64,6 +68,8 @@ class TrainOptConfig:
     flags.DEFINE_string("feature_type", "dinov2", "{dinov2, cse}")
     flags.DEFINE_string("load_path", "", "path to load pretrained model")
     flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")
+    flags.DEFINE_integer("bg_vid", -1, "background video ids")
+    flags.DEFINE_boolean("use_timesync", False, "enforce same pose across all vids")
 
     # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")
@@ -81,7 +87,10 @@ class TrainOptConfig:
         "reset steps of loss scheduling, set to False if resuming training",
     )
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
-    flags.DEFINE_boolean("freeze_field", False, "whether to freeze field for alignment")
+    flags.DEFINE_boolean("freeze_field_bg", False, "whether to freeze bg field")
+    flags.DEFINE_boolean("freeze_field_fgbg", False, "whether to freeze fg+bg field")
+    flags.DEFINE_boolean("freeze_camera_bg", False, "whether to freeze bg camera")
+    flags.DEFINE_boolean("freeze_camera_fg", False, "whether to freeze fg camera")
     flags.DEFINE_boolean("freeze_scale", False, "whether to freeze scale")
     flags.DEFINE_boolean("alter_flow", False, "alternatve between flow and all terms")
     flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")

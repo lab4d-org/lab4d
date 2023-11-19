@@ -12,6 +12,7 @@ from lab4d.utils.io import save_vid
 from lab4d.utils.vis_utils import draw_cams
 from projects.predictor.predictor import Predictor
 from projects.predictor.trainer import PredTrainer
+from projects.csim.transform_bg_cams import transform_bg_cams
 
 
 class InferenceFlags:
@@ -92,7 +93,7 @@ def run_inference(opts):
     rgb_input = np.stack(rgb_input, 0)
     depth_input = np.stack(depth_input, 0)
 
-    batch = model.data_generator.convert_to_batch(rgb_input, None, depth_input)
+    batch = model.data_generator1.convert_to_batch(rgb_input, None, depth_input)
     # predict pose and visualize
     # cv2.imwrite("tmp2.jpg", batch["depth"][0].cpu().numpy() * 50)
     re_rgb, extrinsics, uncertainty = model.predict_batch(batch)
@@ -107,14 +108,22 @@ def run_inference(opts):
     re_rgb_resized = np.stack(re_rgb_resized, 0)
     depth_input_vis = np.tile(depth_input[..., None], (1, 1, 1, 3)) * 50
     out_frames = np.concatenate([rgb_input, depth_input_vis, re_rgb_resized], 2)
-    save_vid("tmp/input_rendered", out_frames)
-    print("saved to tmp/input_rendered.mp4")
+    seqname = opts["image_dir"].strip("/").split("/")[-1]
+    os.makedirs("tmp/predictor", exist_ok=True)
+    save_vid("tmp/predictor/input_rendered-%s" % seqname, out_frames)
+    print("saved to tmp/predictor/input_rendered-%s.mp4" % seqname)
 
     # save cameras
+    trg_path = "database/processed/Cameras/Full-Resolution/%s/" % seqname
     extrinsics = extrinsics.cpu().numpy()
-    draw_cams(extrinsics).export("tmp/cameras.obj")
-    print("cameras vis exported to tmp/cameras.obj")
-    # np.save("")
+    # mesh = draw_cams(extrinsics)
+    # mesh.export("%s/cameras-00.obj" % trg_path)
+    # print("cameras vis exported to %s/cameras-00.obj" % trg_path)
+    # np.save("%s/00.npy" % trg_path, extrinsics)
+    # np.save("%s/aligned-00.npy" % trg_path, extrinsics)
+    np.save("tmp/predictor/extrinsics-%s.npy" % seqname, extrinsics)
+    np.save("tmp/predictor/errors-%s.npy" % seqname, uncertainty)
+    # transform_bg_cams(seqname, src_dir="tmp/predictor/")
 
 
 def main(_):

@@ -45,6 +45,7 @@ class dvr_model(nn.Module):
             feature_channels=config["feature_channels"],
             init_scale_fg=config["init_scale_fg"],
             init_scale_bg=config["init_scale_bg"],
+            use_timesync=config["use_timesync"],
         )
         self.construct_intrinsics(data_info)
 
@@ -218,7 +219,7 @@ class dvr_model(nn.Module):
 
         # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)
-        anchor_y = (1.0, 0.2)
+        anchor_y = (1.0, config["beta_prob_final"])
         type = "linear"
         beta_prob = interp_wt(anchor_x, anchor_y, current_steps, type=type)
         self.fields.set_beta_prob(beta_prob)
@@ -444,7 +445,32 @@ class dvr_model(nn.Module):
             results = self.render_samples(samples_dict, flow_thresh=flow_thresh)
         else:
             results = self.render_samples_chunk(samples_dict, flow_thresh=flow_thresh)
+
+        # replace composition with bg rendering for pxs we know there is only bg
+        if self.config["bg_vid"] >= 0 and self.config["field_type"] == "comp":
+            # samples that are bg only
+            bg_id = batch["dataid"] == self.config["bg_vid"]
+            self.handle_bg_only_composition(results, bg_id)
         return results
+
+    @staticmethod
+    def handle_bg_only_composition(results, bg_id):
+        for k in results["rendered"].keys():
+            v_comp = results["rendered"][k]
+            bg_sel = bg_id.view((-1,) + (1,) * (v_comp.ndim - 1))
+            if k in results["aux_dict"]["bg"]:
+                v = results["aux_dict"]["bg"][k]
+            else:
+                # set to 0 if k in final render but not in bg render (gauss_mask, mask_fg)
+                v = torch.zeros_like(v_comp)
+            results["rendered"][k] = torch.where(bg_sel, v, v_comp)
+
+        # no fg render if we know there is only bg
+        for k in results["aux_dict"]["fg"].keys():
+            v_fg = results["aux_dict"]["fg"][k]
+            v_bg = torch.zeros_like(v_fg)
+            bg_sel = bg_id.view((-1,) + (1,) * (v_fg.ndim - 1))
+            results["aux_dict"]["fg"][k] = torch.where(bg_sel, v_bg, v_fg)
 
     def get_samples(self, batch):
         """Compute time-dependent camera and articulation parameters for all
@@ -687,10 +713,10 @@ class dvr_model(nn.Module):
             loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] *= mask_balance_wt
         elif config["field_type"] == "comp":
-            # loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
-            # loss_dict["mask"] *= mask_balance_wt
-            # loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
-            loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
+            loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
+            loss_dict["mask"] *= mask_balance_wt
+            loss_dict["mask"] += (rendered["mask"] - 1).pow(2)
+            # loss_dict["mask"] = (rendered["mask"] - 1).pow(2)
         else:
             raise ("field_type %s not supported" % config["field_type"])
 
@@ -794,6 +820,8 @@ class dvr_model(nn.Module):
         if self.config["reg_gauss_skin_wt"] > 0:
             loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
+        if self.config["reg_cam_prior_relative_wt"] > 0:
+            loss_dict["reg_cam_prior_relative"] = self.fields.cam_prior_relative_loss()
         loss_dict["reg_cam_smooth"] = self.fields.cam_smooth_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
 

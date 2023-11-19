@@ -1,6 +1,5 @@
 misc
 viewer
-run.sh
 run-long.sh
 /database/processed
 /database/configs
@@ -9,6 +8,7 @@ run-long.sh
 /database/polycam
 /database/record3d
 /logdir
+/logdir-prev
 /tmp
 
 lab4d.egg-info

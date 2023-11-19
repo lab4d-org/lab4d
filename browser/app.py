@@ -1,6 +1,6 @@
 # WIP by Gengshan Yang
 # python browser/app.py 'database/processed/Annotations/Full-Resolution/cat-85-*/vis.mp4'
-# python browser/app.py 'logdir/dog-98-category-comp/renderings_00*/xyz.mp4'
+# python browser/app.py 'logdir/dog-98-category-comp/renderings_00*/xyz.mp4' 5001
 # or python browser/app.py and type in string
 from flask import Flask, render_template, request, send_from_directory
 import os
@@ -40,4 +40,4 @@ def get_database_file(filename):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=sys.argv[2] if len(sys.argv) > 2 else 5000)

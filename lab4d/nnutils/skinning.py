@@ -128,7 +128,7 @@ class SkinningField(nn.Module):
             # delta = F.relu(delta) * 0.1
             # skin = -(dist2 + delta)
             dist2 = dist2 * (0.1 * logscale).exp()
-            dist2 = dist2 + F.relu(0.1 * shift)
+            dist2 = dist2 + 0.1 * shift
             skin = -dist2
         else:
             skin = -dist2

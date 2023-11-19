@@ -356,6 +356,29 @@ class CameraMLP_so3(TimeMLP):
 
         self.loss_fn = loss_fn
 
+        def loss_fn_relative(y):
+            """compute relative trajectory loss averaged over all videos
+            y: (..., 4, 4)
+            """
+            quat, trans = self.get_vals()
+            x = quaternion_translation_to_se3(quat, trans)
+
+            loss = []
+            frame_offset = self.time_embedding.frame_offset
+            for vidid in range(len(frame_offset[:-1])):
+                x_world = x[frame_offset[vidid] : frame_offset[vidid + 1]].inverse()
+                y_world = y[frame_offset[vidid] : frame_offset[vidid + 1]].inverse()
+
+                x_rel = x_world[:1].inverse() @ x_world
+                y_rel = y_world[:1].inverse() @ y_world
+
+                loss_sub = F.mse_loss(x_rel, y_rel)
+                loss.append(loss_sub)
+            loss = torch.stack(loss).mean()
+            return loss
+
+        self.loss_fn_relative = loss_fn_relative
+
     def base_init(self):
         """Initialize base camera rotations from initial camera trajectory"""
         rtmat = self.init_vals
@@ -440,6 +463,15 @@ class CameraMLP_so3(TimeMLP):
         base_quat = interpolate_slerp(self.base_quat, idx, idx + 1, t_frac)
         base_trans = interpolate_linear(self.base_trans, idx, idx + 1, t_frac)
         return base_quat, base_trans
+
+    def compute_distance_to_prior_relative(self):
+        """Compute L2-distance from current SE(3) / intrinsics values to
+        external priors.
+
+        Returns:
+            loss (0,): Mean squared error to priors
+        """
+        return self.loss_fn_relative(self.init_vals)
 
 
 class ArticulationBaseMLP(TimeMLP):

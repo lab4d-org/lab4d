@@ -60,12 +60,18 @@ class UncertaintyHead(nn.Module):
 
 
 class DINOv2Encoder(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, use_depth=False):
         super().__init__()
         self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
+        # self.backbone = torch.hub.load(
+        #     "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
+        # )
         self.encoder = Encoder(in_channels=384, out_channels=out_channels)
 
-    def forward(self, img):
+        if use_depth:
+            self.depth_proj = nn.Conv2d(1, 384, kernel_size=1, stride=1, padding=0)
+
+    def forward(self, img, depth=None):
         with torch.no_grad():
             self.backbone.eval()
             masks = torch.zeros(1, 16 * 16, device="cuda").bool()
@@ -74,6 +80,11 @@ class DINOv2Encoder(nn.Module):
             ]
             feat = feat.permute(0, 2, 1).reshape(-1, 384, 16, 16)  # N, 384, 16*16
         feat = F.interpolate(feat, size=(112, 112), mode="bilinear")
+
+        if depth is not None and hasattr(self, "depth_proj"):
+            depth = F.interpolate(depth, size=(112, 112), mode="bilinear")
+            feat = feat + self.depth_proj(depth)
+
         feat = self.encoder(feat)
         return feat
 
@@ -90,17 +101,16 @@ class Predictor(nn.Module):
             T.Normalize(mean=(0.0), std=(3.0)),
         )
         # # dino
-        self.encoder = DINOv2Encoder(in_channels=3, out_channels=384)
-
-        # resnet
-        self.depth_encoder = Encoder(in_channels=1, out_channels=384)
+        self.encoder = DINOv2Encoder(in_channels=3, out_channels=384, use_depth=False)
 
         # regression heads
         self.head_trans = TranslationHead(384)
         self.head_quat = RotationHead(384)
         self.head_uncertainty = UncertaintyHead(384)
 
-        self.data_generator = PolyGenerator()
+        # self.data_generator = PolyGenerator()
+        self.data_generator1 = PolyGenerator(poly_name="Oct31at1-13AM-poly")
+        self.data_generator2 = PolyGenerator(poly_name="Oct5at10-49AM-poly")
 
         # hyper params
         self.azimuth_limit = np.pi
@@ -108,14 +118,19 @@ class Predictor(nn.Module):
         self.last_idx = -1
 
     def set_progress(self, steps, progress):
+        pass
         # self.azimuth_limit = np.pi * progress
-        total_frames = len(self.data_generator.polycam_loader)
+        # total_frames = len(self.data_generator.polycam_loader)
         # self.last_idx = int(np.clip(total_frames * progress, 1, total_frames))
         # print("set last index to %d/%d" % (self.last_idx, total_frames))
 
     def convert_img_to_pixel(self, batch):
         num_images = len(batch["index"])
-        data_batch = self.data_generator.generate_batch(
+        if np.random.binomial(1, 0.5):
+            data_generator = self.data_generator1
+        else:
+            data_generator = self.data_generator2
+        data_batch = data_generator.generate_batch(
             num_images,
             first_idx=self.first_idx,
             last_idx=self.last_idx,
@@ -168,12 +183,8 @@ class Predictor(nn.Module):
     def predict(self, img, depth):
         # image
         img = self.transforms(img)
-        feat = self.encoder(img)
-
-        # depth
         depth = self.transforms_depth(depth[:, None])
-        depth_feat = self.depth_encoder(depth)
-        feat = feat + depth_feat
+        feat = self.encoder(img)
 
         # prediction heads
         trans = self.head_trans(feat)
@@ -307,8 +318,8 @@ class Predictor(nn.Module):
             extrinsics[:3, 3] = trans[0].cpu().numpy()
             uncertainty = uncertainty.cpu().numpy()
             # re-render
-            intrinsics = self.data_generator.polycam_loader.intrinsics[0]
-            re_img, _ = self.data_generator.polycam_loader.render(
+            intrinsics = self.data_generator1.polycam_loader.intrinsics[0]
+            re_img, _ = self.data_generator1.polycam_loader.render(
                 None, extrinsics=extrinsics, intrinsics=intrinsics
             )
             re_img = cv2.putText(

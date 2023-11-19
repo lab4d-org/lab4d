@@ -1201,6 +1201,19 @@ class NeRF(nn.Module):
         loss = self.camera_mlp.compute_distance_to_prior()
         return loss
 
+    def cam_prior_relative_loss(self):
+        """Encourage camera transforms over time to match external priors.
+
+        Returns:
+            loss: (0,) Mean squared error of camera SE(3) transforms to priors
+        """
+        if isinstance(self.camera_mlp, CameraConst):
+            return torch.zeros(1, device=self.parameters().__next__().device)
+        if isinstance(self.camera_mlp, CameraMix):
+            return self.camera_mlp.camera_mlp.compute_distance_to_prior_relative()
+        loss = self.camera_mlp.compute_distance_to_prior_relative()
+        return loss
+
     def cam_smooth_loss(self):
         """Encourage camera transforms over time to be smooth.
 

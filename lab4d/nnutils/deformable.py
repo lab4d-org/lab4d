@@ -44,6 +44,7 @@ class Deformable(FeatureNeRF):
         init_scale (float): Initial geometry scale factor.
         color_act (bool): If True, apply sigmoid to the output RGB
         feature_channels (int): Number of feature field channels
+        time_sync (bool): If True, assume all videos captured at same time
     """
 
     def __init__(
@@ -64,6 +65,7 @@ class Deformable(FeatureNeRF):
         init_scale=0.1,
         color_act=True,
         feature_channels=16,
+        use_timesync=False,
     ):
         super().__init__(
             data_info,
@@ -85,6 +87,7 @@ class Deformable(FeatureNeRF):
 
         self.warp = create_warp(fg_motion, data_info)
         self.fg_motion = fg_motion
+        self.use_timesync = use_timesync
 
     # def update_aabb(self, beta=0.5):
     #     """Update axis-aligned bounding box by interpolating with the current
@@ -128,6 +131,20 @@ class Deformable(FeatureNeRF):
         else:
             return sdf_fn_torch_sphere
 
+    def frame_id_to_sub(self, frame_id, inst_id):
+        """Convert frame id to frame id relative to the video.
+        This forces all videos to share the same pose embedding.
+
+        Args:
+            frame_id: (M,) Frame id
+            inst_id: (M,) Instance id
+        Returns:
+            frameid_sub: (M,) Frame id relative to the video
+        """
+        frame_offset_raw = torch.tensor(self.frame_offset_raw, device=frame_id.device)
+        frameid_sub = frame_id - frame_offset_raw[inst_id]
+        return frameid_sub
+
     def backward_warp(
         self, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict={}
     ):
@@ -149,6 +166,8 @@ class Deformable(FeatureNeRF):
             xyz_t: (M,N,D,3) Points along rays in object time-t space.
         """
         xyz_t, dir = self.cam_to_field(xyz_cam, dir_cam, field2cam)
+        if self.use_timesync:
+            frame_id = self.frame_id_to_sub(frame_id, inst_id)
         xyz, warp_dict = self.warp(
             xyz_t,
             frame_id,

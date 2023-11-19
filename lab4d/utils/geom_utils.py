@@ -7,6 +7,7 @@ import trimesh
 from scipy.spatial.transform import Rotation as R
 from skimage import measure
 import open3d as o3d
+import point_cloud_utils as pcu
 
 from lab4d.utils.quat_transform import (
     dual_quaternion_apply,
@@ -596,11 +597,36 @@ def marching_cubes(
 
     mesh = trimesh.Trimesh(verts, faces)
     if apply_connected_component:
-        # keep the largest connected component
+        # fg: keep the largest connected component
         mesh = [i for i in mesh.split(only_watertight=False)]
         mesh = sorted(mesh, key=lambda x: x.vertices.shape[0])
         mesh = mesh[-1]
+        res_f = 10000
+        # decimation
+        vw, fw = make_manifold(mesh, res_f=res_f)
+        v, f, v_c, f_c = pcu.decimate_triangle_mesh(vw, fw, res_f)
+        mesh = trimesh.Trimesh(v, f)
+    else:
+        pass
+        # bg
+        # TODO: isotropic remeshing
     return mesh
+
+
+def make_manifold(mesh, res_f=10000):
+    """
+    from https://github.com/fwilliams/point-cloud-utils/issues/71
+    """
+    vw, fw = pcu.make_mesh_watertight(mesh.vertices, mesh.faces, res_f)
+    # Compute the shortest distance between each point in p and the mesh:
+    #   dists is a NumPy array of shape (P,) where dists[i] is the
+    #   shortest distnace between the point p[i, :] and the mesh (v, f)
+    dists, fid, bc = pcu.closest_points_on_mesh(vw, mesh.vertices, mesh.faces)
+
+    # Interpolate the barycentric coordinates to get the coordinates of
+    # the closest points on the mesh to each point in p
+    vw = pcu.interpolate_barycentric_coords(mesh.faces, fid, bc, mesh.vertices)
+    return vw, fw
 
 
 def check_inside_aabb(xyz, aabb):

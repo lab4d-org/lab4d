@@ -142,6 +142,46 @@ class Trainer:
             "module.fields.field_params.bg.sdf": 10.0,
         }
 
+    def get_lr_freeze_field_bg(self):
+        param_lr_with_freeze_field_bg = {
+            "module.fields.field_params.bg.basefield.": 0.0,
+            # "module.fields.field_params.bg.colorfield.": 0.0,
+            "module.fields.field_params.bg.sdf.": 0.0,
+            # "module.fields.field_params.bg.rgb.": 0.0,
+            "module.fields.field_params.bg.vis_mlp.": 0.0,
+            "module.fields.field_params.bg.feature_field": 0.0,
+        }
+        return param_lr_with_freeze_field_bg
+
+    def get_lr_freeze_field_fgbg(self):
+        param_lr_with_freeze_field = {
+            "module.fields.field_params.fg.basefield.": 0.0,
+            # "module.fields.field_params.fg.colorfield.": 0.0,
+            "module.fields.field_params.fg.sdf.": 0.0,
+            # "module.fields.field_params.fg.rgb.": 0.0,
+            "module.fields.field_params.fg.vis_mlp.": 0.0,
+            "module.fields.field_params.fg.feature_field": 0.0,
+            "module.fields.field_params.bg.basefield.": 0.0,
+            # "module.fields.field_params.bg.colorfield.": 0.0,
+            "module.fields.field_params.bg.sdf.": 0.0,
+            # "module.fields.field_params.bg.rgb.": 0.0,
+            "module.fields.field_params.bg.vis_mlp.": 0.0,
+            "module.fields.field_params.bg.feature_field": 0.0,
+        }
+        return param_lr_with_freeze_field
+
+    def get_lr_freeze_camera_bg(self):
+        param_lr_with_freeze_camera_bg = {
+            "module.fields.field_params.bg.camera_mlp": 0.0,
+        }
+        return param_lr_with_freeze_camera_bg
+
+    def get_lr_freeze_camera_fg(self):
+        param_lr_with_freeze_camera_fg = {
+            "module.fields.field_params.fg.camera_mlp": 0.0,
+        }
+        return param_lr_with_freeze_camera_fg
+
     def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters
 
@@ -169,16 +209,14 @@ class Trainer:
             ".orient": lr_explicit,
         }
 
-        if opts["freeze_field"]:
-            param_lr_with_freeze_field = {
-                "module.fields.field_params.bg.basefield.": 0.0,
-                "module.fields.field_params.bg.colorfield.": 0.0,
-                "module.fields.field_params.bg.sdf.": 0.0,
-                "module.fields.field_params.bg.rgb.": 0.0,
-                "module.fields.field_params.bg.vis_mlp.": 0.0,
-                "module.fields.field_params.bg.feature_field": 0.0,
-            }
-            param_lr_with.update(param_lr_with_freeze_field)
+        if opts["freeze_field_bg"]:
+            param_lr_with.update(self.get_lr_freeze_field_bg())
+        if opts["freeze_field_fgbg"]:
+            param_lr_with.update(self.get_lr_freeze_field_fgbg())
+        if opts["freeze_camera_bg"]:
+            param_lr_with.update(self.get_lr_freeze_camera_bg())
+        if opts["freeze_camera_fg"]:
+            param_lr_with.update(self.get_lr_freeze_camera_fg())
         if opts["freeze_scale"]:
             del param_lr_with[".logscale"]
             param_lr_with_freeze_scale = {
@@ -373,9 +411,9 @@ class Trainer:
 
         model.load_state_dict(model_states, strict=False)
 
-        # reset near_far
-        if hasattr(model, "fields"):
-            model.fields.reset_geometry_aux()
+        # # reset near_far
+        # if hasattr(model, "fields"):
+        #     model.fields.reset_geometry_aux()
 
         # if optimizer is not None:
         #     # use the new param_groups that contains the learning rate
@@ -409,7 +447,7 @@ class Trainer:
         if self.opts["reset_beta"]:
             self.model.module.fields.reset_beta(beta=0.01)
 
-        self.model.fields.reset_geometry_aux()
+        # self.model.fields.reset_geometry_aux()
 
     def train_one_round(self):
         """Train a single round (going over mini-batches)"""
