@@ -734,6 +734,9 @@ class Trainer:
         frame_id = np.asarray(
             range(offset[inst_id] - inst_id, offset[inst_id + 1] - inst_id - 1)
         )  # to account for pairs
+        # only load a single frame
+        if "freeze_id" in opts and opts["freeze_id"] > -1:
+            frame_id = frame_id[opts["freeze_id"] : opts["freeze_id"] + 1]
         ref_dict, _ = Trainer.load_batch(evalloader.dataset, frame_id)
 
         return model, data_info, ref_dict

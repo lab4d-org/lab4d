@@ -1,10 +1,11 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
-# python preprocess/scripts/extract_dinov2.py cat-pikachu 256 1 "0"
+# python preprocess/scripts/extract_dinov2.py cat-pikachu 1 "0"
 # this assumes one component (object) per video
 import configparser
 import glob
 import os
 import sys
+import pdb
 
 import cv2
 import numpy as np
@@ -32,14 +33,16 @@ def extract_dino_feat(dinov2_model, rgb, size=None):
     rgb: (s, s, 3), 0-1
     feat: (s,s, 384)
     """
+    input_size = 224
+    out_size = input_size // 14
     device = next(dinov2_model.parameters()).device
     h, w, _ = rgb.shape
 
     img = Image.fromarray(rgb)
     transform = T.Compose(
         [
-            T.Resize(224),
-            T.CenterCrop(224),
+            T.Resize(input_size),
+            T.CenterCrop(input_size),
             T.ToTensor(),
             T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ]
@@ -47,7 +50,9 @@ def extract_dino_feat(dinov2_model, rgb, size=None):
 
     img = transform(img)[:3].unsqueeze(0).to(device)
     # TODO: use stride=4 to get high-res feature
-    feat = dinov2_model.forward_features(img)["x_norm_patchtokens"].reshape(16, 16, -1)
+    feat = dinov2_model.forward_features(img)["x_norm_patchtokens"].reshape(
+        out_size, out_size, -1
+    )
     if size is None:
         size = (h, w)
     feat = F.interpolate(feat.permute(2, 0, 1)[None], size=size, mode="bilinear")
@@ -58,16 +63,19 @@ def extract_dino_feat(dinov2_model, rgb, size=None):
 
 def load_dino_model(gpu_id=0):
     # load dinov2: small models producds smoother pca-ed features
-    dinov2_model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
     # dinov2_model = torch.hub.load(
-    #     "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
+    #     "facebookresearch/dinov2", "dinov2_vits14", force_reload=True
     # )
+    dinov2_model = torch.hub.load(
+        "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
+    )
     dinov2_model = dinov2_model.to("cuda:%d" % gpu_id)
     dinov2_model.eval()
     return dinov2_model
 
 
-def extract_dinov2_seq(seqname, crop_size, use_full, component_id, pca_save):
+def extract_dinov2_seq(seqname, use_full, component_id, pca_save):
+    crop_size = 256
     dinov2_model = load_dino_model()
     # rgb path
     imgdir = "database/processed/JPEGImages/Full-Resolution/%s" % seqname
@@ -110,17 +118,17 @@ def extract_dinov2_seq(seqname, crop_size, use_full, component_id, pca_save):
         prefix = "full"
     else:
         prefix = "crop"
-    save_path_dp = "%s/%s-%d-dinov2-%02d.npy" % (
+    save_path_dp = "%s/%s-dinov2l-reg-%02d.npy" % (
         save_path_dp,
         prefix,
-        crop_size,
         component_id,
     )
     np.save(save_path_dp, feats.astype(np.float16))
     print("dino features saved to %s" % save_path_dp)
 
 
-def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0], ndim=16):
+def extract_dinov2(seqname, component_id=1, gpulist=[0], ndim=16):
+    crop_size = 256
     dinov2_model = load_dino_model(gpu_id=gpulist[0])
     # compute pca matrix over all frames
     # load image path
@@ -165,16 +173,15 @@ def extract_dinov2(seqname, crop_size, component_id=1, gpulist=[0], ndim=16):
     args = []
     for vidid in range(len(config.sections()) - 1):
         seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
-        args.append((seqname, crop_size, True, component_id, pca_save))
-        args.append((seqname, crop_size, False, component_id, pca_save))
+        args.append((seqname, True, component_id, pca_save))
+        args.append((seqname, False, component_id, pca_save))
 
     gpu_map(extract_dinov2_seq, args, gpus=gpulist)
 
 
 if __name__ == "__main__":
     seqname = sys.argv[1]
-    crop_size = int(sys.argv[2])
-    component_id = int(sys.argv[3])
-    gpulist = [int(n) for n in sys.argv[4].split(",")]
+    component_id = int(sys.argv[2])
+    gpulist = [int(n) for n in sys.argv[3].split(",")]
 
-    extract_dinov2(seqname, crop_size, component_id, gpulist=gpulist, ndim=-1)
+    extract_dinov2(seqname, component_id, gpulist=gpulist, ndim=-1)

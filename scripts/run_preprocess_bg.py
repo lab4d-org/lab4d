@@ -122,4 +122,4 @@ if __name__ == "__main__":
     gpu_map(run_extract_priors, prior_args, gpus=gpulist)
 
     # extract dinov2 features
-    extract_dinov2(vidname, 256, component_id=0, gpulist=gpulist)
+    extract_dinov2(vidname, component_id=0, gpulist=gpulist)

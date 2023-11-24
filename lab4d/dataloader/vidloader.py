@@ -98,7 +98,7 @@ class VidDataset(Dataset):
             group_id = 1
         feature_path = str(
             Path(rgb_path.replace("JPEGImages", "Features")).parent
-        ) + "/%s-%s-%02d.npy" % (prefix, feature_type, group_id)
+        ) + "/%s-%s-%02d.npy" % (prefix.split("-")[0], feature_type, group_id)
 
         canonical_path_bg = (
             reflist[0]

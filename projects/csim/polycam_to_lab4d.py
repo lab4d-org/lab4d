@@ -32,77 +32,86 @@ from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
 from preprocess.scripts.fake_data import create_fake_masks
 
-# vidname = "Oct25at8-48PM-poly"
-# vidname = "Oct5at10-49AM-poly"
-vidname = "Oct31at1-13AM-poly"
-seqname = "%s-0000" % vidname
-target_dir = "database/processed/"
-source_dir = "database/polycam/%s/keyframes" % vidname
 
-# for idx, imgpath in enumerate(
-#     tqdm.tqdm(sorted(glob.glob("%s/images/*.jpg" % source_dir)))
-# ):
-#     filename = imgpath.split("/")[-1].split(".")[0]
+def polycam_to_lab4d(vidname, target_dir="database/processed/"):
+    seqname = "%s-0000" % vidname
+    source_dir = "database/polycam/%s/keyframes" % vidname
 
-#     # image
-#     src = "%s/images/%s.jpg" % (source_dir, filename)
-#     trg1 = "%s/JPEGImagesRaw/Full-Resolution/%s/%05d.jpg" % (target_dir, seqname, idx)
-#     trg2 = "%s/JPEGImages/Full-Resolution/%s/%05d.jpg" % (target_dir, seqname, idx)
-#     image = cv2.imread(src)
-#     image = np.transpose(image, [1, 0, 2])  # vertical to horizontal
-#     image = image[:, ::-1, :]  # flip horizontally
-#     os.makedirs(os.path.dirname(trg1), exist_ok=True)
-#     os.makedirs(os.path.dirname(trg2), exist_ok=True)
-#     cv2.imwrite(trg1, image)
-#     cv2.imwrite(trg2, image)
+    for idx, imgpath in enumerate(
+        tqdm.tqdm(sorted(glob.glob("%s/images/*.jpg" % source_dir)))
+    ):
+        filename = imgpath.split("/")[-1].split(".")[0]
 
-#     # depth
-#     depth_path = imgpath.replace("images", "depth").replace(".jpg", ".png")
-#     depth = cv2.imread(depth_path, -1) / 1000
-#     depth = np.transpose(depth, [1, 0])  # vertical to horizontal
-#     depth = depth[:, ::-1]  # flip horizontally
-#     trg = "%s/Depth/Full-Resolution/%s/%05d.npy" % (target_dir, seqname, idx)
-#     os.makedirs(os.path.dirname(trg), exist_ok=True)
-#     np.save(trg, depth)
+        # image
+        src = "%s/images/%s.jpg" % (source_dir, filename)
+        trg1 = "%s/JPEGImagesRaw/Full-Resolution/%s/%05d.jpg" % (
+            target_dir,
+            seqname,
+            idx,
+        )
+        trg2 = "%s/JPEGImages/Full-Resolution/%s/%05d.jpg" % (target_dir, seqname, idx)
+        image = cv2.imread(src)
+        image = np.transpose(image, [1, 0, 2])  # vertical to horizontal
+        image = image[:, ::-1, :]  # flip horizontally
+        os.makedirs(os.path.dirname(trg1), exist_ok=True)
+        os.makedirs(os.path.dirname(trg2), exist_ok=True)
+        cv2.imwrite(trg1, image)
+        cv2.imwrite(trg2, image)
 
-# # save cameras
-# polycam_loader = PolyCamRender("%s/../" % source_dir)
-# extrinsics_all = polycam_loader.extrinsics
-# mesh = draw_cams(extrinsics_all)
-# trg = "%s/Cameras/Full-Resolution/%s/00.npy" % (target_dir, seqname)
-# os.makedirs(os.path.dirname(trg), exist_ok=True)
-# np.save(trg, extrinsics_all)
-# np.save(trg.replace("00.npy", "aligned-00.npy"), extrinsics_all)
-# mesh.export("%s/Cameras/Full-Resolution/%s/cameras-00.obj" % (target_dir, seqname))
+        # depth
+        depth_path = imgpath.replace("images", "depth").replace(".jpg", ".png")
+        depth = cv2.imread(depth_path, -1) / 1000
+        depth = np.transpose(depth, [1, 0])  # vertical to horizontal
+        depth = depth[:, ::-1]  # flip horizontally
+        trg = "%s/Depth/Full-Resolution/%s/%05d.npy" % (target_dir, seqname, idx)
+        os.makedirs(os.path.dirname(trg), exist_ok=True)
+        np.save(trg, depth)
 
-# # copy mesh
-# export_path = "%s/Cameras/Full-Resolution/%s/mesh-00-centered.obj" % (
-#     target_dir,
-#     seqname,
-# )
-# polycam_loader.mesh.export(export_path)
+    # save cameras
+    polycam_loader = PolyCamRender("%s/../" % source_dir)
+    extrinsics_all = polycam_loader.extrinsics
+    mesh = draw_cams(extrinsics_all)
+    trg = "%s/Cameras/Full-Resolution/%s/00.npy" % (target_dir, seqname)
+    os.makedirs(os.path.dirname(trg), exist_ok=True)
+    np.save(trg, extrinsics_all)
+    np.save(trg.replace("00.npy", "aligned-00.npy"), extrinsics_all)
+    mesh.export("%s/Cameras/Full-Resolution/%s/cameras-00.obj" % (target_dir, seqname))
 
-# # run preprocessing
-# write_config(vidname)
+    # copy mesh
+    export_path = "%s/Cameras/Full-Resolution/%s/mesh-00-centered.obj" % (
+        target_dir,
+        seqname,
+    )
+    polycam_loader.mesh.export(export_path)
 
-# # modify intrinsics
-# config_path = "database/configs/%s.config" % vidname
-# config = configparser.ConfigParser()
-# config.read(config_path)
-# intrinsics = polycam_loader.intrinsics[0]
-# config["data_0"]["ks"] = " ".join([str(j) for j in intrinsics.flatten()])
-# with open(config_path, "w") as configfile:
-#     config.write(configfile)
+    # run preprocessing
+    write_config(vidname)
 
-# create_fake_masks(seqname, target_dir)
-# # flow
-# for dframe in [1, 2, 4, 8]:
-#     compute_flow(seqname, target_dir, dframe)
+    # modify intrinsics
+    config_path = "database/configs/%s.config" % vidname
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    intrinsics = polycam_loader.intrinsics[0]
+    config["data_0"]["ks"] = " ".join([str(j) for j in intrinsics.flatten()])
+    with open(config_path, "w") as configfile:
+        config.write(configfile)
 
-# # depth
-# # extract_depth(seqname)
-# extract_normal(seqname)
+    create_fake_masks(seqname, target_dir)
+    # flow
+    for dframe in [1, 2, 4, 8]:
+        compute_flow(seqname, target_dir, dframe)
 
-res = 256
-# extract_crop(seqname, res, 1)
-extract_dinov2(vidname, res, component_id=0, ndim=-1)
+    extract_normal(seqname)
+
+    # res = 1024
+    res = 256
+    extract_crop(seqname, res, 1)
+    extract_dinov2(vidname, component_id=0, ndim=-1)
+
+
+if __name__ == "__main__":
+    # vidname = sys.argv[1]
+    # vidname = "Oct25at8-48PM-poly"
+    vidname = "Oct5at10-49AM-poly"
+    # vidname = "Oct31at1-13AM-poly"
+    polycam_to_lab4d(vidname)

@@ -216,6 +216,19 @@ def render(opts, construct_batch_func):
         rendered = render_batch(model, batch)
 
     rendered.update(ref_dict)
+    # # unproject depth
+    # import trimesh
+    # import pdb
+    # from lab4d.utils.cam_utils import depth_to_xyz
+    # from lab4d.utils.geom_utils import Kmatinv, mat2K
+
+    # trimesh.Trimesh(
+    #     depth_to_xyz(
+    #         rendered["depth"][0, :, :, 0].cpu().numpy(),
+    #         mat2K(Kmatinv(batch["Kinv"])[0]).cpu().numpy(),
+    #     ).reshape(-1, 3)[::10]
+    # ).export("tmp/0.obj")
+    # pdb.set_trace()
     save_rendered(rendered, save_dir, raw_size, data_info["apply_pca_fn"])
     print("Saved to %s" % save_dir)
 

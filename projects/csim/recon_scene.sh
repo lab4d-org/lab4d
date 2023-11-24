@@ -11,6 +11,8 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --intrinsics_type const --extrinsics_type const --feature_channels 384 \
   --freeze_scale --learning_rate 2e-3 --num_rounds 240 \
   --mask_wt 0.01 --normal_wt 1e-3 --feature_wt 1e-3 --depth_wt 0.01 --reg_eikonal_wt 0.001 --feat_reproj_wt 0.0 --flow_wt 0.0
+  # --train_res 1024 --feature_type dinov2-reg518
+  # --nouse_freq_anneal --feature_type dinov2-reg --pixels_per_image 24
 CUDA_VISIBLE_DEVICE=$dev python lab4d/export.py --flagfile=logdir/$envname-$logname/opts.log --load_suffix latest --inst_id 0 --vis_thresh -10 --grid_size 256
 
 

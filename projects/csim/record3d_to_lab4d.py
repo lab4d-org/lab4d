@@ -155,8 +155,8 @@ def record3d_to_lab4d(
     res = 256
     extract_crop(seqname, res, 1)
     extract_crop(seqname, res, 0)
-    extract_dinov2(vidname, res, component_id=0, ndim=-1)
-    extract_dinov2(vidname, res, component_id=1, ndim=-1)
+    extract_dinov2(vidname, component_id=0, ndim=-1)
+    extract_dinov2(vidname, component_id=1, ndim=-1)
     camera_registration(seqname, 1)
     canonical_registration(seqname, 256, "quad")
 

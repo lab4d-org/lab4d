@@ -15,7 +15,7 @@ seqname = "car-turnaround-2-0000"
 # extract_normal(seqname)
 
 res = 32
-extract_crop(seqname, res, 0)
-extract_crop(seqname, res, 1)
+extract_crop(seqname, 0)
+extract_crop(seqname, 1)
 
-extract_dinov2(vidname, res)
+extract_dinov2(vidname)
