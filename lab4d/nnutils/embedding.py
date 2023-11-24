@@ -150,21 +150,15 @@ class PosEmbedding(nn.Module):
         return mean_embedding
 
 
-class TimeEmbedding(nn.Module):
-    """A learnable feature embedding per frame
+class TimeInfo(nn.Module):
+    """Stores constant information about the time embedding
 
     Args:
-        num_freq_t (int): Number of frequencies in time embedding
         frame_info (Dict): Metadata about the frames in a dataset
-        out_channels (int): Number of output channels
     """
 
-    def __init__(self, num_freq_t, frame_info, out_channels=128, time_scale=1.0):
+    def __init__(self, frame_info, time_scale=1.0):
         super().__init__()
-        self.fourier_embedding = PosEmbedding(1, num_freq_t)
-        t_channels = self.fourier_embedding.out_channels
-        self.out_channels = out_channels
-
         self.frame_offset = frame_info["frame_offset"]
         self.frame_offset_raw = frame_info["frame_offset_raw"]
         self.num_frames = self.frame_offset[-1]
@@ -211,6 +205,22 @@ class TimeEmbedding(nn.Module):
             return tid
 
         self.frame_to_tid = frame_to_tid_fn
+
+
+class TimeEmbedding(TimeInfo):
+    """A learnable feature embedding per frame
+
+    Args:
+        num_freq_t (int): Number of frequencies in time embedding
+        frame_info (Dict): Metadata about the frames in a dataset
+        out_channels (int): Number of output channels
+    """
+
+    def __init__(self, num_freq_t, frame_info, out_channels=128, time_scale=1.0):
+        super().__init__(frame_info, time_scale=time_scale)
+        self.fourier_embedding = PosEmbedding(1, num_freq_t)
+        t_channels = self.fourier_embedding.out_channels
+        self.out_channels = out_channels
 
         self.inst_embedding = InstEmbedding(self.num_vids, inst_channels=out_channels)
         self.mapping1 = nn.Linear(t_channels, out_channels)

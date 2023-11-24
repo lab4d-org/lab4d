@@ -11,7 +11,13 @@ from torch.autograd.functional import jacobian
 from lab4d.nnutils.appearance import AppearanceEmbedding
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
-from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3, CameraConst, CameraMix
+from lab4d.nnutils.pose import (
+    CameraMLP,
+    CameraMLP_so3,
+    CameraConst,
+    CameraMix,
+    CameraMixSE3,
+)
 from lab4d.nnutils.visibility import VisField
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import (
@@ -184,6 +190,8 @@ class NeRF(nn.Module):
             self.camera_mlp = CameraConst(rtmat, frame_info=frame_info)
         elif extrinsics_type == "mix":
             self.camera_mlp = CameraMix(rtmat, frame_info=frame_info, const_vid_id=0)
+        elif extrinsics_type == "mixse3":
+            self.camera_mlp = CameraMixSE3(rtmat, frame_info=frame_info, const_vid_id=0)
         else:
             raise NotImplementedError
 
@@ -1194,8 +1202,10 @@ class NeRF(nn.Module):
         Returns:
             loss: (0,) Mean squared error of camera SE(3) transforms to priors
         """
-        if isinstance(self.camera_mlp, CameraConst):
-            return torch.zeros(1, device=self.parameters().__next__().device)
+        if isinstance(self.camera_mlp, CameraConst) or isinstance(
+            self.camera_mlp, CameraMixSE3
+        ):
+            return torch.zeros(1, device=self.parameters().__next__().device).mean()
         if isinstance(self.camera_mlp, CameraMix):
             return self.camera_mlp.camera_mlp.compute_distance_to_prior()
         loss = self.camera_mlp.compute_distance_to_prior()
@@ -1207,7 +1217,9 @@ class NeRF(nn.Module):
         Returns:
             loss: (0,) Mean squared error of camera SE(3) transforms to priors
         """
-        if isinstance(self.camera_mlp, CameraConst):
+        if isinstance(self.camera_mlp, CameraConst) or isinstance(
+            self.camera_mlp, CameraMixSE3
+        ):
             return torch.zeros(1, device=self.parameters().__next__().device)
         if isinstance(self.camera_mlp, CameraMix):
             return self.camera_mlp.camera_mlp.compute_distance_to_prior_relative()

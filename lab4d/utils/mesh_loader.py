@@ -9,6 +9,8 @@ import argparse
 import trimesh
 import tqdm
 
+from lab4d.utils.vis_utils import draw_cams
+
 
 class MeshLoader:
     def __init__(self, testdir, mode="", compose_mode=""):
@@ -200,14 +202,43 @@ class MeshLoader:
 
     def query_canonical_mesh(self, inst_id, data_class="bg"):
         path = self.testdir + "/../export_%04d/%s-mesh.obj" % (inst_id, data_class)
-        mesh = trimesh.load(path, process=False)
-        if data_class == "bg":
-            field2world_path = (
-                self.testdir + "/../export_%04d/bg/field2world.json" % inst_id
-            )
-            if os.path.exists(field2world_path):
-                field2world = np.asarray(json.load(open(field2world_path, "r")))
-                mesh.vertices = (
-                    mesh.vertices @ field2world[:3, :3].T + field2world[:3, 3]
+        if os.path.exists(path):
+            mesh = trimesh.load(path, process=False)
+            if data_class == "bg":
+                field2world_path = (
+                    self.testdir + "/../export_%04d/bg/field2world.json" % inst_id
                 )
+                if os.path.exists(field2world_path):
+                    field2world = np.asarray(json.load(open(field2world_path, "r")))
+                    mesh.vertices = (
+                        mesh.vertices @ field2world[:3, :3].T + field2world[:3, 3]
+                    )
+        else:
+            mesh = trimesh.Trimesh()
+        return mesh
+
+    def query_camtraj_mesh(self, data_class="bg"):
+        world2cam_bg = np.asarray(list(self.field2cam_bg_dict.values()))
+        field2cam_fg = np.asarray(list(self.field2cam_fg_dict.values()))
+        if data_class == "bg":
+            mesh = draw_cams(world2cam_bg, color="cool")
+        elif data_class == "fg":
+            world2field_fg = np.linalg.inv(field2cam_fg) @ world2cam_bg
+            mesh = draw_cams(world2field_fg, color="hot")
+        else:
+            mesh = trimesh.Trimesh()
+        # path = self.testdir + "/../export_%04d/%s-camtraj.obj" % (inst_id, data_class)
+        # if os.path.exists(path):
+        #     mesh = trimesh.load(path, process=False)
+        #     if data_class == "bg":
+        #         field2world_path = (
+        #             self.testdir + "/../export_%04d/bg/field2world.json" % inst_id
+        #         )
+        #         if os.path.exists(field2world_path):
+        #             field2world = np.asarray(json.load(open(field2world_path, "r")))
+        #             mesh.vertices = (
+        #                 mesh.vertices @ field2world[:3, :3].T + field2world[:3, 3]
+        #             )
+        # else:
+        #     mesh = trimesh.Trimesh()
         return mesh

@@ -20,7 +20,7 @@ from lab4d.utils.mesh_loader import MeshLoader
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--testdir", default="", help="path to the directory with results")
-parser.add_argument("--fps", default=30, type=int, help="fps of the video")
+parser.add_argument("--fps", default=10, type=int, help="fps of the video")
 parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
 parser.add_argument("--ghosting", action="store_true", help="ghosting")

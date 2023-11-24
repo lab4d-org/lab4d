@@ -27,7 +27,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_se3,
     quaternion_translation_to_se3,
 )
-from lab4d.utils.vis_utils import append_xz_plane
+from lab4d.utils.vis_utils import append_xz_plane, draw_cams
 
 cudnn.benchmark = True
 
@@ -168,7 +168,6 @@ def rescale_motion_tuples(motion_tuples, field_scale):
 
 def save_motion_params(meshes_rest, motion_tuples, save_dir):
     for cate, mesh_rest in meshes_rest.items():
-        mesh_rest.export("%s/%s-mesh.obj" % (save_dir, cate))
         motion_params = {"field2cam": {}, "t_articulation": {}, "joint_so3": {}}
         os.makedirs("%s/fg/mesh/" % save_dir, exist_ok=True)
         os.makedirs("%s/bg/mesh/" % save_dir, exist_ok=True)
@@ -198,6 +197,11 @@ def save_motion_params(meshes_rest, motion_tuples, save_dir):
 
         with open("%s/%s/motion.json" % (save_dir, cate), "w") as fp:
             json.dump(motion_params, fp)
+
+        # save camera mesh
+        mesh_camtraj = draw_cams(list(motion_params["field2cam"].values()))
+        mesh_camtraj.export("%s/%s-camtraj.obj" % (save_dir, cate))
+        mesh_rest.export("%s/%s-mesh.obj" % (save_dir, cate))
 
 
 @torch.no_grad()

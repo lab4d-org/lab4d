@@ -18,7 +18,7 @@ config.read("database/configs/%s.config" % vidname)
 for vidid in range(len(config.sections()) - 1):
     seqname = config.get("data_%d" % vidid, "img_path").strip("/").split("/")[-1]
     run_bash_command(
-        f"zip {vidname}.zip -r database/processed/*/Full-Resolution/{seqname}"
+        f"zip -0 /data/gengshay/{vidname}.zip -r database/processed/*/Full-Resolution/{seqname}"
     )
 
-run_bash_command(f"zip {vidname}.zip database/configs/{vidname}.config")
+run_bash_command(f"zip /data/gengshay/{vidname}.zip database/configs/{vidname}.config")

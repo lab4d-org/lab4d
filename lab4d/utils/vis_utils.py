@@ -97,7 +97,7 @@ def draw_cams(all_cam, color="cool", axis=True, color_list=None, rgbpath_list=No
         cam_rot = all_cam[j][:3, :3].T
         cam_tran = -cam_rot.dot(all_cam[j][:3, 3:])[:, 0]
 
-        radius = 0.02 * scale
+        radius = 5e-3 * scale
         cam = trimesh.creation.uv_sphere(radius=radius, count=[2, 2])
 
         if axis:

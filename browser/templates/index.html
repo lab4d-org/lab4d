@@ -26,7 +26,8 @@
 
         .grid-item {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            /* Stack items vertically */
             align-items: center;
             background-color: #fff;
             border-radius: 5px;
@@ -35,10 +36,23 @@
         }
 
         .grid-item video,
-        .grid-item img {
+        .grid-item img,
+        .file-name {
+            /* Apply the same max-width for video, image, and text */
             max-width: 100%;
-            max-height: 100%;
-            border-radius: 5px;
+        }
+
+        .file-name {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+            overflow-wrap: break-word;
+            /* Allow long words to break and wrap onto the next line */
+            word-wrap: break-word;
+            /* Deprecated but useful for older browsers */
+            white-space: normal;
+            /* Allow wrapping */
         }
 
         form {
@@ -89,8 +103,10 @@
             <video controls>
                 <source src="{{ url_for('get_logdir_file', filename=file) }}" type="video/mp4">
             </video>
+            <p class="file-name" title="{{ file }}">{{ file }}</p>
             {% elif file.endswith('.jpg') %}
             <img src="{{ url_for('get_database_file', filename=file) }}" alt="Image">
+            <p class="file-name" title="{{ file }}">{{ file }}</p>
             {% else %}
             <p>{{ file }}</p>
             {% endif %}

@@ -7,7 +7,7 @@ import trimesh
 
 from lab4d.nnutils.base import CondMLP, BaseMLP, ScaleLayer
 from lab4d.nnutils.time import TimeMLP
-from lab4d.nnutils.embedding import TimeEmbedding
+from lab4d.nnutils.embedding import TimeEmbedding, TimeInfo
 from lab4d.utils.geom_utils import (
     so3_to_exp_map,
     rot_angle,
@@ -22,6 +22,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_mul,
     quaternion_translation_to_se3,
     dual_quaternion_to_quaternion_translation,
+    quaternion_translation_mul,
 )
 from lab4d.utils.skel_utils import (
     fk_se3,
@@ -32,6 +33,90 @@ from lab4d.utils.skel_utils import (
 )
 from lab4d.utils.vis_utils import draw_cams
 from lab4d.utils.torch_utils import reinit_model
+
+
+class CameraMixSE3(nn.Module):
+    """Mix multiple camera models based on sequence id
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+        const_id: (N,) Sequence id whose camera pose is constant
+    """
+
+    def __init__(self, rtmat, frame_info=None, const_vid_id=0):
+        super().__init__()
+        self.camera_const1 = CameraConst(rtmat, frame_info)
+        self.camera_const2 = CameraConst(rtmat, frame_info)
+
+        # per-video sim3
+        if frame_info is None:
+            num_frames = len(rtmat)
+            frame_info = {
+                "frame_offset": np.asarray([0, num_frames]),
+                "frame_mapping": list(range(num_frames)),
+                "frame_offset_raw": np.asarray([0, num_frames]),
+            }
+        self.time_info = TimeInfo(frame_info)
+
+        self.global_trans = nn.Parameter(torch.zeros(self.time_info.num_vids, 3))
+        global_quat = torch.zeros(self.time_info.num_vids, 4)
+        global_quat[:, 0] = 1  # xxyz
+        self.global_quat = nn.Parameter(global_quat)
+
+        self.frame_info = frame_info
+        self.const_vid_id = const_vid_id
+
+    def mlp_init(self):
+        pass
+
+    def get_vals(self, frame_id=None):
+        """Compute camera pose at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute values at all frames
+        Returns:
+            quat: (M, 4) Output camera rotations
+            trans: (M, 3) Output camera translations
+        """
+        # compute all
+        quat_const1, trans_const1 = self.camera_const1.get_vals(frame_id)
+        quat_const2, trans_const2 = self.camera_const2.get_vals(frame_id)
+
+        # mix based on sequence id
+        if frame_id is None:
+            frame_id = self.time_info.frame_mapping
+        frame_id = frame_id.long()
+        raw_fid_to_vid = self.time_info.raw_fid_to_vid
+
+        # expand global se3 to have same size as frame_id
+        global_quat = []
+        global_trans = []
+        for vid_id in range(self.time_info.num_vids):
+            vid_frame_id = raw_fid_to_vid == vid_id
+            vid_frame_id_len = vid_frame_id.sum()
+            global_quat.append(
+                self.global_quat[vid_id : vid_id + 1].repeat(vid_frame_id_len, 1)
+            )
+            global_trans.append(
+                self.global_trans[vid_id : vid_id + 1].repeat(vid_frame_id_len, 1)
+            )
+        global_quat = torch.cat(global_quat, dim=0)[frame_id]
+        global_trans = torch.cat(global_trans, dim=0)[frame_id]
+
+        # multiply with per-video global se3
+        qt = (global_quat, global_trans)
+        qt2 = (quat_const2, trans_const2)
+        qt2 = quaternion_translation_mul(qt2, qt)
+        quat_const2 = qt2[0]
+        trans_const2 = qt2[1]
+
+        # replace with constant camera poses
+        const1_frame_id = raw_fid_to_vid[frame_id] == self.const_vid_id
+        if const1_frame_id.sum() > 0:
+            quat_const2[const1_frame_id] = quat_const1[const1_frame_id]
+            trans_const2[const1_frame_id] = trans_const1[const1_frame_id]
+
+        return quat_const2, trans_const2
 
 
 class CameraMix(nn.Module):

@@ -33,6 +33,8 @@ parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
 parser.add_argument("--ghosting", action="store_true", help="ghosting")
 parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
+parser.add_argument("--show_img", action="store_true", help="show image")
+parser.add_argument("--port", default=8080, type=int, help="port")
 args = parser.parse_args()
 
 
@@ -54,9 +56,7 @@ def find_seqname(testdir):
 def main(
     share: bool = False,
 ) -> None:
-    server = viser.ViserServer(share=share)
-
-    downsample_factor = 4
+    server = viser.ViserServer(share=share, port=args.port)
     print("Loading frames!")
     loader = MeshLoader(args.testdir, args.mode, args.compose_mode)
     loader.print_info()
@@ -72,6 +72,8 @@ def main(
     img_dir = config.get("data_%d" % inst_id, "img_path")
     print("Loading images from %s" % img_dir)
     rgb_list = [cv2.imread("%s/%05d.jpg" % (img_dir, i)) for i in range(num_frames)]
+    # downsample to around 320x240: 1080/16=67.5, 1920/16=120
+    downsample_factor = 16
     rgb_list = [rgb[::downsample_factor, ::downsample_factor, ::-1] for rgb in rgb_list]
 
     # Add playback UI.
@@ -132,20 +134,36 @@ def main(
         "/frames",
         wxyz=tf.SO3.exp(np.array([-np.pi / 2, 0.0, 0.0])).wxyz,
         position=(0, 0, 0),
-        show_axes=True,
+        show_axes=False,
     )
     frame_nodes: List[viser.FrameHandle] = []
     input_dict = loader.query_frame(0)
     if "scene" in input_dict:
+        # change the color
+        input_dict["scene"].visual.vertex_colors = np.tile(
+            [128, 234, 234, 255], [len(input_dict["scene"].vertices), 1]
+        )
         server.add_mesh_trimesh(name=f"/frames/scene", mesh=input_dict["scene"])
     if len(loader.path_list) == 1:
         # for background-only
         server.add_mesh_trimesh(name=f"/frames/scene", mesh=input_dict["shape"])
 
     if "scene" in input_dict or len(loader.path_list) == 1:
-        mesh_canonical = loader.query_canonical_mesh(inst_id=0)
         # add canonical geometry for background
+        mesh_canonical = loader.query_canonical_mesh(inst_id=0)
+        # change the color
+        mesh_canonical.visual.vertex_colors = np.tile(
+            [255, 189, 227, 255], [len(mesh_canonical.vertices), 1]
+        )
         server.add_mesh_trimesh(name=f"/frames/canonical", mesh=mesh_canonical)
+
+        # add camtraj geometry for background
+        mesh_camtraj = loader.query_camtraj_mesh()
+        server.add_mesh_trimesh(name=f"/frames/camtraj", mesh=mesh_camtraj)
+
+        # add roottraj geometry for foreground
+        mesh_roottraj = loader.query_camtraj_mesh(data_class="fg")
+        server.add_mesh_trimesh(name=f"/frames/roottraj", mesh=mesh_roottraj)
 
     for i in tqdm(range(num_frames)):
         # Add base frame.
@@ -157,8 +175,8 @@ def main(
             server.add_mesh_trimesh(
                 name=f"/frames/t{i}/shape", mesh=input_dict["shape"]
             )
-        if "bone" in input_dict:
-            server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
+        # if "bone" in input_dict:
+        #     server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
 
         # Place the frustum.
         rgb = rgb_list[i]
@@ -171,17 +189,17 @@ def main(
             fov=fov,
             aspect=aspect,
             scale=0.1,
-            image=rgb,
+            image=rgb if args.show_img else None,
             wxyz=tf.SO3.from_matrix(extrinsics[:3, :3]).wxyz,
             position=extrinsics[:3, 3],
         )
 
-        # Add some axes.
-        server.add_frame(
-            f"/frames/t{i}/frustum/axes",
-            axes_length=0.01,
-            axes_radius=0.005,
-        )
+        # # Add some axes.
+        # server.add_frame(
+        #     f"/frames/t{i}/frustum/axes",
+        #     axes_length=0.01,
+        #     axes_radius=0.005,
+        # )
 
     # Hide all but the current frame.
     for i, frame_node in enumerate(frame_nodes):

@@ -107,6 +107,6 @@ def save_rendered(rendered, save_dir, raw_size, pca_fn):
         save_vid(
             "%s/%s" % (save_dir, k),
             frames,
-            fps=30,
+            fps=10,
             target_size=(raw_size[0], raw_size[1]),
         )

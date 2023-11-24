@@ -22,9 +22,12 @@ from libs.utils import reduce_component
 from lab4d.utils.geom_utils import K2mat, compute_crop_params
 
 
-def run_bash_command(cmd):
+def run_bash_command(cmd, background=False):
     # print(cmd)
-    subprocess.run(cmd, shell=True, check=True)
+    if background:
+        subprocess.Popen(cmd, shell=True)
+    else:
+        subprocess.run(cmd, shell=True, check=True)
 
 
 @record_function("read_images_densepose")
