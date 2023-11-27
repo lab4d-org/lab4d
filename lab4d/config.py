@@ -98,6 +98,7 @@ class TrainOptConfig:
     flags.DEFINE_boolean("reset_beta", False, "whether to reset transparency to blury")
     flags.DEFINE_float("init_scale_fg", 0.2, "initial scale for the fg field")
     flags.DEFINE_float("init_scale_bg", 0.05, "initial scale for the bg field")
+    flags.DEFINE_integer("num_freq_xyz", 10, "number of base frequencies for 3D points")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

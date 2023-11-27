@@ -215,6 +215,22 @@ class CameraConst(nn.Module):
         return quat, trans
 
 
+class CameraExplicit(CameraConst):
+    """Explicit camera pose that can be optimized
+
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+    """
+
+    def __init__(self, rtmat, frame_info=None):
+        super().__init__(rtmat, frame_info=frame_info)
+        trans = self.trans.data
+        quat = self.quat.data
+        self.trans = nn.Parameter(trans)
+        self.quat = nn.Parameter(quat)
+
+
 class CameraMLP(TimeMLP):
     """Encode camera pose over time (rotation + translation) with an MLP
 

@@ -15,6 +15,7 @@ from lab4d.nnutils.pose import (
     CameraMLP,
     CameraMLP_so3,
     CameraConst,
+    CameraExplicit,
     CameraMix,
     CameraMixSE3,
 )
@@ -160,6 +161,7 @@ class NeRF(nn.Module):
 
         scale = torch.tensor([init_scale])  # scale of the field
         self.logscale = nn.Parameter(scale.log())
+        self.scale_const = 0.2  # "ideal" space for reconstruction to metric space
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
@@ -188,6 +190,8 @@ class NeRF(nn.Module):
             # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
         elif extrinsics_type == "const":
             self.camera_mlp = CameraConst(rtmat, frame_info=frame_info)
+        elif extrinsics_type == "explicit":
+            self.camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
         elif extrinsics_type == "mix":
             self.camera_mlp = CameraMix(rtmat, frame_info=frame_info, const_vid_id=0)
         elif extrinsics_type == "mixse3":
@@ -213,6 +217,8 @@ class NeRF(nn.Module):
             assert inst_id.ndim == 1
 
         sdf, xyz_feat = self.forward_sdf(xyz, inst_id=inst_id)
+        # ideal space to metric space
+        sdf = sdf / self.logscale.exp() * self.scale_const
 
         ibeta = self.logibeta.exp()
         # density = torch.sigmoid(-sdf * ibeta) * ibeta  # neus
@@ -330,7 +336,7 @@ class NeRF(nn.Module):
             sdf_gt = sdf_fn(pts)
 
             # evaluate sdf loss
-            sdf, _ = self.forward(pts, inst_id=inst_id)
+            sdf, _ = self.forward_sdf(pts, inst_id=inst_id)
             scale = align_tensors(sdf, sdf_gt)
             sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
 
@@ -385,7 +391,7 @@ class NeRF(nn.Module):
             aabb = self.get_aabb(inst_id=inst_id)  # 2,3
         else:
             aabb = self.get_aabb()
-        sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id)[0]
+        sdf_func = lambda xyz: self.forward_sdf(xyz, inst_id=inst_id)[0]
         vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > vis_thresh
         if use_extend_aabb:
             aabb = extend_aabb(aabb, factor=0.5)
@@ -525,7 +531,7 @@ class NeRF(nn.Module):
             rand_inds = Ellipsis
 
         xyz = xyz.detach()
-        fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
+        fn_sdf = lambda x: self.forward_sdf(x, inst_id=inst_id)[0]
         g = compute_gradients_sdf(fn_sdf, xyz, training=self.training)
         # g = compute_gradient(fn_sdf, xyz)[..., 0]
 
@@ -581,7 +587,7 @@ class NeRF(nn.Module):
                 inst_id=inst_id,
                 samples_dict=samples_dict,
             )["xyz"]
-            sdf, _ = self.forward(xyz, inst_id=inst_id)
+            sdf, _ = self.forward_sdf(xyz, inst_id=inst_id)
             return sdf
 
         # g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
@@ -810,6 +816,8 @@ class NeRF(nn.Module):
 
         # depth
         feat_dict["depth"] = depth / self.logscale.exp()  # world scale
+        # to metric space
+        deltas = deltas / self.logscale.exp() * self.scale_const
 
         # auxiliary outputs
         aux_dict = {}
@@ -1030,7 +1038,7 @@ class NeRF(nn.Module):
         aabb_sub = torch.stack([aabb_sub_min, aabb_sub_max], -2)
         pts, frame_id, inst_id = self.sample_points_aabb(nsample, aabb=aabb_sub)
         # check whether the point is inside the aabb
-        sdf, _ = self.forward(pts, frame_id=frame_id, inst_id=inst_id)
+        sdf, _ = self.forward_sdf(pts, frame_id=frame_id, inst_id=inst_id)
         wipe_loss = (-sdf).exp().mean()
         return wipe_loss
 

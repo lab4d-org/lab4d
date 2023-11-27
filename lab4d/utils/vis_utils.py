@@ -62,13 +62,23 @@ def mesh_cat(mesh_a, mesh_b):
         mesh (Trimesh): Concatenated mesh
     """
     mesh = trimesh.util.concatenate(mesh_a, mesh_b)
-    colors_a = mesh_a.visual.vertex_colors
-    colors_b = mesh_b.visual.vertex_colors
-    mesh.visual.vertex_colors = np.vstack((colors_a, colors_b))
+    if hasattr(mesh_a.visual, "vertex_colors") and hasattr(
+        mesh_b.visual, "vertex_colors"
+    ):
+        colors_a = mesh_a.visual.vertex_colors
+        colors_b = mesh_b.visual.vertex_colors
+        mesh.visual.vertex_colors = np.vstack((colors_a, colors_b))
     return mesh
 
 
-def draw_cams(all_cam, color="cool", axis=True, color_list=None, rgbpath_list=None):
+def draw_cams(
+    all_cam,
+    color="cool",
+    axis=True,
+    color_list=None,
+    rgbpath_list=None,
+    radius_base=0.02,
+):
     """Draw cameras as meshes
 
     Args:
@@ -97,7 +107,7 @@ def draw_cams(all_cam, color="cool", axis=True, color_list=None, rgbpath_list=No
         cam_rot = all_cam[j][:3, :3].T
         cam_tran = -cam_rot.dot(all_cam[j][:3, 3:])[:, 0]
 
-        radius = 5e-3 * scale
+        radius = radius_base * scale
         cam = trimesh.creation.uv_sphere(radius=radius, count=[2, 2])
 
         if axis:

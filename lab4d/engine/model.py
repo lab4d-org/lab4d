@@ -45,6 +45,7 @@ class dvr_model(nn.Module):
             feature_channels=config["feature_channels"],
             init_scale_fg=config["init_scale_fg"],
             init_scale_bg=config["init_scale_bg"],
+            num_freq_xyz=config["num_freq_xyz"],
             use_timesync=config["use_timesync"],
         )
         self.construct_intrinsics(data_info)

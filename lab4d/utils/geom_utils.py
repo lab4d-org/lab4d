@@ -441,7 +441,7 @@ def K2inv(K):
     return Kmat
 
 
-def get_near_far(pts, rtmat, tol_fac=1.5):
+def get_near_far(pts, rtmat, tol_fac=1.5, min_depth=1e-6):
     """
     Args:
         pts:        Point coordinate, (N,3), torch
@@ -458,7 +458,7 @@ def get_near_far(pts, rtmat, tol_fac=1.5):
     far = pmax + delta
 
     near_far = torch.stack([near, far], -1)
-    near_far = torch.clamp(near_far, min=1e-3)
+    near_far = torch.clamp(near_far, min=min_depth)
     return near_far
 
 

@@ -40,6 +40,7 @@ class MultiFields(nn.Module):
         feature_channels=16,
         init_scale_fg=0.2,
         init_scale_bg=0.05,
+        num_freq_xyz=10,
         use_timesync=False,
     ):
         vis_info = data_info["vis_info"]
@@ -54,6 +55,7 @@ class MultiFields(nn.Module):
         self.feature_channels = feature_channels
         self.init_scale_fg = init_scale_fg
         self.init_scale_bg = init_scale_bg
+        self.num_freq_xyz = num_freq_xyz
         self.use_timesync = use_timesync
 
         # specify field type
@@ -107,7 +109,7 @@ class MultiFields(nn.Module):
                 bg_arch = BGNeRF
                 num_inst_bg = num_inst
             # increase freq according to scale
-            num_freq_xyz = int(np.log2(self.init_scale_bg / 0.05) + 10)
+            num_freq_xyz = int(np.log2(self.init_scale_bg / 0.05) + self.num_freq_xyz)
             nerf = bg_arch(
                 data_info,
                 D=8,

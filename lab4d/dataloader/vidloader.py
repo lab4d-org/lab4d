@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 import torch
 from torch.utils.data import Dataset
+from scipy.stats import qmc
 
 from lab4d.utils.numpy_utils import bilinear_interp
 from lab4d.dataloader.data_utils import FrameInfo
@@ -44,6 +45,31 @@ class RangeSampler:
         return rand_idx
 
 
+class RangeSampler2D(RangeSampler):
+    """Sample efficiently without replacement from the range [0, num_elems).
+
+    Args:
+        num_elems (int): Upper bound of sample range
+    """
+
+    def __init__(self, num_elems_1d):
+        self.num_elems = num_elems_1d**2
+        self.num_elems_1d = num_elems_1d
+        self.init_queue()
+
+    def init_queue(self):
+        """Compute the next set of samples by permuting the sample range"""
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.qmc.Sobol.html#scipy.stats.qmc.Sobol
+        # sampler = qmc.Halton(d=2, scramble=False)
+        sampler = qmc.Sobol(d=2, scramble=True)  # d=2 for 2 dimensions
+        sample_queue = sampler.integers(
+            l_bounds=0, u_bounds=self.num_elems_1d, n=self.num_elems
+        )
+        sample_queue = sample_queue[:, 0] * self.num_elems_1d + sample_queue[:, 1]
+        self.sample_queue = sample_queue
+        self.curr_idx = 0
+
+
 class VidDataset(Dataset):
     """Frame data and annotations for a single video in a sequence.
     Uses np.mmap internally to load larger-than-memory frame data from disk.
@@ -71,7 +97,8 @@ class VidDataset(Dataset):
         self.res = (opts["res"], opts["res"])
         self.load_data_list(self.dict_list)
 
-        self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
+        # self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
+        self.idx_sampler = RangeSampler2D(num_elems_1d=self.img_size[0])
         self.frame_info = FrameInfo(self.dict_list["ref"])
 
     def construct_data_list(self, reflist, prefix, feature_type):
