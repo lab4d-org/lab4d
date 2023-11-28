@@ -5,13 +5,14 @@ dev=$2
 
 # single stage with frozen camera
 seqname=$envname
-logname=bg-256-2d-Sobol-scramble-long-allf-samp-4-768-s2-eik-freg
+logname=bg
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type bg --data_prefix full \
   --intrinsics_type const --extrinsics_type const --feature_channels 384 \
   --freeze_scale --learning_rate 2e-3 --num_rounds 240 \
   --mask_wt 0.01 --normal_wt 1e-3 --feature_wt 1e-3 --depth_wt 0.01 --reg_eikonal_wt 0.001 --feat_reproj_wt 0.0 --flow_wt 0.0 \
-  --init_scale_bg 0.2 --pixels_per_image 4 --imgs_per_gpu 768 --feature_type dinov2-reg
+  --init_scale_bg 0.2 --pixels_per_image 4 --imgs_per_gpu 768
+  # --feature_type dinov2-reg
   # --train_res 1024 \
   # --normal_wt 0.0 --feature_wt 0.0 \
   # --reg_eikonal_wt 0.0  --nouse_freq_anneal 
