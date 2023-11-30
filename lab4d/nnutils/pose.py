@@ -46,7 +46,7 @@ class CameraMixSE3(nn.Module):
     def __init__(self, rtmat, frame_info=None, const_vid_id=0):
         super().__init__()
         self.camera_const1 = CameraConst(rtmat, frame_info)
-        self.camera_const2 = CameraConst(rtmat, frame_info)
+        self.camera_const2 = CameraExplicit(rtmat, frame_info)
 
         # per-video sim3
         if frame_info is None:
@@ -62,6 +62,7 @@ class CameraMixSE3(nn.Module):
         global_quat = torch.zeros(self.time_info.num_vids, 4)
         global_quat[:, 0] = 1  # xxyz
         self.global_quat = nn.Parameter(global_quat)
+        self.global_logscale = nn.Parameter(torch.zeros(self.time_info.num_vids))
 
         self.frame_info = frame_info
         self.const_vid_id = const_vid_id
@@ -69,7 +70,7 @@ class CameraMixSE3(nn.Module):
     def mlp_init(self):
         pass
 
-    def get_vals(self, frame_id=None):
+    def get_vals(self, frame_id=None, apply_global_rt=True):
         """Compute camera pose at the given frames.
 
         Args:
@@ -88,9 +89,27 @@ class CameraMixSE3(nn.Module):
         frame_id = frame_id.long()
         raw_fid_to_vid = self.time_info.raw_fid_to_vid
 
+        if apply_global_rt:
+            quat_const2, trans_const2 = self.apply_global_rt(
+                quat_const2, trans_const2, frame_id
+            )
+        else:
+            quat_const2, trans_const2 = quat_const2.clone(), trans_const2.clone()
+
+        # replace with constant camera poses
+        const1_frame_id = raw_fid_to_vid[frame_id] == self.const_vid_id
+        if const1_frame_id.sum() > 0:
+            quat_const2[const1_frame_id] = quat_const1[const1_frame_id]
+            trans_const2[const1_frame_id] = trans_const1[const1_frame_id]
+
+        return quat_const2, trans_const2
+
+    def apply_global_rt(self, quat_const2, trans_const2, frame_id):
         # expand global se3 to have same size as frame_id
+        raw_fid_to_vid = self.time_info.raw_fid_to_vid
         global_quat = []
         global_trans = []
+        global_scale = []
         for vid_id in range(self.time_info.num_vids):
             vid_frame_id = raw_fid_to_vid == vid_id
             vid_frame_id_len = vid_frame_id.sum()
@@ -100,8 +119,13 @@ class CameraMixSE3(nn.Module):
             global_trans.append(
                 self.global_trans[vid_id : vid_id + 1].repeat(vid_frame_id_len, 1)
             )
+            global_scale.append(
+                self.global_logscale[vid_id : vid_id + 1].repeat(vid_frame_id_len).exp()
+            )
         global_quat = torch.cat(global_quat, dim=0)[frame_id]
         global_trans = torch.cat(global_trans, dim=0)[frame_id]
+        global_scale = torch.cat(global_scale, dim=0)[frame_id]
+        global_trans = global_trans * global_scale[:, None]
 
         # multiply with per-video global se3
         qt = (global_quat, global_trans)
@@ -109,14 +133,24 @@ class CameraMixSE3(nn.Module):
         qt2 = quaternion_translation_mul(qt2, qt)
         quat_const2 = qt2[0]
         trans_const2 = qt2[1]
-
-        # replace with constant camera poses
-        const1_frame_id = raw_fid_to_vid[frame_id] == self.const_vid_id
-        if const1_frame_id.sum() > 0:
-            quat_const2[const1_frame_id] = quat_const1[const1_frame_id]
-            trans_const2[const1_frame_id] = trans_const1[const1_frame_id]
-
         return quat_const2, trans_const2
+
+    def compute_distance_to_prior_relative(self):
+        quat_const, trans_const = self.camera_const1.get_vals()
+        y = quaternion_translation_to_se3(quat_const, trans_const)
+        quat, trans = self.get_vals(apply_global_rt=False)
+        x = quaternion_translation_to_se3(quat, trans)
+
+        loss = []
+        frame_offset = self.time_info.frame_offset
+        for vidid in range(len(frame_offset[:-1])):
+            x_rel = x[frame_offset[vidid] : frame_offset[vidid + 1]]
+            y_rel = y[frame_offset[vidid] : frame_offset[vidid + 1]]
+
+            loss_sub = F.mse_loss(x_rel, y_rel)
+            loss.append(loss_sub)
+        loss = torch.stack(loss).mean()
+        return loss
 
 
 class CameraMix(nn.Module):

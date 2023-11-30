@@ -94,6 +94,7 @@ def tsdf_fusion(
     center = aabb.mean(0)
     mesh.vertices = mesh.vertices - center[None]
     mesh.export("%s/mesh-%02d-centered.obj" % (save_path, component_id))
+    print("mesh saved to %s/mesh-%02d-centered.obj" % (save_path, component_id))
 
     # save cameras
     cams = []

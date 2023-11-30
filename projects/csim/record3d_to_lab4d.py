@@ -10,6 +10,7 @@ import trimesh
 import re
 import tqdm
 from scipy.spatial.transform import Rotation as R
+import OpenEXR
 
 
 sys.path.insert(0, os.getcwd())
@@ -73,7 +74,9 @@ def record3d_to_lab4d(
         rgb = cv2.imread(rgb_path)
 
         depth_path = rgb_path.replace("rgb", "depth").replace(".jpg", ".exr")
-        depth = cv2.imread(depth_path, cv2.IMREAD_ANYDEPTH)
+        depth = OpenEXR.InputFile(depth_path)
+        depth = np.frombuffer(depth.channel("R"), dtype=np.float16)
+        depth = depth.reshape(256, 192).astype(np.float32)
 
         if flip:
             rgb = np.transpose(rgb, [1, 0, 2])[::-1]
@@ -107,56 +110,56 @@ def record3d_to_lab4d(
         # trimesh.Trimesh(vertices=xyz.reshape(-1, 3)[::100]).export("tmp/0.obj")
         # pdb.set_trace()
 
-    # save cameras
-    poses = np.asarray(meta["poses"])  # xyzw / xyz
-    extrinsics = np.tile(np.eye(4)[None], (len(poses), 1, 1))
-    extrinsics[:, :3, 3] = poses[:, 4:]
-    extrinsics[:, :3, :3] = R.from_quat(poses[:, :4]).as_matrix()
-    # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
-    transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
-    extrinsics[:, :3, :3] = extrinsics[:, :3, :3] @ transformation_matrix[None]
-    extrinsics = np.linalg.inv(extrinsics)
-    gl_to_cv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    # scene_unrect = np.linalg.inv(extrinsics[:1]) @ gl_to_cv[None]
-    # extrinsics = extrinsics @ scene_unrect
-    extrinsics = extrinsics @ gl_to_cv
+    # # save cameras
+    # poses = np.asarray(meta["poses"])  # xyzw / xyz
+    # extrinsics = np.tile(np.eye(4)[None], (len(poses), 1, 1))
+    # extrinsics[:, :3, 3] = poses[:, 4:]
+    # extrinsics[:, :3, :3] = R.from_quat(poses[:, :4]).as_matrix()
+    # # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
+    # transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
+    # extrinsics[:, :3, :3] = extrinsics[:, :3, :3] @ transformation_matrix[None]
+    # extrinsics = np.linalg.inv(extrinsics)
+    # gl_to_cv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+    # # scene_unrect = np.linalg.inv(extrinsics[:1]) @ gl_to_cv[None]
+    # # extrinsics = extrinsics @ scene_unrect
+    # extrinsics = extrinsics @ gl_to_cv
 
-    mesh = draw_cams(extrinsics)
-    trg = "%s/Cameras/Full-Resolution/%s/00.npy" % (target_dir, seqname)
-    os.makedirs(os.path.dirname(trg), exist_ok=True)
-    mesh.export("%s/Cameras/Full-Resolution/%s/cameras-00.obj" % (target_dir, seqname))
-    np.save(trg, extrinsics)
-    np.save(trg.replace("00.npy", "aligned-00.npy"), extrinsics)
+    # mesh = draw_cams(extrinsics)
+    # trg = "%s/Cameras/Full-Resolution/%s/00.npy" % (target_dir, seqname)
+    # os.makedirs(os.path.dirname(trg), exist_ok=True)
+    # mesh.export("%s/Cameras/Full-Resolution/%s/cameras-00.obj" % (target_dir, seqname))
+    # np.save(trg, extrinsics)
+    # np.save(trg.replace("00.npy", "aligned-00.npy"), extrinsics)
 
-    # run preprocessing
-    write_config(vidname)
+    # # run preprocessing
+    # write_config(vidname)
 
-    # modify intrinsics
-    config_path = "database/configs/%s.config" % vidname
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    config["data_0"]["ks"] = " ".join([str(j) for j in intrinsics.flatten()])
-    with open(config_path, "w") as configfile:
-        config.write(configfile)
+    # # modify intrinsics
+    # config_path = "database/configs/%s.config" % vidname
+    # config = configparser.ConfigParser()
+    # config.read(config_path)
+    # config["data_0"]["ks"] = " ".join([str(j) for j in intrinsics.flatten()])
+    # with open(config_path, "w") as configfile:
+    #     config.write(configfile)
 
-    # combine with home data and save to a new file
-    config_home = configparser.ConfigParser()
-    config_home.read(home_path)
-    config_home["data_1"] = config["data_0"]
-    with open("database/configs/home-%s.config" % vidname, "w") as configfile:
-        config_home.write(configfile)
+    # # combine with home data and save to a new file
+    # config_home = configparser.ConfigParser()
+    # config_home.read(home_path)
+    # config_home["data_1"] = config["data_0"]
+    # with open("database/configs/home-%s.config" % vidname, "w") as configfile:
+    #     config_home.write(configfile)
 
-    track_anything_lab4d(seqname, target_dir, "cat")
-    # flow
-    for dframe in [1, 2, 4, 8]:
-        compute_flow(seqname, target_dir, dframe)
-    extract_normal(seqname)
+    # track_anything_lab4d(seqname, target_dir, "cat")
+    # # flow
+    # for dframe in [1, 2, 4, 8]:
+    #     compute_flow(seqname, target_dir, dframe)
+    # extract_normal(seqname)
 
     res = 256
     extract_crop(seqname, res, 1)
     extract_crop(seqname, res, 0)
-    extract_dinov2(vidname, component_id=0, ndim=-1)
-    extract_dinov2(vidname, component_id=1, ndim=-1)
+    # extract_dinov2(vidname, component_id=0, ndim=-1)
+    # extract_dinov2(vidname, component_id=1, ndim=-1)
     camera_registration(seqname, 1)
     canonical_registration(seqname, 256, "quad")
 

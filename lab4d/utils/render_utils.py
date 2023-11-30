@@ -45,8 +45,10 @@ def sample_cam_rays(hxy, Kinv, near_far, n_depth, depth=None, perturb=False):
     xyz = dir.unsqueeze(2) * depth  # (M, N, D, 3)
 
     # interval between points
-    deltas = depth[:, :, 1:] - depth[:, :, :-1]  # (M, N, D-1, 1)
-    deltas = torch.cat([deltas, deltas[:, :, -1:]], -2)  # (M, N, D, 1)
+    deltas = depth[:, :, 2:] - depth[:, :, :-2]  # (M, N, D-1, 1)
+    deltas = torch.cat(
+        [deltas[:, :, :1], deltas, deltas[:, :, -1:]], -2
+    )  # (M, N, D, 1)
     deltas = deltas * dir_norm[..., None, None]  # (M, N, D, 1)
 
     # normalized direction
@@ -56,7 +58,17 @@ def sample_cam_rays(hxy, Kinv, near_far, n_depth, depth=None, perturb=False):
     return xyz, dir, deltas, depth
 
 
-def render_pixel(field_dict, deltas):
+def mask_density(density, ratio=0.2):
+    # density masking
+    rand_prob = ratio  # probability of regularizing a voxel
+    density_zeros = torch.zeros_like(density)
+    rand_mask = torch.rand_like(density) < rand_prob
+    density_masked = torch.where(rand_mask, density, density_zeros)
+    density_masked.mean([-1, -2]) * 1e-4  # positive
+    return density_masked
+
+
+def render_pixel(field_dict, deltas, if_mask_density=False):
     """Volume-render neural field outputs along rays
 
     Args:
@@ -75,6 +87,9 @@ def render_pixel(field_dict, deltas):
     if "eikonal" in field_dict:
         # rendered["eikonal"] = field_dict["eikonal"].mean(dim=(-1, -2))  # (M, N)
         rendered["eikonal"] = (field_dict["eikonal"][..., 0] * weights.detach()).sum(-1)
+
+    if if_mask_density:
+        rendered["density_masked"] = mask_density(field_dict["density"])
 
     if "delta_skin" in field_dict:
         rendered["delta_skin"] = field_dict["delta_skin"].mean(dim=(-1, -2))
@@ -122,6 +137,25 @@ def compute_weights(density, deltas):
     weights = weights[..., :-1]  # (M, N, D), first D weights (might not sum up to 1)
     transmit = transmit[..., 1:]  # (M, N, D)
     return weights, transmit
+
+
+def truncate_weights(w, neighbor_ratio=0.5):
+    """Truncate weights to be around the max position
+    Args:
+        w: (M,N,D) Contribution of each point to the output rendering
+        neighbor_ratio: ratio of neighbors to keep
+
+    Returns:
+        w: (M,N,D) Contribution of each point to the output rendering
+    """
+    neighbor_bins = int(w.shape[-1] * neighbor_ratio)
+    max_idx = torch.argmax(w, -1, keepdim=True)  # (M,N,1)
+    # set the weights to zeros if they are not around the max position
+    idx_array = torch.arange(w.shape[-1], device=w.device)  # (D)
+    idx_sel = torch.abs(idx_array[None, None] - max_idx) < neighbor_bins  # (M,N,D)
+    w = torch.where(idx_sel, w, torch.zeros_like(w))
+    w = w / (torch.sum(w, -1, keepdim=True) + 1e-6)
+    return w
 
 
 def integrate(field_dict, weights):

@@ -22,6 +22,7 @@ class TrainModelConfig:
         "reg_visibility_wt", 1e-4, "weight for visibility regularization"
     )
     flags.DEFINE_float("reg_eikonal_wt", 0.1, "weight for eikonal regularization")
+    flags.DEFINE_float("reg_density_masked_wt", 0.0, "l1 reg on density w/ dropout 0.2")
     flags.DEFINE_float("reg_eikonal_scale_max", 1, "max scaling for eikonal reg")
     flags.DEFINE_float(
         "reg_deform_cyc_wt", 0.05, "weight for deform cyc regularization"
@@ -49,6 +50,7 @@ class TrainModelConfig:
     )
     flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
     flags.DEFINE_float("beta_prob_final", 0.2, "probability of final morphology beta")
+    flags.DEFINE_float("beta_prob_init", 1.0, "probability of initial morphology beta")
     flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
     flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")

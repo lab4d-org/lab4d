@@ -224,10 +224,17 @@ def render(opts, construct_batch_func):
 
     # trimesh.Trimesh(
     #     depth_to_xyz(
+    #         # rendered["depth_id-fg"][0, :, :, 0].cpu().numpy(),
     #         rendered["depth"][0, :, :, 0].cpu().numpy(),
     #         mat2K(Kmatinv(batch["Kinv"])[0]).cpu().numpy(),
     #     ).reshape(-1, 3)[::10]
     # ).export("tmp/0.obj")
+    # trimesh.Trimesh(
+    #     depth_to_xyz(
+    #         ref_dict["ref_depth"][0, :, :, 0],
+    #         mat2K(Kmatinv(batch["Kinv"])[0]).cpu().numpy(),
+    #     ).reshape(-1, 3)
+    # ).export("tmp/1.obj")
     # pdb.set_trace()
     save_rendered(rendered, save_dir, raw_size, data_info["apply_pca_fn"])
     print("Saved to %s" % save_dir)

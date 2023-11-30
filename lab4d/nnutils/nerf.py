@@ -1225,9 +1225,7 @@ class NeRF(nn.Module):
         Returns:
             loss: (0,) Mean squared error of camera SE(3) transforms to priors
         """
-        if isinstance(self.camera_mlp, CameraConst) or isinstance(
-            self.camera_mlp, CameraMixSE3
-        ):
+        if isinstance(self.camera_mlp, CameraConst):
             return torch.zeros(1, device=self.parameters().__next__().device)
         if isinstance(self.camera_mlp, CameraMix):
             return self.camera_mlp.camera_mlp.compute_distance_to_prior_relative()
@@ -1242,22 +1240,21 @@ class NeRF(nn.Module):
         """
         if isinstance(self.camera_mlp, CameraConst):
             return torch.zeros(1, device=self.parameters().__next__().device)
-        if isinstance(self.camera_mlp, CameraMix):
-            extrinsics = self.get_camera()
 
         # compute smoothness
-        extrinsics = self.get_camera()
+        extrinsics = self.get_camera(metric_scale=False)
         loss = compute_se3_smooth_loss(extrinsics, self.frame_offset)
         return loss
 
-    def get_camera(self, frame_id=None):
+    def get_camera(self, frame_id=None, metric_scale=True):
         """Compute camera matrices in world units
 
         Returns:
             field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
         """
         quat, trans = self.camera_mlp.get_vals(frame_id=frame_id)
-        trans = trans / self.logscale.exp()
+        if metric_scale:
+            trans = trans / self.logscale.exp()
         field2cam = quaternion_translation_to_se3(quat, trans)
         return field2cam
 

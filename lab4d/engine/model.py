@@ -220,7 +220,7 @@ class dvr_model(nn.Module):
 
         # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)
-        anchor_y = (1.0, config["beta_prob_final"])
+        anchor_y = (config["beta_prob_init"], config["beta_prob_final"])
         type = "linear"
         beta_prob = interp_wt(anchor_x, anchor_y, current_steps, type=type)
         self.fields.set_beta_prob(beta_prob)
@@ -813,6 +813,8 @@ class dvr_model(nn.Module):
         # regularization loss
         loss_dict["reg_visibility"] = self.fields.visibility_decay_loss()
         loss_dict["reg_eikonal"] = rendered["eikonal"]
+        if "density_masked" in rendered.keys():
+            loss_dict["reg_density_masked"] = rendered["density_masked"]
         if "fg" in aux_dict.keys():
             loss_dict["reg_deform_cyc"] = aux_dict["fg"]["cyc_dist"]
             loss_dict["reg_delta_skin"] = aux_dict["fg"]["delta_skin"]
