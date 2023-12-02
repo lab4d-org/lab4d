@@ -89,7 +89,7 @@ class FeatureNeRF(NeRF):
             final_act=False,
         )
 
-        sigma = torch.tensor([10.0])
+        sigma = torch.tensor([1.0])
         self.logsigma = nn.Parameter(sigma.log())
         self.set_match_region(sample_around_surface=True)
 

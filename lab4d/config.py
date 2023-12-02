@@ -12,7 +12,7 @@ class TrainModelConfig:
     flags.DEFINE_float("rgb_wt", 0.1, "weight for color loss")
     flags.DEFINE_float("depth_wt", 0.0, "weight for depth loss")
     flags.DEFINE_float("normal_wt", 0.0, "weight for normal loss")
-    flags.DEFINE_float("flow_wt", 0.01, "weight for flow loss")
+    flags.DEFINE_float("flow_wt", 0.5, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
     flags.DEFINE_float("feature_wt", 1e-2, "weight for feature reconstruction loss")
     flags.DEFINE_float("feat_reproj_wt", 0.1, "weight for feature reprojection loss")
@@ -26,7 +26,7 @@ class TrainModelConfig:
     flags.DEFINE_float(
         "reg_deform_cyc_wt", 0.05, "weight for deform cyc regularization"
     )
-    flags.DEFINE_float("reg_delta_skin_wt", 5e-3, "weight for delta skinning reg")
+    flags.DEFINE_float("reg_delta_skin_wt", 1e-3, "weight for delta skinning reg")
     flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
     flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
     # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")

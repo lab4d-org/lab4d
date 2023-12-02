@@ -7,7 +7,7 @@ seqname=ama-samba-4v
 bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/yikd46stoxe8p3m5tvpe1/ama-samba-4v.zip?rlkey=mc78xpctmis3cw6j0gzk84r2f&dl=0"
 
 # alternatively, run this if you want to process raw video
-# python scripts/run_preprocess.py $seqname human "0,2";
+python scripts/run_preprocess.py $seqname human "0,1";
 
 # scene reconstruction
 # rm -rf logdir/$seqname-bg
@@ -38,7 +38,7 @@ seqname=ama-bouncing-4v
 bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/hld0yyofjl5gb3hbdnra2/ama-bouncing-4v.zip?rlkey=uzoluxprkm33sryt49726wlee&dl=0"
 
 # alternatively, run this if you want to process raw video
-# python scripts/run_preprocess.py $seqname human "0,2";
+python scripts/run_preprocess.py $seqname human "0,1";
 
 # rm -rf logdir/$seqname-bg
 bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname bg \

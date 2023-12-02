@@ -19,6 +19,7 @@ from lab4d.utils.pyrender_wrapper import PyRenderWrapper
 
 parser = argparse.ArgumentParser(description="script to render cameras over epochs")
 parser.add_argument("--testdir", default="", help="path to test dir")
+parser.add_argument("--show_bones", action="store_true", help="if render bones")
 parser.add_argument(
     "--data_class", default="fg", type=str, help="which data to render, {fg, bg}"
 )
@@ -39,11 +40,14 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     mesh_dict = {}
+    bone_dict = {}
     aabb_min = np.asarray([np.inf, np.inf])
     aabb_max = np.asarray([-np.inf, -np.inf])
     for mesh_path in path_list:
         batch_idx = int(mesh_path.split("/")[-1].split("-")[0])
         mesh_obj = trimesh.load(mesh_path)
+        if args.show_bones:
+            bone_dict[batch_idx] = trimesh.load(mesh_path.replace("-proxy", "-gauss"))
         mesh_dict[batch_idx] = mesh_obj
 
         # update aabb
@@ -57,6 +61,9 @@ def main():
     frames = []
     for batch_idx, mesh_obj in tqdm.tqdm(mesh_dict.items()):
         input_dict = {"shape": mesh_obj}
+        if args.show_bones:
+            input_dict["bone"] = bone_dict[batch_idx]
+            input_dict["shape"].visual.vertex_colors[3:] = 192
         color = renderer.render(input_dict)[0]
         # add text
         color = color.astype(np.uint8)

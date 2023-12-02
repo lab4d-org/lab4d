@@ -738,12 +738,13 @@ class dvr_model(nn.Module):
             config (Dict): Command-line options
             motion_scale (Tensor): Motion magnitude for each data sample (M,)
         """
-        px_unit_keys = ["feat_reproj"]
-        motion_unit_keys = ["flow"]
+        # px_unit_keys = ["feat_reproj"]
+        # motion_unit_keys = ["flow"]
+        px_unit_keys = ["feat_reproj", "flow"]
         for k, v in loss_dict.items():
-            # scale with motion magnitude
-            if k in motion_unit_keys:
-                loss_dict[k] /= motion_scale.clamp(1, 20).view(-1, 1, 1)
+            # # scale with motion magnitude
+            # if k in motion_unit_keys:
+            #     loss_dict[k] /= motion_scale.clamp(1, 20).view(-1, 1, 1)
 
             # average over non-zero pixels
             v = v[v > 0]
