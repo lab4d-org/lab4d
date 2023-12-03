@@ -10,16 +10,16 @@ dev=$2
 # # envname, dev
 # bash projects/csim/recon_scene.sh $envname $dev
 
-# # run camera inference on the scene
-# python projects/predictor/inference.py --flagfile=logdir/predictor-comb-dino-rot-aug6-highres-b256-max-uniform-fixcrop2-img-ft4/opts.log \
-#   --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/$vidname-0000/
-# python projects/csim/transform_bg_cams.py $vidname-0000
+# run camera inference on the scene
+python projects/predictor/inference.py --flagfile=logdir/predictor-comb-dino-rot-aug6-highres-b256-max-uniform-fixcrop2-img-ft4/opts.log \
+  --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/$vidname-0000/
+python projects/csim/transform_bg_cams.py $vidname-0000
 
-# # actorname, dev
-# # bash projects/csim/recon_actor.sh $vidname $dev
+# actorname, dev
+bash projects/csim/recon_actor.sh $vidname $dev
 
-# # envname, actorname, dev
-# bash projects/csim/align_scene.sh $envname $vidname $dev
+# envname, actorname, dev
+bash projects/csim/align_scene.sh $envname $vidname $dev
 
 # compose: (1) freeze cameras  (2) single field (3) low depth weight (4) remove fg renderings on bg scene (5) no feature weight
 seqname=home-$vidname
@@ -30,8 +30,8 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --freeze_scale --freeze_field_fgbg --freeze_camera_bg --learning_rate 1e-4 --load_path logdir/$vidname-fg-urdf/ckpt_latest.pth  --load_path_bg logdir/home-$vidname-bg-adapt3/ckpt_latest.pth --noreset_steps --noabsorb_base --nouse_freq_anneal --num_rounds 20 \
   --mask_wt 0.1 --normal_wt 0.0 --feature_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 --flow_wt 0.0 --feat_reproj_wt 0.0 \
   --pixels_per_image 12 --bg_vid 0 --reg_delta_skin_wt 0.0 --reg_skel_prior_wt 0.0 \
-  --init_scale_bg 0.2 --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0
-  #  --reg_gauss_mask_wt 0.0 --freeze_camera_fg
+  --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0
+  #  --reg_gauss_mask_wt 0.0 --freeze_camera_fg --init_scale_bg 0.2 
 
 # # ppr
 # seqname=home-$vidname

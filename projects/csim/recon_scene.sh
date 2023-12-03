@@ -11,7 +11,8 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --intrinsics_type const --extrinsics_type const --feature_channels 384 \
   --freeze_scale --learning_rate 2e-3 --num_rounds 240 \
   --mask_wt 0.01 --normal_wt 1e-3 --feature_wt 1e-3 --depth_wt 0.01 --reg_eikonal_wt 0.001 --feat_reproj_wt 0.0 --flow_wt 0.0 \
-  --init_scale_bg 0.2 --pixels_per_image 4 --imgs_per_gpu 768
+  --pixels_per_image 4 --imgs_per_gpu 768
+  # --init_scale_bg 0.2 
   # --feature_type dinov2-reg
   # --train_res 1024 \
   # --normal_wt 0.0 --feature_wt 0.0 \
