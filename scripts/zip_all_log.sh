@@ -1,0 +1,12 @@
+python scripts/zip_logdir.py logdir/car-turnaround-2-fg-rigid-b120/
+python scripts/zip_logdir.py logdir/cat-pikachu-0-fg-skel-b120/
+python scripts/zip_logdir.py logdir/cat-pikachu-0-comp-comp-s2/
+python scripts/zip_logdir.py logdir/squirrel-fg-comp-b120/
+python scripts/zip_logdir.py logdir/dog-robolounge-fg-comp-b120/
+python scripts/zip_logdir.py logdir/cat-pikachu-fg-bob-b120/
+python scripts/zip_logdir.py logdir/shiba-haru-fg-comp-b120/
+python scripts/zip_logdir.py logdir/human-cap-fg-comp-b120/
+python scripts/zip_logdir.py logdir/penguin-fg-skel-b120/
+python scripts/zip_logdir.py logdir/human-48-category-comp/
+python scripts/zip_logdir.py logdir/cat-85-category-comp/
+python scripts/zip_logdir.py logdir/dog-98-category-comp/

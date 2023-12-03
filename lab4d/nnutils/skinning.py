@@ -124,9 +124,9 @@ class SkinningField(nn.Module):
             # xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
             # delta = self.delta_field(xyzt_embed, inst_id)
             delta = self.delta_field(xyz_embed, inst_id)
-            logscale, shift = torch.split(delta, delta.shape[-1] // 2, dim=-1)
             # delta = F.relu(delta) * 0.1
             # skin = -(dist2 + delta)
+            logscale, shift = torch.split(delta, delta.shape[-1] // 2, dim=-1)
             dist2 = dist2 * (0.1 * logscale).exp()
             dist2 = dist2 + 0.1 * shift
             skin = -dist2

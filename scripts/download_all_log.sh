@@ -1,0 +1,13 @@
+# download all checkpoints
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/3g03jso6803ck4irg4ha2/log-car-turnaround-2-fg-rigid-b120.zip?rlkey=9ear4wux3noato7lhkfdclw3a&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/el4mlo3x0o50ktcgmsvhl/log-cat-pikachu-0-fg-skel-b120.zip?rlkey=lwc9gis8whn3gyfo3a0ct86uv&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/iow542jki6krk25oqxrpq/log-cat-pikachu-0-comp-comp-s2.zip?rlkey=iiuh40c19qc4kcdbm9t002ujn&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/hr526prumgkicpcabo7bd/log-squirrel-fg-comp-b120.zip?rlkey=ndkc918ww45e03wgfzb2tqsde&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/xcu57yshzahbrs6u17wht/log-dog-robolounge-fg-comp-b120.zip?rlkey=7cloqjq97rv4e81w2414dlwsn&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/f9i7hdni7tldwx96owstj/log-cat-pikachu-fg-bob-b120.zip?rlkey=00ipeg8w6se7baf1njf00qa8g&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/5t5p070obyszffifb5xsc/log-shiba-haru-fg-comp-b120.zip?rlkey=pt8dqh4oft52gdp7usu0prv4j&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/hcnbvbmp9kegpmb4xv8x4/log-human-cap-fg-comp-b120.zip?rlkey=qd7p0u9mirwb9t6zxgd9tqh22&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/iykw85xdx502l8a53cflb/log-penguin-fg-skel-b120.zip?rlkey=to9zt5x4uocj2xj5yd0gazzx8&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/8px220byvcv8912x2q3mu/log-human-48-category-comp.zip?rlkey=7z4me9mzmwto9nh34ihuojosh&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/rcm2jur101issowcpdihq/log-cat-85-category-comp.zip?rlkey=w1b317frn7ct1oa81bipmmt18&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/5zkottt2xug6e0dhd3t15/log-dog-98-category-comp.zip?rlkey=vg6qarpmb9fdi3i1wwcz7hpdu&dl=0"
