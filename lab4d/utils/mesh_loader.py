@@ -8,6 +8,7 @@ import cv2
 import argparse
 import trimesh
 import tqdm
+import configparser
 
 from lab4d.utils.vis_utils import draw_cams
 
@@ -242,3 +243,34 @@ class MeshLoader:
         # else:
         #     mesh = trimesh.Trimesh()
         return mesh
+
+    def find_seqname(self):
+        testdir = self.testdir
+        parts = [part for part in testdir.split("/") if part]
+        logdir = "/".join(parts[:2])
+        logdir = os.path.join(logdir, "opts.log")
+        with open(logdir, "r") as file:
+            for line in file:
+                if "--seqname" in line:
+                    seqname = line.split("--seqname=")[1].strip()
+                    break
+        if "seqname" not in locals():
+            raise ValueError("Could not find seqname in opts.log")
+        inst_id = int(parts[2].split("_")[-1])
+        print("seqname: %s, inst_id: %d" % (seqname, inst_id))
+        return seqname, inst_id
+
+    def load_rgb(self, downsample_factor):
+        seqname, inst_id = self.find_seqname()
+        config = configparser.RawConfigParser()
+        config.read("database/configs/%s.config" % seqname)
+        img_dir = config.get("data_%d" % inst_id, "img_path")
+        print("Loading images from %s" % img_dir)
+        rgb_list = [
+            cv2.imread(path) for path in sorted(glob.glob("%s/*.jpg" % img_dir))
+        ]
+        # downsample to around 320x240: 1080/16=67.5, 1920/16=120
+        rgb_list = [
+            rgb[::downsample_factor, ::downsample_factor, ::-1] for rgb in rgb_list
+        ]
+        return rgb_list

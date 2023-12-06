@@ -33,6 +33,18 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0
   #  --reg_gauss_mask_wt 0.0 --freeze_camera_fg --init_scale_bg 0.2 
 
+# # from scratch
+# # compose: (1) freeze cameras  (2) single field (3) low depth weight (4) remove fg renderings on bg scene (5) no feature weight
+# seqname=home-$vidname
+# logname=compose-fs
+# rm -rf logdir/$seqname-$logname
+# bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
+#   --intrinsics_type const --extrinsics_type mixse3 --feature_channels 384 \
+#   --freeze_scale --freeze_camera_bg --freeze_field_bg --load_path_bg logdir/home-$vidname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
+#   --mask_wt 0.1 --normal_wt 0.0 --feature_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 0.1 --feat_reproj_wt 0.0 \
+#   --pixels_per_image 12 --bg_vid 0 \
+#   --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0
+
 # # ppr
 # seqname=home-$vidname
 # logname=ppr
