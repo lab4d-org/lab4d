@@ -14,3 +14,6 @@
 [submodule "projects/ppr/eval/third_party/ChamferDistancePytorch"]
 	path = projects/ppr/eval/third_party/ChamferDistancePytorch
 	url = https://github.com/ThibaultGROUEIX/ChamferDistancePytorch
+[submodule "projects/gsplat/third_party/diff-gaussian-rasterization"]
+	path = projects/gsplat/third_party/diff-gaussian-rasterization
+	url = https://github.com/ashawkey/diff-gaussian-rasterization.git

@@ -16,7 +16,7 @@ class model_viewer(dominate.tags.html_tag):
     pass
 
 
-logdirs = sorted(glob.glob("logdir/*compose/"))
+logdirs = sorted(glob.glob("logdir-12-05/*compose/"))
 port = 8090
 all_logdirs = []
 for logdir in logdirs:

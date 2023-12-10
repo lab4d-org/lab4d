@@ -97,7 +97,7 @@ class TrainOptConfig:
     flags.DEFINE_boolean("alter_flow", False, "alternatve between flow and all terms")
     flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")
     flags.DEFINE_boolean("absorb_base", True, "whether to absorb se3 into base")
-    flags.DEFINE_boolean("reset_beta", False, "whether to reset transparency to blury")
+    flags.DEFINE_float("reset_beta", 0.0, "whether to reset transparency")
     flags.DEFINE_float("init_scale_fg", 0.2, "initial scale for the fg field")
     flags.DEFINE_float("init_scale_bg", 0.05, "initial scale for the bg field")
     flags.DEFINE_integer("num_freq_xyz", 10, "number of base frequencies for 3D points")

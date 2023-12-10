@@ -427,11 +427,11 @@ class Trainer:
         """Load a checkpoint at training time and update the current step count
         and round count
         """
-        if self.opts["load_path_bg"] != "":
-            # load background and intrinsics model
-            checkpoint = torch.load(self.opts["load_path_bg"])
-            model_states = checkpoint["model"]
-            self.model.load_state_dict(model_states, strict=False)
+        # if self.opts["load_path_bg"] != "":
+        #     # load background and intrinsics model
+        #     checkpoint = torch.load(self.opts["load_path_bg"])
+        #     model_states = checkpoint["model"]
+        #     self.model.load_state_dict(model_states, strict=False)
 
         if self.opts["load_path"] != "":
             # training time
@@ -444,8 +444,14 @@ class Trainer:
                 self.first_round = self.current_round
                 self.first_step = self.current_steps
 
-        if self.opts["reset_beta"]:
-            self.model.module.fields.reset_beta(beta=0.01)
+        if self.opts["load_path_bg"] != "":
+            # load background and intrinsics model
+            checkpoint = torch.load(self.opts["load_path_bg"])
+            model_states = checkpoint["model"]
+            self.model.load_state_dict(model_states, strict=False)
+
+        if self.opts["reset_beta"] > 0.0:
+            self.model.module.fields.reset_beta(beta=self.opts["reset_beta"])
 
         # self.model.fields.reset_geometry_aux()
 

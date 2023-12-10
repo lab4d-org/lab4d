@@ -214,6 +214,8 @@ class MultiFields(nn.Module):
                 vis_thresh=vis_thresh,
                 use_extend_aabb=use_extend_aabb,
             )
+            if len(mesh.vertices) == 0:
+                mesh = field.get_proxy_geometry()
             meshes[category] = mesh
         return meshes
 

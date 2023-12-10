@@ -242,14 +242,16 @@ def get_data_info(loader):
         intrinsics += [dataset.ks] * frame_info.num_frames
         raw_size += [dataset.raw_size]
 
-        feature_channels = dataset.mmap_list["feature"].shape[-1]
-        feature_array = dataset.mmap_list["feature"].reshape(-1, feature_channels)
-        # # randomly sample 1k pixels for PCA per-video:
-        # rand_idx = np.random.permutation(len(feature_array))[:1000]
-        # feature_pxs.append(feature_array[rand_idx])
-        # sampling a fixed set of pixels for PCA:
-        num_skip = max(1, len(feature_array) // 1000)
-        feature_pxs.append(feature_array[::num_skip])
+        # only use valid features for PCA
+        if np.abs(dataset.mmap_list["feature"][0]).sum() != 0:
+            feature_channels = dataset.mmap_list["feature"].shape[-1]
+            feature_array = dataset.mmap_list["feature"].reshape(-1, feature_channels)
+            # # randomly sample 1k pixels for PCA per-video:
+            # rand_idx = np.random.permutation(len(feature_array))[:1000]
+            # feature_pxs.append(feature_array[rand_idx])
+            # sampling a fixed set of pixels for PCA:
+            num_skip = max(1, len(feature_array) // 1000)
+            feature_pxs.append(feature_array[::num_skip])
 
         # compute motion magnitude
         mask = dataset.mmap_list["mask"][:-1, ..., 0].copy()

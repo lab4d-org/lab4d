@@ -27,7 +27,7 @@ sys.path.insert(
     "%s/../../" % os.path.join(os.path.dirname(__file__)),
 )
 
-from libs.io import get_bbox, read_images_densepose
+from libs.io import get_bbox, read_images_densepose, read_raw
 from libs.torch_models import CanonicalRegistration, get_class
 from libs.utils import robust_rot_align
 from viewpoint.dp_viewpoint import ViewponitNet
@@ -143,8 +143,11 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1):
             shape = cv2.imread(imgpath).shape[:2]
 
             focal = max(shape)
-            depth = focal / np.sqrt(bbox[2] * bbox[3])
-            depth = min(depth, 10)  # depth might be too large for mis-detected frames
+            # depth = focal / np.sqrt(bbox[2] * bbox[3])
+            # depth = min(depth, 10)  # depth might be too large for mis-detected frames
+            # TODO load mean depth of the object
+            raw_dict = read_raw(imgpath, 1, 256, False, with_flow=False)
+            depth = np.median(raw_dict["depth"][raw_dict["mask"][..., 0]])
 
             center_bbox = bbox[:2] + bbox[2:] / 2
             center_img = np.array(shape[::-1]) / 2

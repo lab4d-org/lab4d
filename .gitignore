@@ -12,8 +12,10 @@ run-long.sh
 /logdir*
 /tmp
 
-lab4d.egg-info
 __pycache__/
+build/
+*.egg-info/
+*.so
 *.pth
 
 preprocess/third_party/vcnplus/vcn_rob.pth

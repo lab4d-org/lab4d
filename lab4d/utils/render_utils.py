@@ -5,6 +5,35 @@ import torch
 import torch.nn.functional as F
 
 
+def plot_ray(weights, save_path="tmp/weights.png"):
+    """Plot along a ray
+
+    Args:
+        weights: (M,N,D) Contribution of each point to the output rendering
+    """
+    if torch.is_tensor(weights):
+        weights = weights.view(-1, weights.shape[-1])
+        weights = weights.cpu().numpy()
+
+    # plot depth and depth_
+    import matplotlib.pyplot as plt
+
+    valid_ind = weights.sum(-1) > 0
+    # plt.figure()
+    # depth_vis = depth[0, :, :, 0][valid_ind].cpu().numpy()
+
+    # plt.plot(depth_vis[::10].T)
+    # plt.show()
+    # plt.savefig("tmp/depth.png")
+
+    plt.figure()
+    weights_vis = weights[valid_ind]
+    plt.plot(weights_vis[::10].T)
+    plt.show()
+    plt.savefig(save_path)
+    plt.close()
+
+
 def sample_cam_rays(hxy, Kinv, near_far, n_depth, depth=None, perturb=False):
     """Sample NeRF rays in camera space
 
@@ -45,10 +74,8 @@ def sample_cam_rays(hxy, Kinv, near_far, n_depth, depth=None, perturb=False):
     xyz = dir.unsqueeze(2) * depth  # (M, N, D, 3)
 
     # interval between points
-    deltas = depth[:, :, 2:] - depth[:, :, :-2]  # (M, N, D-1, 1)
-    deltas = torch.cat(
-        [deltas[:, :, :1], deltas, deltas[:, :, -1:]], -2
-    )  # (M, N, D, 1)
+    deltas = depth[:, :, 1:] - depth[:, :, :-1]  # (M, N, D-1, 1)
+    deltas = torch.cat([deltas, deltas[:, :, -1:]], -2)  # (M, N, D, 1)
     deltas = deltas * dir_norm[..., None, None]  # (M, N, D, 1)
 
     # normalized direction
@@ -201,6 +228,13 @@ def integrate(field_dict, weights):
     # normlaize normal
     if "normal" in field_dict:
         rendered["normal"] = F.normalize(rendered["normal"], 2, -1)
+
+    # import pdb
+
+    # pdb.set_trace()
+    # plot_ray(field_dict["density_fg"][0, 461, :, 0], "tmp/density_fg.png")
+    # plot_ray(field_dict["density_bg"][0, 461, :, 0], "tmp/density_bg.png")
+    # plot_ray(w_normalized[0, 461, :], "tmp/weights.png")
 
     # normalize density over all components
     density_sum = []

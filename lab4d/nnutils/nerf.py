@@ -360,7 +360,10 @@ class NeRF(nn.Module):
 
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
-        mesh = self.extract_canonical_mesh(level=0.005)
+        if self.category == "fg":
+            mesh = self.extract_canonical_mesh(level=0.005, vis_thresh=-10.0)
+        else:
+            mesh = self.extract_canonical_mesh(level=0.005)
         if len(mesh.vertices) > 3:
             self.proxy_geometry = mesh
 
@@ -1012,8 +1015,7 @@ class NeRF(nn.Module):
             "rgb": rgb,
             "sdf": sdf,
             "density": density,
-            "density_%s"
-            % self.category: (density / self.logibeta.exp()).detach(),  # (0,1)
+            "density_%s" % self.category: density,  # (0,1)
         }
 
         if valid_idx is not None:
