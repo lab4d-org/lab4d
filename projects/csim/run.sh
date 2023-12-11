@@ -10,6 +10,8 @@ dev=$2
 # # envname, dev
 # bash projects/csim/recon_scene.sh $envname $dev
 
+python preprocess/scripts/canonical_registration.py $vidname-0000 256 quad
+
 # run camera inference on the scene
 python projects/predictor/inference.py --flagfile=logdir/predictor-comb-dino-rot-aug6-highres-b256-max-uniform-fixcrop2-img-ft4/opts.log \
   --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/$vidname-0000/

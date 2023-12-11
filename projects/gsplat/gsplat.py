@@ -110,9 +110,6 @@ class GSplatModel(nn.Module):
         image_height = int(camera_dict["render_resolution"])
         image_width = int(camera_dict["render_resolution"])
         viewmatrix = torch.tensor(camera_dict["w2c"]).cuda()
-        # rectify...
-        viewmatrix[1:3, :3] *= -1
-        viewmatrix[:3, 3] *= -1
         viewmatrix = viewmatrix.transpose(0, 1)
         projmatrix = (
             getProjectionMatrix(
@@ -127,14 +124,6 @@ class GSplatModel(nn.Module):
         projmatrix = viewmatrix @ projmatrix
         c2w = np.linalg.inv(camera_dict["w2c"])
         campos = -torch.tensor(c2w[:3, 3]).cuda()
-
-        # FoVx = viewpoint_camera.FoVx
-        # FoVy = viewpoint_camera.FoVy
-        # image_height = int(viewpoint_camera.image_height)
-        # image_width = int(viewpoint_camera.image_width)
-        # viewmatrix = viewpoint_camera.world_view_transform
-        # projmatrix = viewpoint_camera.full_proj_transform
-        # campos = viewpoint_camera.camera_center
 
         # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
         screenspace_points = (
@@ -245,7 +234,7 @@ class GSplatModel(nn.Module):
         near = 0.01
         far = 5
         w2c = np.eye(4).astype(np.float32)
-        w2c[2, 3] = -2.5  # opengl convention
+        w2c[2, 3] = 2.5
         cam_dict = {
             "w2c": w2c,
             "render_resolution": render_resolution,
@@ -325,6 +314,8 @@ class GSplatModel(nn.Module):
         radius = [0] * bs
         pose = orbit_camera(elevation + polar[0], azimuth[0], self.radius + radius[0])
         pose = np.linalg.inv(pose)
+        # GL to CV
+        pose[1:3] *= -1
         cam_dict = self.get_default_cam()
         cam_dict["w2c"] = pose
 
@@ -548,7 +539,7 @@ if __name__ == "__main__":
     sys.path.append(os.getcwd())
     from lab4d.utils.io import save_vid
 
-    opts = {"sh_degree": 0}
+    opts = {"sh_degree": 0, "guidance_sd_wt": 0, "guidance_zero123_wt": 0}
     renderer = GSplatModel(opts, None)
 
     # convert this to a dict
