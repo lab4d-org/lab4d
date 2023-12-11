@@ -71,7 +71,7 @@ class GSplatTrainer(Trainer):
         )
         div_factor = 25.0
         final_div_factor = 1.0
-        pct_start = min(1 - 1e-5, 2.0 / opts["num_rounds"])  # use 2 epochs to warm up
+        pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
             lr_list,

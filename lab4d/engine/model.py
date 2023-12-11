@@ -19,6 +19,7 @@ from lab4d.nnutils.multifields import MultiFields
 from lab4d.utils.geom_utils import K2inv, K2mat
 from lab4d.utils.numpy_utils import interp_wt
 from lab4d.utils.render_utils import render_pixel
+from lab4d.utils.loss_utils import get_mask_balance_wt
 
 
 class dvr_model(nn.Module):
@@ -652,29 +653,6 @@ class dvr_model(nn.Module):
         return loss_dict
 
     @staticmethod
-    def get_mask_balance_wt(mask, vis2d, is_detected):
-        """Balance contribution of positive and negative pixels in mask.
-
-        Args:
-            mask: (M,N,1) Object segmentation mask
-            vis2d: (M,N,1) Whether each pixel is visible in the video frame
-            is_detected: (M,) Whether there is segmentation mask in the frame
-        Returns:
-            mask_balance_wt: (M,N,1) Balanced mask
-        """
-        # all the positive labels
-        mask = mask.float()
-        # all the labels
-        vis2d = vis2d.float() * is_detected.float()[:, None, None]
-        if mask.sum() > 0 and (1 - mask).sum() > 0:
-            pos_wt = vis2d.sum() / mask[vis2d > 0].sum()
-            neg_wt = vis2d.sum() / (1 - mask[vis2d > 0]).sum()
-            mask_balance_wt = 0.5 * pos_wt * mask + 0.5 * neg_wt * (1 - mask)
-        else:
-            mask_balance_wt = 1
-        return mask_balance_wt
-
-    @staticmethod
     def compute_recon_loss(loss_dict, results, batch, config, current_steps):
         """Compute reconstruction losses.
 
@@ -709,7 +687,7 @@ class dvr_model(nn.Module):
         else:
             raise ("field_type %s not supported" % config["field_type"])
         # get fg mask balance factor
-        mask_balance_wt = dvr_model.get_mask_balance_wt(
+        mask_balance_wt = get_mask_balance_wt(
             batch["mask"], batch["vis2d"], batch["is_detected"]
         )
         if config["field_type"] == "bg":

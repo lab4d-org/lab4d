@@ -9,7 +9,6 @@ import pdb
 import cv2
 import tqdm
 import math
-import pdb
 
 from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
@@ -19,6 +18,7 @@ from diff_gaussian_rasterization import (
 
 sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
+from lab4d.utils.loss_utils import get_mask_balance_wt
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
 from projects.gsplat.gs_renderer import (
@@ -27,6 +27,7 @@ from projects.gsplat.gs_renderer import (
     getProjectionMatrix,
 )
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
+from projects.gsplat.cam_utils import orbit_camera
 
 
 class GSplatModel(nn.Module):
@@ -41,7 +42,7 @@ class GSplatModel(nn.Module):
         white_background = (
             config["white_background"] if "white_background" in config else True
         )
-        radius = config["radius"] if "radius" in config else 1
+        radius = config["radius"] if "radius" in config else 2.5
         num_pts = config["num_pts"] if "num_pts" in config else 5000
 
         self.sh_degree = sh_degree
@@ -238,7 +239,7 @@ class GSplatModel(nn.Module):
 
     def get_default_cam(self):
         # convert this to a dict
-        render_resolution = 128
+        render_resolution = 256
         fovx = np.pi / 4
         fovy = np.pi / 4
         near = 0.01
@@ -255,54 +256,135 @@ class GSplatModel(nn.Module):
         }
         return cam_dict
 
-    def forward(self, batch):
-        loss_dict = {}
-        # batch_constructed = self.construct_rand_batch(1)
-        # rendered = self.render(batch_constructed)["rendered"]
-
-        # GS rendering
+    def get_bg_color(self):
         bg_color = torch.tensor(
             [1, 1, 1] if np.random.rand() > 0.5 else [0, 0, 0],
             dtype=torch.float32,
             device=self.device,
         )
+        return bg_color
+
+    def forward(self, batch):
+        loss_dict = {}
+        # batch_constructed = self.construct_rand_batch(1)
+        # rendered = self.render(batch_constructed)["rendered"]
+
+        # render reference view
+        bg_color = self.get_bg_color()
         cam_dict = self.get_default_cam()
         rendered = self.render(cam_dict, bg_color=bg_color)
         rgb = rendered["rgb"]
+        mask = rendered["alpha"]
 
-        # compute loss
-        if self.config["guidance_sd_wt"] > 0:
-            loss_guidance_sd = self.guidance_sd.train_step(
-                rgb, step_ratio=self.progress
-            )
-            loss_dict["guidance_sd"] = loss_guidance_sd
+        # prepare reference view GT
+        ref_rgb = batch["rgb"][:1, :1]
+        ref_mask = batch["mask"][:1, :1].float()
+        ref_vis2d = batch["vis2d"][:1, :1].float()
+        white_img = torch.ones_like(ref_rgb)
+        ref_rgb = torch.where(ref_mask > 0, ref_rgb, white_img)
+        res = self.config["train_res"]
+        # M,N,C => (N, C, d1, d2, ...,dK)
 
-        if self.config["guidance_zero123_wt"] > 0:
-            ref_rgb = batch["rgb"][:1, :1]
-            bs = ref_rgb.shape[0]
-            res = self.config["train_res"]
-            # M,N,C => (N, C, d1, d2, ...,dK)
+        ref_rgb = ref_rgb.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
+        ref_rgb = F.interpolate(
+            ref_rgb, (256, 256), mode="bilinear", align_corners=False
+        )
+        ref_mask = ref_mask.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
+        ref_mask = F.interpolate(ref_mask, (256, 256), mode="nearest")
+        ref_vis2d = ref_vis2d.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
+        ref_vis2d = F.interpolate(ref_vis2d, (256, 256), mode="nearest")
 
-            ref_rgb = ref_rgb.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
-            ref_rgb = F.interpolate(
-                ref_rgb, (256, 256), mode="bilinear", align_corners=False
-            )
-            self.guidance_zero123.get_img_embeds(ref_rgb)
+        # reference view loss
+        loss_dict["rgb"] = (rgb - ref_rgb).pow(2)
+        loss_dict["mask"] = (mask - ref_mask).pow(2)
+        # mask_balance_wt = get_mask_balance_wt(
+        #     batch["mask"], batch["vis2d"], batch["is_detected"]
+        # )
+        # loss_dict["mask"] *= mask_balance_wt
 
-            elevation = 0
-            min_ver = max(min(-30, -30 - elevation), -80 - elevation)
-            max_ver = min(max(30, 30 - elevation), 80 - elevation)
-            polar = [np.random.randint(min_ver, max_ver)] * bs
-            azimuth = [np.random.randint(-180, 180)] * bs
-            radius = [0] * bs
-            loss_guidance_zero123 = self.guidance_zero123.train_step(
-                rgb, polar, azimuth, radius, step_ratio=self.progress
-            )
-            loss_dict["guidance_zero123"] = loss_guidance_zero123
+        # mask loss
+        self.mask_losses(loss_dict, ref_mask, ref_vis2d, self.config)
+
+        self.compute_reg_loss(loss_dict, ref_rgb)
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
         return loss_dict
+
+    def compute_reg_loss(self, loss_dict, ref_rgb):
+        bg_color = self.get_bg_color()
+        # render a random novel view
+        bs = 1
+        elevation = 0
+        min_ver = max(min(-30, -30 - elevation), -80 - elevation)
+        max_ver = min(max(30, 30 - elevation), 80 - elevation)
+
+        # sample camera
+        polar = [np.random.randint(min_ver, max_ver)] * bs
+        azimuth = [np.random.randint(-180, 180)] * bs
+        radius = [0] * bs
+        pose = orbit_camera(elevation + polar[0], azimuth[0], self.radius + radius[0])
+        pose = np.linalg.inv(pose)
+        cam_dict = self.get_default_cam()
+        cam_dict["w2c"] = pose
+
+        # render
+        rendered = self.render(cam_dict, bg_color=bg_color)
+        rgb_nv = rendered["rgb"]
+
+        # compute loss
+        if self.config["guidance_sd_wt"] > 0:
+            loss_guidance_sd = self.guidance_sd.train_step(
+                rgb_nv, step_ratio=self.progress
+            )
+            loss_dict["guidance_sd"] = loss_guidance_sd
+
+        if self.config["guidance_zero123_wt"] > 0:
+            self.guidance_zero123.get_img_embeds(ref_rgb)
+
+            loss_guidance_zero123 = self.guidance_zero123.train_step(
+                rgb_nv, polar, azimuth, radius, step_ratio=self.progress
+            )
+            loss_dict["guidance_zero123"] = loss_guidance_zero123
+
+    @staticmethod
+    def mask_losses(loss_dict, maskfg, vis2d, config):
+        """Apply segmentation mask on dense losses
+
+        Args:
+            loss_dict (Dict): Dense losses. Keys: "mask" (M,N,1), "rgb" (M,N,3),
+                "depth" (M,N,1), "flow" (M,N,1), "vis" (M,N,1), "feature" (M,N,1),
+                "feat_reproj" (M,N,1), and "reg_gauss_mask" (M,N,1). Modified in
+                place to multiply loss_dict["mask"] with the other losses
+            batch (Dict): Batch of dataloader samples. Keys: "rgb" (M,2,N,3),
+                "mask" (M,2,N,1), "depth" (M,2,N,1), "feature" (M,2,N,16),
+                "flow" (M,2,N,2), "flow_uct" (M,2,N,1), "vis2d" (M,2,N,1),
+                "crop2raw" (M,2,4), "dataid" (M,2), "frameid_sub" (M,2), and
+                "hxy" (M,2,N,3)
+            config (Dict): Command-line options
+        """
+        # always mask-out non-visible (out-of-frame) pixels
+        keys_allpix = ["mask"]
+        # field type specific keys
+        keys_type_specific = ["rgb"]
+
+        # type-specific masking rules
+        if config["field_type"] == "bg":
+            mask = (1 - maskfg) * vis2d
+        elif config["field_type"] == "fg":
+            mask = maskfg * vis2d
+        elif config["field_type"] == "comp":
+            mask = vis2d
+        else:
+            raise ("field_type %s not supported" % config["field_type"])
+        # apply mask
+        for k, v in loss_dict.items():
+            if k in keys_allpix:
+                loss_dict[k] = v * vis2d
+            elif k in keys_type_specific:
+                loss_dict[k] = v * mask
+            else:
+                raise ("loss %s not defined" % k)
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):
@@ -313,6 +395,13 @@ class GSplatModel(nn.Module):
             config (Dict): Command-line options
         """
         for k, v in loss_dict.items():
+            # average over non-zero pixels
+            v = v[v > 0]
+            if v.numel() > 0:
+                loss_dict[k] = v.mean()
+            else:
+                loss_dict[k] = v.sum()  # return zero
+
             # scale with loss weights
             wt_name = k + "_wt"
             if wt_name in config.keys():
