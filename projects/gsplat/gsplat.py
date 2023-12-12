@@ -44,7 +44,8 @@ class GSplatModel(nn.Module):
         white_background = (
             config["white_background"] if "white_background" in config else True
         )
-        radius = config["radius"] if "radius" in config else 2.5
+        radius = config["radius"] if "radius" in config else 2.5  # dreamgaussian
+        # radius = config["radius"] if "radius" in config else 3  # ours
         num_pts = config["num_pts"] if "num_pts" in config else 5000
 
         self.sh_degree = sh_degree
@@ -60,7 +61,7 @@ class GSplatModel(nn.Module):
         )
 
         self.initialize(num_pts=num_pts)
-        # DEBUG
+        # # DEBUG
         # mesh = trimesh.load("tmp/0.obj")
         # pcd = BasicPointCloud(
         #     mesh.vertices,
@@ -319,18 +320,25 @@ class GSplatModel(nn.Module):
         polar = [np.random.randint(min_ver, max_ver)] * bs
         azimuth = [np.random.randint(-180, 180)] * bs
         radius = [0] * bs
-        pose = orbit_camera(elevation + polar[0], azimuth[0], self.radius + radius[0])
-        pose = np.linalg.inv(pose)
-        # GL to CV
-        pose[1:3] *= -1
+        c2w = orbit_camera(elevation + polar[0], azimuth[0], self.radius + radius[0])
+        w2c = np.linalg.inv(c2w)
+        # GL to CV for both obj and cam space
+        w2c[1:3] *= -1
+        w2c[:, 1:3] *= -1
+
+        # DreamGaussian version
         Kmat = np.eye(3)
         Kmat[0, 0] = fov_to_focal(np.pi / 4)
         Kmat[1, 1] = fov_to_focal(np.pi / 4)
+
+        # # our version
+        # K = np.array([2, 2, 0, 0])
+        # Kmat = K2mat(K)
+
         cam_dict = self.get_default_cam(Kmat=Kmat)
-        cam_dict["w2c"] = pose
 
         # render
-        rendered = self.render(cam_dict, bg_color=bg_color)
+        rendered = self.render(cam_dict, bg_color=bg_color, w2c=w2c)
         rgb_nv = rendered["rgb"]
 
         # compute loss
@@ -465,7 +473,9 @@ class GSplatModel(nn.Module):
         scalars = {}
         out_dict = {"rgb": [], "depth": [], "alpha": []}
 
-        for idx in tqdm.tqdm(range(0, len(batch["frameid"]) // 2)):
+        nframes = len(batch["frameid"]) // 2
+        for idx in tqdm.tqdm(range(0, nframes)):
+            # get camera intrinsics and extrinsics
             if is_pair:
                 idx = idx * 2
             frameid = batch["frameid_sub"][idx]
@@ -475,6 +485,16 @@ class GSplatModel(nn.Module):
 
             w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
             cam_dict = self.get_default_cam(Kmat=Kmat)
+
+            # # manually create cameras
+            # w2c = np.eye(4, dtype=np.float32)
+            # w2c[2, 3] = 3  # depth
+            # w2c[:3, :3] = cv2.Rodrigues(
+            #     np.asarray([0.0, 2 * idx * np.pi / nframes, 0.0])
+            # )[0]
+            # K = np.array([2, 2, 0, 0])
+            # Kmat = K2mat(K)
+            # cam_dict = self.get_default_cam(Kmat=Kmat)
 
             rendered = self.render(cam_dict, w2c=w2c)
             out_dict["rgb"].append(rendered["rgb"][0].permute(1, 2, 0).cpu().numpy())
