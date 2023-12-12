@@ -243,8 +243,8 @@ def get_data_info(loader):
         raw_size += [dataset.raw_size]
 
         # only use valid features for PCA
+        feature_channels = dataset.mmap_list["feature"].shape[-1]
         if np.abs(dataset.mmap_list["feature"][0]).sum() != 0:
-            feature_channels = dataset.mmap_list["feature"].shape[-1]
             feature_array = dataset.mmap_list["feature"].reshape(-1, feature_channels)
             # # randomly sample 1k pixels for PCA per-video:
             # rand_idx = np.random.permutation(len(feature_array))[:1000]
@@ -268,7 +268,11 @@ def get_data_info(loader):
         motion_scales.append(motion_scale)
 
     # compute PCA on non-zero features
-    feature_pxs = np.concatenate(feature_pxs, 0)
+    if len(feature_pxs) > 0:
+        feature_pxs = np.concatenate(feature_pxs, 0)
+    else:
+        # random
+        feature_pxs = np.random.randn(1000, feature_channels)
     feature_pxs = feature_pxs[np.linalg.norm(feature_pxs, 2, -1) > 0]
     data_info["apply_pca_fn"] = pca_numpy(feature_pxs, n_components=3)
 

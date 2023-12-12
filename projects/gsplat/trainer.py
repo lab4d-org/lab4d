@@ -136,6 +136,3 @@ class GSplatTrainer(Trainer):
 
     def check_grad(self):
         return {}
-
-    def construct_eval_batch(self, batch):
-        pass

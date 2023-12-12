@@ -9,6 +9,7 @@ run-long.sh
 /database/ama
 /database/polycam
 /database/record3d
+/database/synthetic
 /logdir*
 /tmp
 

@@ -864,3 +864,18 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     P[2, 2] = z_sign * zfar / (zfar - znear)
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
+
+
+def getProjectionMatrix_K(znear, zfar, Kmat):
+    if torch.is_tensor(Kmat):
+        P = torch.zeros(4, 4)
+    else:
+        P = np.zeros((4, 4))
+
+    z_sign = 1.0
+
+    P[:2, :3] = Kmat[:2, :3]
+    P[3, 2] = z_sign
+    P[2, 2] = z_sign * zfar / (zfar - znear)
+    P[2, 3] = -(zfar * znear) / (zfar - znear)
+    return P

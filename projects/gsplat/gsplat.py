@@ -9,6 +9,7 @@ import pdb
 import cv2
 import tqdm
 import math
+import trimesh
 
 from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
@@ -19,12 +20,13 @@ from diff_gaussian_rasterization import (
 sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.utils.loss_utils import get_mask_balance_wt
+from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
 from projects.gsplat.gs_renderer import (
     GaussianModel,
     BasicPointCloud,
-    getProjectionMatrix,
+    getProjectionMatrix_K,
 )
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.gsplat.cam_utils import orbit_camera
@@ -58,6 +60,14 @@ class GSplatModel(nn.Module):
         )
 
         self.initialize(num_pts=num_pts)
+        # DEBUG
+        # mesh = trimesh.load("tmp/0.obj")
+        # pcd = BasicPointCloud(
+        #     mesh.vertices,
+        #     mesh.visual.vertex_colors[:, :3] / 255,
+        #     np.zeros((mesh.vertices.shape[0], 3)),
+        # )
+        # self.initialize(input=pcd)
 
         # diffusion
         if config["guidance_sd_wt"] > 0:
@@ -99,28 +109,24 @@ class GSplatModel(nn.Module):
     def render(
         self,
         camera_dict,
+        w2c=None,
         scaling_modifier=1.0,
         bg_color=None,
         override_color=None,
-        compute_cov3D_python=False,
-        convert_SHs_python=False,
     ):
-        FoVx = camera_dict["fovx"]
-        FoVy = camera_dict["fovy"]
+        assert "Kmat" in camera_dict
+
         image_height = int(camera_dict["render_resolution"])
         image_width = int(camera_dict["render_resolution"])
         viewmatrix = torch.tensor(camera_dict["w2c"]).cuda()
         viewmatrix = viewmatrix.transpose(0, 1)
-        projmatrix = (
-            getProjectionMatrix(
-                znear=camera_dict["near"],
-                zfar=camera_dict["far"],
-                fovX=camera_dict["fovx"],
-                fovY=camera_dict["fovy"],
-            )
-            .transpose(0, 1)
-            .cuda()
+
+        projmatrix = getProjectionMatrix_K(
+            znear=camera_dict["near"],
+            zfar=camera_dict["far"],
+            Kmat=torch.tensor(camera_dict["Kmat"]),
         )
+        projmatrix = projmatrix.transpose(0, 1).cuda()
         projmatrix = viewmatrix @ projmatrix
         c2w = np.linalg.inv(camera_dict["w2c"])
         campos = -torch.tensor(c2w[:3, 3]).cuda()
@@ -141,6 +147,8 @@ class GSplatModel(nn.Module):
             pass
 
         # Set up rasterization configuration
+        FoVx = focal_to_fov(camera_dict["Kmat"][0, 0])
+        FoVy = focal_to_fov(camera_dict["Kmat"][1, 1])
         tanfovx = math.tan(FoVx * 0.5)
         tanfovy = math.tan(FoVy * 0.5)
 
@@ -164,37 +172,23 @@ class GSplatModel(nn.Module):
         means3D = self.gaussians.get_xyz
         means2D = screenspace_points
         opacity = self.gaussians.get_opacity
-
-        # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
-        # scaling / rotation by the rasterizer.
-        scales = None
-        rotations = None
         cov3D_precomp = None
-        if compute_cov3D_python:
-            cov3D_precomp = self.gaussians.get_covariance(scaling_modifier)
-        else:
-            scales = self.gaussians.get_scaling
-            rotations = self.gaussians.get_rotation
+        scales = self.gaussians.get_scaling
+        rotations = self.gaussians.get_rotation
+
+        if w2c is not None:
+            if not torch.is_tensor(w2c):
+                w2c = torch.tensor(w2c, dtype=torch.float, device=means3D.device)
+            means3D = means3D @ w2c[:3, :3].T + w2c[:3, 3][None]
+            # TODO verify this rotation is Nx4 quaternion
+            # rotations = rotations @ w2c[:3, :3].T
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
         shs = None
         colors_precomp = None
         if colors_precomp is None:
-            if convert_SHs_python:
-                shs_view = self.gaussians.get_features.transpose(1, 2).view(
-                    -1, 3, (self.gaussians.max_sh_degree + 1) ** 2
-                )
-                dir_pp = self.gaussians.get_xyz - campos.repeat(
-                    self.gaussians.get_features.shape[0], 1
-                )
-                dir_pp_normalized = dir_pp / dir_pp.norm(dim=1, keepdim=True)
-                sh2rgb = eval_sh(
-                    self.gaussians.active_sh_degree, shs_view, dir_pp_normalized
-                )
-                colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
-            else:
-                shs = self.gaussians.get_features
+            shs = self.gaussians.get_features
         else:
             colors_precomp = override_color
 
@@ -226,22 +220,18 @@ class GSplatModel(nn.Module):
             out_dict[k] = v.unsqueeze(0)
         return out_dict
 
-    def get_default_cam(self):
+    def get_default_cam(self, render_resolution=256, Kmat=np.eye(3)):
+        # focal=1 corresponds to 90 degree fov and identity projection matrix
         # convert this to a dict
-        render_resolution = 256
-        fovx = np.pi / 4
-        fovy = np.pi / 4
         near = 0.01
         far = 5
-        w2c = np.eye(4).astype(np.float32)
-        w2c[2, 3] = 2.5
+        w2c = np.eye(4, dtype=np.float32)
         cam_dict = {
             "w2c": w2c,
             "render_resolution": render_resolution,
-            "fovx": fovx,
-            "fovy": fovy,
             "near": near,
             "far": far,
+            "Kmat": Kmat,
         }
         return cam_dict
 
@@ -253,15 +243,32 @@ class GSplatModel(nn.Module):
         )
         return bg_color
 
+    def compute_Kmat(self, crop_size, crop2raw, Kmat):
+        # Kmat = Kmat_crop2raw^-1 @ Kmat_raw
+        if not torch.is_tensor(Kmat):
+            Kmat = torch.tensor(Kmat, dtype=torch.float32, device=self.device)
+        Kmat = K2inv(crop2raw) @ Kmat  # THIS IS IN THE CROP SPACE (256x256 patch)
+        # normlalize Kmat from pixel to screen space
+        Kmat[..., :2, 2] = Kmat[..., :2, 2] - crop_size / 2
+        Kmat[..., :2, :] = Kmat[..., :2, :] / crop_size * 2
+        return Kmat
+
     def forward(self, batch):
         loss_dict = {}
-        # batch_constructed = self.construct_rand_batch(1)
-        # rendered = self.render(batch_constructed)["rendered"]
 
         # render reference view
+        crop_size = self.config["train_res"]
         bg_color = self.get_bg_color()
-        cam_dict = self.get_default_cam()
-        rendered = self.render(cam_dict, bg_color=bg_color)
+
+        frameid = batch["frameid_sub"][0, 0]
+        crop2raw = batch["crop2raw"][0, 0]
+        Kmat = K2mat(self.data_info["intrinsics"][frameid])
+        Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
+
+        w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
+        cam_dict = self.get_default_cam(Kmat=Kmat)
+
+        rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color)
         rgb = rendered["rgb"]
         mask = rendered["alpha"]
 
@@ -316,7 +323,10 @@ class GSplatModel(nn.Module):
         pose = np.linalg.inv(pose)
         # GL to CV
         pose[1:3] *= -1
-        cam_dict = self.get_default_cam()
+        Kmat = np.eye(3)
+        Kmat[0, 0] = fov_to_focal(np.pi / 4)
+        Kmat[1, 1] = fov_to_focal(np.pi / 4)
+        cam_dict = self.get_default_cam(Kmat=Kmat)
         cam_dict["w2c"] = pose
 
         # render
@@ -448,31 +458,25 @@ class GSplatModel(nn.Module):
         return batch
 
     @torch.no_grad()
-    def evaluate(self, batch):
+    def evaluate(self, batch, is_pair=True):
         """Evaluate model on a batch of data"""
+        crop_size = self.config["eval_res"]
+        self.process_frameid(batch)
         scalars = {}
-        rendered = self.render_turntable()
-        # cam_dict = self.get_default_cam()
-        # rendered = self.render(cam_dict)
-        # rendered["rgb"] = rendered["rgb"].permute(0, 2, 3, 1)
-        # rendered["depth"] = rendered["depth"].permute(0, 2, 3, 1)
-        # rendered["alpha"] = rendered["alpha"].permute(0, 2, 3, 1)
-        # del rendered["viewspace_points"]
-        # del rendered["visibility_filter"]
-        # del rendered["radii"]
-        return rendered, scalars
-
-    def render_turntable(self, nframes=9):
         out_dict = {"rgb": [], "depth": [], "alpha": []}
-        cam_dict = self.get_default_cam()
 
-        for i in range(nframes):
-            w2c = cam_dict["w2c"]
-            w2c[:3, :3] = cv2.Rodrigues(
-                np.asarray([0.0, 2 * i * np.pi / nframes, 0.0])
-            )[0]
-            cam_dict["w2c"] = w2c
-            rendered = self.render(cam_dict)
+        for idx in tqdm.tqdm(range(0, len(batch["frameid"]) // 2)):
+            if is_pair:
+                idx = idx * 2
+            frameid = batch["frameid_sub"][idx]
+            crop2raw = batch["crop2raw"][idx]
+            Kmat = K2mat(self.data_info["intrinsics"][frameid])
+            Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
+
+            w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
+            cam_dict = self.get_default_cam(Kmat=Kmat)
+
+            rendered = self.render(cam_dict, w2c=w2c)
             out_dict["rgb"].append(rendered["rgb"][0].permute(1, 2, 0).cpu().numpy())
             out_dict["depth"].append(
                 rendered["depth"][0].permute(1, 2, 0).cpu().numpy()
@@ -482,7 +486,31 @@ class GSplatModel(nn.Module):
             )
         for k, v in out_dict.items():
             out_dict[k] = np.stack(v, 0)
-        return out_dict
+        return out_dict, scalars
+
+    def process_frameid(self, batch):
+        """Convert frameid within each video to overall frame id
+
+        Args:
+            batch (Dict): Batch of input metadata. Keys: "dataid" (M,),
+                "frameid_sub" (M,), "crop2raw" (M,4), "feature" (M,N,16), and
+                "hxy" (M,N,3). This function modifies it in place to add key
+                "frameid" (M,)
+        """
+        if not hasattr(self, "offset_cuda"):
+            self.offset_cache = torch.tensor(
+                self.data_info["frame_info"]["frame_offset_raw"],
+                device=self.device,
+                dtype=torch.long,
+            )
+        # convert frameid_sub to frameid
+        if "motion_id" in batch.keys():
+            # indicator for reanimation
+            motion_id = batch["motion_id"]
+            del batch["motion_id"]
+        else:
+            motion_id = batch["dataid"]
+        batch["frameid"] = batch["frameid_sub"] + self.offset_cache[motion_id]
 
     def set_progress(self, current_steps, progress):
         """Adjust loss weights and other constants throughout training
@@ -543,17 +571,22 @@ if __name__ == "__main__":
     renderer = GSplatModel(opts, None)
 
     # convert this to a dict
-    cam_dict = renderer.get_default_cam()
+    K = np.array([2, 2, 0, 0])
+    Kmat = K2mat(K)
+    cam_dict = renderer.get_default_cam(render_resolution=512, Kmat=Kmat)
+    w2c = np.eye(4)
+    w2c[2, 3] = 3  # depth
 
     # render turntable view
     nframes = 10
     frames = []
     for i in range(nframes):
-        w2c = cam_dict["w2c"]
-        w2c[:3, :3] = cv2.Rodrigues(np.asarray([0.0, 2 * i * np.pi / nframes, 0.0]))[0]
-        cam_dict["w2c"] = w2c
-        out = renderer.render(cam_dict)
+        w2c[:3, :3] = cv2.Rodrigues(
+            np.asarray([0.0, 2 * np.pi * (0.25 + i / nframes), 0.0])
+        )[0]
+        out = renderer.render(cam_dict, w2c=w2c)
         img = out["rgb"][0].permute(1, 2, 0).detach().cpu().numpy()
         frames.append(img)
+        cv2.imwrite("tmp/%d.png" % i, img * 255)
     save_vid("tmp/vid", frames)
     print("saved to tmp/vid.mp4")

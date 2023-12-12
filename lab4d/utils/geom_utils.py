@@ -16,7 +16,39 @@ from lab4d.utils.quat_transform import (
 )
 
 
-def pinhole_projection(Kmat, xyz_cam):
+def fov_to_focal(fov, img_size=None):
+    """Convert field of view to focal length
+
+    Args:
+        fov: float, Field of view
+        img_size: int, Image size
+    """
+    if torch.is_tensor(fov):
+        focal = 1 / (torch.tan(fov / 2))
+    else:
+        focal = 1 / (np.tan(fov / 2))
+    if img_size is not None:
+        focal = focal * img_size / 2
+    return focal
+
+
+def focal_to_fov(focal, img_size=None):
+    """Convert focal length to field of view
+
+    Args:
+        focal: float, Focal length
+        img_size: int, Image size
+    """
+    if img_size is not None:
+        focal = 2 * focal / img_size
+    if torch.is_tensor(focal):
+        fov = 2 * torch.atan(1 / focal)
+    else:
+        fov = 2 * np.arctan(1 / focal)
+    return fov
+
+
+def pinhole_projection(Kmat, xyz_cam, keep_depth=False):
     """Project points from camera space to the image plane
 
     Args:
@@ -29,6 +61,8 @@ def pinhole_projection(Kmat, xyz_cam):
     Kmat = Kmat.view(shape[:1] + (1,) * (len(shape) - 2) + (3, 3))
     hxy = torch.einsum("...ij,...j->...i", Kmat, xyz_cam)
     hxy = hxy / (hxy[..., -1:] + 1e-6)
+    if keep_depth:
+        hxy[..., 2] = xyz_cam[..., 2]
     return hxy
 
 
