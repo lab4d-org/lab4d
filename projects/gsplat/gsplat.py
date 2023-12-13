@@ -21,6 +21,7 @@ sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.utils.loss_utils import get_mask_balance_wt
 from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
+from lab4d.utils.quat_transform import quaternion_mul, matrix_to_quaternion
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
 from projects.gsplat.gs_renderer import (
@@ -181,8 +182,9 @@ class GSplatModel(nn.Module):
             if not torch.is_tensor(w2c):
                 w2c = torch.tensor(w2c, dtype=torch.float, device=means3D.device)
             means3D = means3D @ w2c[:3, :3].T + w2c[:3, 3][None]
-            # TODO verify this rotation is Nx4 quaternion
-            # rotations = rotations @ w2c[:3, :3].T
+            rmat = w2c[:3, :3][None].repeat(len(means3D), 1, 1)
+            # gaussian space to world then to camera
+            rotations = quaternion_mul(matrix_to_quaternion(rmat), rotations)  # wxyz
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.

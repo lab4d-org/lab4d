@@ -1,7 +1,7 @@
 # # no sds
 # dev=0
-# seqname=eagle
-# logname=gsplat-ref
+# seqname=cat-pikachu-0
+# logname=gsplat-ref-test-v3
 # rm -rf logdir/$seqname-$logname
 # bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
 #   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
