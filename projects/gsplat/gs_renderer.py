@@ -3,6 +3,7 @@ import math
 import numpy as np
 from typing import NamedTuple
 import trimesh
+import pdb
 
 # from plyfile import PlyData, PlyElement
 
@@ -176,7 +177,7 @@ class GaussianModel(nn.Module):
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         self.optimizer = None
-        self.percent_dense = 0
+        self.percent_dense = 0.01
         self.spatial_lr_scale = 0
         self.setup_functions()
 
@@ -351,6 +352,9 @@ class GaussianModel(nn.Module):
         #     .numpy()
         # )
         self.proxy_geometry = trimesh.Trimesh(vertices=xyz)
+        # # densify and prune
+        # self.densify_and_prune()
+        # self.reset_opacity()
 
     def export_geometry_aux(self, path):
         self.proxy_geometry.export("%s-proxy.obj" % (path))
@@ -411,6 +415,8 @@ class GaussianModel(nn.Module):
             distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()),
             0.0000001,
         )
+        # # TODO force larger scale
+        # dist2[:] = 0.002
         scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
@@ -434,51 +440,9 @@ class GaussianModel(nn.Module):
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-    def training_setup(self, training_args):
-        self.percent_dense = training_args.percent_dense
+    def training_setup(self):
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-
-        l = [
-            {
-                "params": [self._xyz],
-                "lr": training_args.position_lr_init * self.spatial_lr_scale,
-                "name": "xyz",
-            },
-            {
-                "params": [self._features_dc],
-                "lr": training_args.feature_lr,
-                "name": "f_dc",
-            },
-            {
-                "params": [self._features_rest],
-                "lr": training_args.feature_lr / 20.0,
-                "name": "f_rest",
-            },
-            {
-                "params": [self._opacity],
-                "lr": training_args.opacity_lr,
-                "name": "opacity",
-            },
-            {
-                "params": [self._scaling],
-                "lr": training_args.scaling_lr,
-                "name": "scaling",
-            },
-            {
-                "params": [self._rotation],
-                "lr": training_args.rotation_lr,
-                "name": "rotation",
-            },
-        ]
-
-        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.xyz_scheduler_args = get_expon_lr_func(
-            lr_init=training_args.position_lr_init * self.spatial_lr_scale,
-            lr_final=training_args.position_lr_final * self.spatial_lr_scale,
-            lr_delay_mult=training_args.position_lr_delay_mult,
-            max_steps=training_args.position_lr_max_steps,
-        )
 
     def update_learning_rate(self, iteration):
         """Learning rate scheduling per step"""
@@ -540,6 +504,8 @@ class GaussianModel(nn.Module):
         PlyData([el]).write(path)
 
     def reset_opacity(self):
+        if self.optimizer is None:
+            return
         opacities_new = inverse_sigmoid(
             torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * 0.01)
         )
@@ -813,7 +779,11 @@ class GaussianModel(nn.Module):
             new_rotation,
         )
 
-    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
+    def densify_and_prune(
+        self, max_grad=0.01, min_opacity=0.01, extent=4, max_screen_size=1
+    ):
+        if len(self.xyz_gradient_accum) == 0:
+            return
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
@@ -848,6 +818,15 @@ class GaussianModel(nn.Module):
             viewspace_point_tensor.grad[update_filter, :2], dim=-1, keepdim=True
         )
         self.denom[update_filter] += 1
+
+    @torch.no_grad()
+    def get_aabb(self):
+        aabb = (
+            self.get_xyz.min(dim=0).values,
+            self.get_xyz.max(dim=0).values,
+        )
+        aabb = torch.stack(aabb, dim=0).cpu().numpy()
+        return aabb
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):

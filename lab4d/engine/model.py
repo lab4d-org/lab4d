@@ -1003,3 +1003,34 @@ class dvr_model(nn.Module):
             beta_dicts["beta/%s" % field.category] = field.logibeta.exp()
             beta_dicts["scale/%s" % field.category] = field.logscale.exp()
         return beta_dicts
+
+    @torch.no_grad()
+    def get_cameras(self, frame_id=None):
+        """Compute camera matrices in world units
+
+        Returns:
+            field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
+        """
+        return self.fields.get_cameras(frame_id=frame_id)
+
+    @torch.no_grad()
+    def get_intrinsics(self, frame_id=None):
+        """Compute camera intrinsics at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute at all frames
+        Returns:
+            intrinsics: (..., 4) Output camera intrinsics
+        """
+        return self.intrinsics.get_vals(frame_id=frame_id)
+
+    @torch.no_grad()
+    def get_aabb(self, inst_id=None):
+        """Compute axis aligned bounding box
+        Args:
+            inst_id (int or tensor): Instance id. If None, return aabb for all instances
+
+        Returns:
+            aabb (Dict): Maps field names ("fg" or "bg") to (1/N,2,3) aabb
+        """
+        return self.fields.get_aabb(inst_id=inst_id)

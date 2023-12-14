@@ -709,7 +709,7 @@ class Trainer:
             log.add_scalar(k, v, step)
 
     @staticmethod
-    def construct_test_model(opts):
+    def construct_test_model(opts, model_class=dvr_model):
         """Load a model at test time
 
         Args:
@@ -724,7 +724,7 @@ class Trainer:
         data_info, _ = data_utils.get_data_info(evalloader)
 
         # construct DVR model
-        model = dvr_model(opts, data_info)
+        model = model_class(opts, data_info)
         load_path = "%s/%s/ckpt_%s.pth" % (
             opts["logroot"],
             logname,

@@ -91,16 +91,19 @@ def construct_batch_from_opts(opts, model, data_info):
     # get cameras wrt each field
     with torch.no_grad():
         frameid = torch.tensor(frameid, device=device)
-        field2cam_fr = model.fields.get_cameras(frame_id=frameid)
-        intrinsics_fr = model.intrinsics.get_vals(
+        field2cam_fr = model.get_cameras(frame_id=frameid)
+        intrinsics_fr = model.get_intrinsics(
             frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
         )
-        aabb = model.fields.get_aabb(inst_id=opts["inst_id"])
+        aabb = model.get_aabb(inst_id=opts["inst_id"])
     # convert to numpy
     for k, v in field2cam_fr.items():
-        field2cam_fr[k] = v.cpu().numpy()
-        aabb[k] = aabb[k].cpu().numpy()
-    intrinsics_fr = intrinsics_fr.cpu().numpy()
+        if torch.is_tensor(v):
+            field2cam_fr[k] = v.cpu().numpy()
+        if torch.is_tensor(aabb[k]):
+            aabb[k] = aabb[k].cpu().numpy()
+    if torch.is_tensor(intrinsics_fr):
+        intrinsics_fr = intrinsics_fr.cpu().numpy()
 
     # construct batch from user input
     if opts["viewpoint"] == "ref":
@@ -190,7 +193,7 @@ def render_batch(model, batch):
     return rendered
 
 
-def render(opts, construct_batch_func):
+def render(opts, construct_batch_func, Trainer=Trainer):
     # load model/data
     opts["logroot"] = sys.argv[1].split("=")[1].rsplit("/", 2)[0]
     model, data_info, ref_dict = Trainer.construct_test_model(opts)

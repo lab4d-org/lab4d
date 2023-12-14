@@ -21,7 +21,11 @@ sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.utils.loss_utils import get_mask_balance_wt
 from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
-from lab4d.utils.quat_transform import quaternion_mul, matrix_to_quaternion
+from lab4d.utils.quat_transform import (
+    quaternion_mul,
+    matrix_to_quaternion,
+    quaternion_translation_to_se3,
+)
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
 from projects.gsplat.gs_renderer import (
@@ -70,11 +74,12 @@ class GSplatModel(nn.Module):
         #     np.zeros((mesh.vertices.shape[0], 3)),
         # )
         # self.initialize(input=pcd)
+        self.gaussians.training_setup()
 
         # diffusion
         if config["guidance_sd_wt"] > 0:
             self.guidance_sd = StableDiffusion(self.device)
-            self.prompt = "a photo of a british shorthair cat"
+            self.prompt = "a photo of a british shorthair cat that is walking"
             self.negative_prompt = ""
             self.guidance_sd.get_text_embeds([self.prompt], [self.negative_prompt])
         if config["guidance_zero123_wt"] > 0:
@@ -219,8 +224,9 @@ class GSplatModel(nn.Module):
             "visibility_filter": radii > 0,
             "radii": radii,
         }
-        for k, v in out_dict.items():
-            out_dict[k] = v.unsqueeze(0)
+        out_dict["rgb"] = out_dict["rgb"][None]
+        out_dict["depth"] = out_dict["depth"][None]
+        out_dict["alpha"] = out_dict["alpha"][None]
         return out_dict
 
     def get_default_cam(self, render_resolution=256, Kmat=np.eye(3)):
@@ -304,13 +310,53 @@ class GSplatModel(nn.Module):
         # mask loss
         self.mask_losses(loss_dict, ref_mask, ref_vis2d, self.config)
 
-        self.compute_reg_loss(loss_dict, ref_rgb)
+        # warp ref_rgb to normal aspect ratio and make it smaller
+        full2crop = self.construct_uncrop_mat(crop2raw)
+        ref_rgb = self.uncrop_img(ref_rgb, full2crop)
+        # dataset intrinsics | if full2crop=I, then Kmat = Kmat
+        full2crop[2:] *= 0  # no translation
+        Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
+        w2w0 = self.data_info["rtmat"][1][frameid].astype(np.float32)  # w2w0
+        self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0)
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
         return loss_dict
 
-    def compute_reg_loss(self, loss_dict, ref_rgb):
+    @staticmethod
+    def construct_uncrop_mat(crop2raw):
+        crop2raw = crop2raw.cpu().numpy()
+        full2crop = np.zeros_like(crop2raw)
+        full2crop[0] = 1
+        full2crop[1] = crop2raw[0] / crop2raw[1]
+        full2crop *= 1.5
+        full2crop[2] = 256 * (1 - full2crop[0]) / 2
+        full2crop[3] = 256 * (1 - full2crop[1]) / 2
+        return full2crop
+
+    @staticmethod
+    def uncrop_img(ref_rgb, full2crop):
+        dev = ref_rgb.device
+        ref_rgb = ref_rgb.permute(0, 2, 3, 1).cpu().numpy()[0]
+        x0, y0 = np.meshgrid(range(256), range(256))
+        hp_full = np.stack([x0, y0, np.ones_like(x0)], -1)  # augmented coord
+        hp_full = hp_full.astype(np.float32)
+        hp_raw = hp_full @ K2mat(full2crop).T  # raw image coord
+        x0 = hp_raw[..., 0].astype(np.float32)
+        y0 = hp_raw[..., 1].astype(np.float32)
+        ref_rgb = cv2.remap(
+            ref_rgb,
+            x0,
+            y0,
+            cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(1, 1, 1),
+        )
+        # cv2.imwrite("tmp/ref_rgb.png", ref_rgb[..., ::-1] * 255)
+        ref_rgb = torch.tensor(ref_rgb, device=dev).permute(2, 0, 1)[None]
+        return ref_rgb
+
+    def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0):
         bg_color = self.get_bg_color()
         # render a random novel view
         bs = 1
@@ -328,20 +374,16 @@ class GSplatModel(nn.Module):
         w2c[1:3] *= -1
         w2c[:, 1:3] *= -1
 
-        # DreamGaussian version
-        Kmat = np.eye(3)
-        Kmat[0, 0] = fov_to_focal(np.pi / 4)
-        Kmat[1, 1] = fov_to_focal(np.pi / 4)
-
-        # # our version
-        # K = np.array([2, 2, 0, 0])
-        # Kmat = K2mat(K)
+        # dataset extrinsics at frameid | if w2c=I, then w2w0 = w2c
+        w2w0[:3, :3] = w2c[:3, :3] @ w2w0[:3, :3]
+        w2c = w2w0
 
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
         # render
         rendered = self.render(cam_dict, bg_color=bg_color, w2c=w2c)
         rgb_nv = rendered["rgb"]
+        self.out = rendered
 
         # compute loss
         if self.config["guidance_sd_wt"] > 0:
@@ -354,9 +396,35 @@ class GSplatModel(nn.Module):
             self.guidance_zero123.get_img_embeds(ref_rgb)
 
             loss_guidance_zero123 = self.guidance_zero123.train_step(
-                rgb_nv, polar, azimuth, radius, step_ratio=self.progress
+                rgb_nv, polar, azimuth, radius
             )
+            # loss_guidance_zero123 = self.guidance_zero123.train_step(
+            #     rgb_nv, polar, azimuth, radius, step_ratio=self.progress
+            # )
             loss_dict["guidance_zero123"] = loss_guidance_zero123
+
+            # # DEBUG
+            # outputs = self.guidance_zero123.refine(
+            #     ref_rgb,
+            #     polar=polar,
+            #     azimuth=azimuth,
+            #     radius=radius,
+            #     strength=0,
+            # )
+            # cv2.imwrite(
+            #     "tmp/rgb_nv_refine.png",
+            #     outputs[0]
+            #     .permute(1, 2, 0)
+            #     .detach()
+            #     .cpu()
+            #     .numpy()
+            #     .astype(np.float32)[..., ::-1]
+            #     * 255,
+            # )
+            # cv2.imwrite(
+            #     "tmp/rgb_nv.png",
+            #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
+            # )
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, config):
@@ -475,17 +543,30 @@ class GSplatModel(nn.Module):
         scalars = {}
         out_dict = {"rgb": [], "depth": [], "alpha": []}
 
-        nframes = len(batch["frameid"]) // 2
+        nframes = len(batch["frameid"])
+        if is_pair:
+            nframes = nframes // 2
+
         for idx in tqdm.tqdm(range(0, nframes)):
-            # get camera intrinsics and extrinsics
+            # get dataset camera intrinsics and extrinsics
             if is_pair:
                 idx = idx * 2
             frameid = batch["frameid_sub"][idx]
-            crop2raw = batch["crop2raw"][idx]
-            Kmat = K2mat(self.data_info["intrinsics"][frameid])
+            if "crop2raw" in batch.keys():
+                crop2raw = batch["crop2raw"][idx]
+            else:
+                crop2raw = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
+            if "Kinv" in batch.keys():
+                Kmat = batch["Kinv"][frameid].inverse()
+            else:
+                Kmat = K2mat(self.data_info["intrinsics"][frameid])
             Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
-
-            w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
+            if "field2cam" in batch.keys():
+                quat_trans = batch["field2cam"]["fg"][idx]
+                quat, trans = quat_trans[:4], quat_trans[4:]
+                w2c = quaternion_translation_to_se3(quat, trans)
+            else:
+                w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
             cam_dict = self.get_default_cam(Kmat=Kmat)
 
             # # manually create cameras
@@ -580,6 +661,63 @@ class GSplatModel(nn.Module):
     def export_geometry_aux(self, path):
         """Export proxy geometry for all neural fields"""
         return self.gaussians.export_geometry_aux(path)
+
+    @torch.no_grad()
+    def get_cameras(self, frame_id=None):
+        """Compute camera matrices in world units
+
+        Returns:
+            field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
+        """
+        if torch.is_tensor(frame_id):
+            frame_id = frame_id.cpu().numpy()
+        field2cam_dict = {}
+        if frame_id is None:
+            field2cam_dict["fg"] = self.data_info["rtmat"][1]
+        field2cam_dict["fg"] = self.data_info["rtmat"][1][frame_id]
+        return field2cam_dict
+
+    @torch.no_grad()
+    def get_intrinsics(self, frame_id=None):
+        """Compute camera intrinsics at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute at all frames
+        Returns:
+            intrinsics: (..., 4) Output camera intrinsics
+        """
+        if frame_id is None:
+            return self.data_info["intrinsics"]
+        return self.data_info["intrinsics"][frame_id]
+
+    @torch.no_grad()
+    def get_aabb(self, inst_id=None):
+        """Compute axis aligned bounding box
+        Args:
+            inst_id (int or tensor): Instance id. If None, return aabb for all instances
+
+        Returns:
+            aabb (Dict): Maps field names ("fg" or "bg") to (1/N,2,3) aabb
+        """
+        aabb = {}
+        aabb["fg"] = self.gaussians.get_aabb()[None]
+        return aabb
+
+    def add_densification_stats(self):
+        out = self.out
+        viewspace_point_tensor, visibility_filter, radii = (
+            out["viewspace_points"],
+            out["visibility_filter"],
+            out["radii"],
+        )
+        self.gaussians.max_radii2D[visibility_filter] = torch.max(
+            self.gaussians.max_radii2D[visibility_filter],
+            radii[visibility_filter],
+        )
+        pdb.set_trace()
+        self.gaussians.add_densification_stats(
+            viewspace_point_tensor, visibility_filter
+        )
 
 
 if __name__ == "__main__":

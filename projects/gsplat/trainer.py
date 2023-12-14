@@ -136,3 +136,53 @@ class GSplatTrainer(Trainer):
 
     def check_grad(self):
         return {}
+
+    @staticmethod
+    def construct_test_model(opts, model_class=GSplatModel):
+        return Trainer.construct_test_model(opts, model_class=model_class)
+
+    def train_one_round(self):
+        """Train a single round (going over mini-batches)"""
+        opts = self.opts
+        gc.collect()  # need to be used together with empty_cache()
+        torch.cuda.empty_cache()
+        self.model.train()
+        self.optimizer.zero_grad()
+
+        # necessary for shuffling
+        self.trainloader.sampler.set_epoch(self.current_round)
+        for i, batch in tqdm.tqdm(enumerate(self.trainloader)):
+            if i == opts["iters_per_round"]:
+                break
+
+            progress = (self.current_steps - self.first_step) / self.total_steps
+            self.model.set_progress(self.current_steps, progress)
+
+            self.model.convert_img_to_pixel(batch)
+
+            loss_dict = self.model(batch)
+            total_loss = torch.sum(torch.stack(list(loss_dict.values())))
+            total_loss.mean().backward()
+            # print(total_loss)
+            # self.print_sum_params()
+
+            grad_dict = self.check_grad()
+            self.optimizer.step()
+            self.scheduler.step()
+            self.optimizer.zero_grad()
+
+            # self.model.add_densification_stats()
+
+            if get_local_rank() == 0:
+                # update scalar dict
+                # move all to loss
+                new_loss_dict = {}
+                for k, v in loss_dict.items():
+                    new_loss_dict["loss/%s" % k] = v
+                del loss_dict
+                loss_dict = new_loss_dict
+                loss_dict["loss/total"] = total_loss
+                loss_dict.update(self.model.get_field_params())
+                loss_dict.update(grad_dict)
+                self.add_scalar(self.log, loss_dict, self.current_steps)
+            self.current_steps += 1
