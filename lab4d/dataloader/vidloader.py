@@ -85,6 +85,7 @@ class VidDataset(Dataset):
     def __init__(self, opts, rgblist, dataid, ks, raw_size):
         self.delta_list = opts["delta_list"]
         self.field_type = opts["field_type"]
+        self.feature_type = opts["feature_type"]
         self.dict_list = self.construct_data_list(
             rgblist, opts["data_prefix"], opts["feature_type"]
         )
@@ -204,7 +205,12 @@ class VidDataset(Dataset):
             except:
                 print(f"Warning: cannot load {path}")
                 if k == "feature":
-                    self.mmap_list[k] = np.zeros((self.__len__() + 1, 112, 112, 16))
+                    if self.feature_type == "cse":
+                        self.mmap_list[k] = np.zeros((self.__len__() + 1, 112, 112, 16))
+                    elif self.feature_type == "dinov2":
+                        self.mmap_list[k] = np.zeros(
+                            (self.__len__() + 1, 112, 112, 384)
+                        )
                 else:
                     self.mmap_list[k] = np.zeros(
                         (self.__len__() + 1, self.img_size[0], self.img_size[1], 3)

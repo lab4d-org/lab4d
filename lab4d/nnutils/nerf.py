@@ -69,6 +69,10 @@ class NeRF(nn.Module):
             the CDF of the Laplace distribution with zero mean and beta scale.
         init_scale (float): Initial geometry scale factor.
         color_act (bool): If True, apply sigmoid to the output RGB
+        field_arch (Class): Field architecture to use
+        extrinsics_type (str): Camera pose initialization method. Options:
+            "mlp", "const", "explicit", "mix", "mixse3"
+        invalid_vid (int): Video that are not used for training.
     """
 
     def __init__(
@@ -89,6 +93,7 @@ class NeRF(nn.Module):
         color_act=True,
         field_arch=CondMLP,
         extrinsics_type="mlp",
+        invalid_vid=-1,
     ):
         rtmat = data_info["rtmat"]
         frame_info = data_info["frame_info"]
@@ -104,6 +109,7 @@ class NeRF(nn.Module):
         self.frame_mapping = frame_info["frame_mapping"]
         self.num_frames = frame_offset[-1]
         self.num_inst = num_inst
+        self.invalid_vid = invalid_vid
 
         # position and direction embedding
         self.pos_embedding = PosEmbedding(3, num_freq_xyz)
@@ -361,7 +367,15 @@ class NeRF(nn.Module):
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
         if self.category == "fg":
-            mesh = self.extract_canonical_mesh(level=0.005, vis_thresh=-10.0)
+            if self.invalid_vid >= 0:
+                inst_id = list(range(self.num_inst))
+                inst_id.remove(self.invalid_vid)
+                inst_id = inst_id[0]
+            else:
+                inst_id = None
+            mesh = self.extract_canonical_mesh(
+                level=0.005, vis_thresh=-10.0, inst_id=inst_id
+            )
         else:
             mesh = self.extract_canonical_mesh(level=0.005)
         if len(mesh.vertices) > 3:

@@ -64,6 +64,7 @@ class FeatureNeRF(NeRF):
         feature_channels=16,
         field_arch=CondMLP,
         extrinsics_type="mlp",
+        invalid_vid=-1,
     ):
         super().__init__(
             data_info,
@@ -82,6 +83,7 @@ class FeatureNeRF(NeRF):
             color_act=color_act,
             field_arch=field_arch,
             extrinsics_type=extrinsics_type,
+            invalid_vid=invalid_vid,
         )
 
         if feature_channels <= 0:

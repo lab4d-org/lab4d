@@ -448,6 +448,7 @@ class Trainer:
             # load background and intrinsics model
             checkpoint = torch.load(self.opts["load_path_bg"])
             model_states = checkpoint["model"]
+            resolve_size_mismatch(self.model, model_states)
             self.model.load_state_dict(model_states, strict=False)
 
         if self.opts["reset_beta"] > 0.0:
@@ -747,7 +748,7 @@ class Trainer:
 
         return model, data_info, ref_dict
 
-    def check_grad(self, thresh=10.0):
+    def check_grad(self, thresh=20.0):
         """Check if gradients are above a threshold
 
         Args:

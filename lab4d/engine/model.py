@@ -48,6 +48,7 @@ class dvr_model(nn.Module):
             init_scale_bg=config["init_scale_bg"],
             num_freq_xyz=config["num_freq_xyz"],
             use_timesync=config["use_timesync"],
+            bg_vid=config["bg_vid"],
         )
         self.construct_intrinsics(data_info)
 
@@ -773,7 +774,8 @@ class dvr_model(nn.Module):
                 ).pow(2)
             else:
                 loss_dict["reg_gauss_mask"] = (
-                    aux_dict["fg"]["gauss_mask"] - (rendered_fg_mask > 0.5).float()
+                    aux_dict["fg"]["gauss_mask"]
+                    - (aux_dict["fg"]["mask"] > 0.5).float()
                 ).pow(2)
 
         # # downweight pixels with low opacity (e.g., mask not aligned with gt)

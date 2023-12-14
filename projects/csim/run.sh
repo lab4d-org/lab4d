@@ -25,11 +25,12 @@ seqname=home-$vidname
 logname=compose-fs
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
-  --intrinsics_type const --extrinsics_type mixse3 --feature_channels 384 \
+  --intrinsics_type const --extrinsics_type mixse3 --feature_type cse \
   --freeze_scale --freeze_camera_bg --load_path_bg logdir/home-$vidname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
   --pixels_per_image 12 --bg_vid 0 \
   --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5
+# --feature_channels 384
 
 # fine-tune
 seqname=home-$vidname

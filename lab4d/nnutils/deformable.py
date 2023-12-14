@@ -66,6 +66,7 @@ class Deformable(FeatureNeRF):
         color_act=True,
         feature_channels=16,
         use_timesync=False,
+        invalid_vid=-1,
     ):
         super().__init__(
             data_info,
@@ -83,6 +84,7 @@ class Deformable(FeatureNeRF):
             init_scale=init_scale,
             color_act=color_act,
             feature_channels=feature_channels,
+            invalid_vid=invalid_vid,
         )
 
         self.warp = create_warp(fg_motion, data_info)

@@ -42,6 +42,7 @@ class MultiFields(nn.Module):
         init_scale_bg=0.05,
         num_freq_xyz=10,
         use_timesync=False,
+        bg_vid=-1,
     ):
         vis_info = data_info["vis_info"]
 
@@ -57,6 +58,7 @@ class MultiFields(nn.Module):
         self.init_scale_bg = init_scale_bg
         self.num_freq_xyz = num_freq_xyz
         self.use_timesync = use_timesync
+        self.bg_vid = bg_vid
 
         # specify field type
         if field_type == "comp":
@@ -99,6 +101,7 @@ class MultiFields(nn.Module):
                 init_scale=self.init_scale_fg,
                 feature_channels=self.feature_channels,
                 use_timesync=self.use_timesync,
+                invalid_vid=self.bg_vid,
             )
             # no directional encoding
         elif category == "bg":
