@@ -14,6 +14,7 @@ from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.warping import SkinningWarp, create_warp
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import extend_aabb, check_inside_aabb
+from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation
 
 
 class Deformable(FeatureNeRF):
@@ -499,3 +500,24 @@ class Deformable(FeatureNeRF):
             gauss_field["gauss_density"] = gauss_density.view((M, N, D, 1))
 
         return gauss_field
+
+    def visibility_func(self, xyz, inst_id=None):
+        """Compute visibility function
+
+        Args:
+            xyz: (M,N,D,3) Points along ray in object canonical space
+            inst_id: (M,) Instance id. If None, render for the average instance
+        Returns:
+            vis: (M,N,D,1) Visibility score
+        """
+        if isinstance(self.warp, SkinningWarp):
+            # use gaussians aabb to exclude points outside the skeleton
+            articulation = self.warp.articulation.get_mean_vals()
+            center = dual_quaternion_to_quaternion_translation(articulation)[1][0]
+            gauss_aabb = torch.stack([center.min(0)[0], center.max(0)[0]], 0)
+            gauss_aabb = extend_aabb(gauss_aabb, factor=0.5)
+            vis = check_inside_aabb(xyz, gauss_aabb[None])
+            vis = (vis[..., None].float() - 0.5) * 20  # to -10,10
+        else:
+            vis = self.vis_mlp(xyz, inst_id=inst_id)
+        return vis

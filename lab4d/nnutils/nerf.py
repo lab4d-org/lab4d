@@ -381,6 +381,18 @@ class NeRF(nn.Module):
         if len(mesh.vertices) > 3:
             self.proxy_geometry = mesh
 
+    def visibility_func(self, xyz, inst_id=None):
+        """Compute visibility function
+
+        Args:
+            xyz: (M,N,D,3) Points along ray in object canonical space
+            inst_id: (M,) Instance id. If None, render for the average instance
+        Returns:
+            vis: (M,N,D,1) Visibility score
+        """
+        vis = self.vis_mlp(xyz, inst_id=inst_id)
+        return vis
+
     @torch.no_grad()
     def extract_canonical_mesh(
         self,
@@ -409,7 +421,7 @@ class NeRF(nn.Module):
         else:
             aabb = self.get_aabb()
         sdf_func = lambda xyz: self.forward_sdf(xyz, inst_id=inst_id)[0]
-        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > vis_thresh
+        vis_func = lambda xyz: self.visibility_func(xyz, inst_id=inst_id) > vis_thresh
         if use_extend_aabb:
             aabb = extend_aabb(aabb, factor=0.5)
         mesh = marching_cubes(
@@ -781,7 +793,7 @@ class NeRF(nn.Module):
         xyz_t = backwarp_dict["xyz_t"]
 
         # visibility
-        vis_score = self.vis_mlp(xyz.detach(), inst_id=inst_id)  # (M, N, D, 1)
+        vis_score = self.visibility_func(xyz.detach(), inst_id=inst_id)  # (M, N, D, 1)
 
         # compute valid_indices to speed up querying fields
         if self.training:

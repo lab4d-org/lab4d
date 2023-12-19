@@ -37,12 +37,13 @@ seqname=home-$vidname
 logname=compose-ft
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
-  --intrinsics_type const --extrinsics_type mixse3 --feature_channels 384 \
+  --intrinsics_type const --extrinsics_type mixse3 --feature_type cse \
   --freeze_scale --freeze_camera_bg --freeze_field_fgbg --learning_rate 1e-4 --noreset_steps --noabsorb_base --nouse_freq_anneal --num_rounds 20 \
   --load_path_bg logdir/home-$vidname-bg-adapt3/ckpt_latest.pth --load_path logdir/home-$vidname-compose-fs/ckpt_latest.pth \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 \
   --pixels_per_image 12 --bg_vid 0 \
   --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0
+# --feature_channels 384 
 
 CUDA_VISIBLE_DEVICE=$dev python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 0 --vis_thresh -10 --grid_size 256
 CUDA_VISIBLE_DEVICE=$dev python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 1 --vis_thresh -10 --grid_size 256 --data_prefix full

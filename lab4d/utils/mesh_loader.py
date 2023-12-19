@@ -244,6 +244,17 @@ class MeshLoader:
         #     mesh = trimesh.Trimesh()
         return mesh
 
+    def query_camtraj(self, data_class="bg"):
+        world2cam_bg = np.asarray(list(self.field2cam_bg_dict.values()))
+        field2cam_fg = np.asarray(list(self.field2cam_fg_dict.values()))
+        if data_class == "bg":
+            cam = world2cam_bg
+        elif data_class == "fg":
+            cam = np.linalg.inv(field2cam_fg) @ world2cam_bg
+        else:
+            raise ValueError
+        return cam
+
     def find_seqname(self):
         testdir = self.testdir
         parts = [part for part in testdir.split("/") if part]
