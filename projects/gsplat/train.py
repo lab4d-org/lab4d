@@ -4,11 +4,9 @@ import sys
 import pdb
 from absl import app
 
-sys.path.insert(0, "%s/../../" % os.path.join(os.path.dirname(__file__)))
+sys.path.insert(0, os.getcwd())
 from lab4d.train import train_ddp
-
-sys.path.insert(0, "%s/../" % os.path.join(os.path.dirname(__file__)))
-from gsplat.trainer import GSplatTrainer
+from projects.gsplat.trainer import GSplatTrainer
 
 
 def main(_):
