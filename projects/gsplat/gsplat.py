@@ -221,12 +221,19 @@ class GSplatModel(nn.Module):
             "depth": rendered_depth,
             "alpha": rendered_alpha,
             "viewspace_points": screenspace_points,
-            "visibility_filter": radii > 0,
+            "visibility_mask": radii > 0,
             "radii": radii,
         }
         out_dict["rgb"] = out_dict["rgb"][None]
         out_dict["depth"] = out_dict["depth"][None]
         out_dict["alpha"] = out_dict["alpha"][None]
+
+        # save aux for densification
+        if self.training:
+            if hasattr(self, "rendered_aux"):
+                self.rendered_aux.append(out_dict)
+            else:
+                self.rendered_aux = [out_dict]
         return out_dict
 
     def get_default_cam(self, render_resolution=256, Kmat=np.eye(3)):
@@ -383,7 +390,6 @@ class GSplatModel(nn.Module):
         # render
         rendered = self.render(cam_dict, bg_color=bg_color, w2c=w2c)
         rgb_nv = rendered["rgb"]
-        self.out = rendered
 
         # compute loss
         if self.config["guidance_sd_wt"] > 0:
@@ -703,21 +709,22 @@ class GSplatModel(nn.Module):
         aabb["fg"] = self.gaussians.get_aabb()[None]
         return aabb
 
-    def add_densification_stats(self):
-        out = self.out
-        viewspace_point_tensor, visibility_filter, radii = (
-            out["viewspace_points"],
-            out["visibility_filter"],
-            out["radii"],
-        )
-        self.gaussians.max_radii2D[visibility_filter] = torch.max(
-            self.gaussians.max_radii2D[visibility_filter],
-            radii[visibility_filter],
-        )
-        pdb.set_trace()
-        self.gaussians.add_densification_stats(
-            viewspace_point_tensor, visibility_filter
-        )
+    def update_densification_stats(self):
+        for rendered_aux in self.rendered_aux:
+            if rendered_aux["viewspace_points"].grad is None:
+                continue
+            viewspace_point_grad, visibility_mask, radii = (
+                rendered_aux["viewspace_points"].grad,
+                rendered_aux["visibility_mask"],
+                rendered_aux["radii"],
+            )
+            self.gaussians.max_radii2D[visibility_mask] = torch.max(
+                self.gaussians.max_radii2D[visibility_mask],
+                radii[visibility_mask],
+            )
+            self.gaussians.add_xyz_grad_stats(viewspace_point_grad, visibility_mask)
+        # delete after update
+        del self.rendered_aux
 
 
 if __name__ == "__main__":

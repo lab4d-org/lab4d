@@ -21,10 +21,9 @@ cwd = os.getcwd()
 if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.utils.mesh_loader import MeshLoader
-from lab4d.utils.vis_utils import draw_cams
-from lab4d.utils.colors import label_colormap
+from lab4d.utils.vis_utils import draw_cams, get_colormap
 
-colormap = label_colormap()
+colormap = get_colormap()
 
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")

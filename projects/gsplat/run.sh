@@ -2,12 +2,12 @@
 dev=1
 seqname=eagle
 # seqname=cat-pikachu-0
-logname=gsplat-ref
+logname=gsplat-ref-test
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0
+  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse
 
 # # image-based
 # dev=0

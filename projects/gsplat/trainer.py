@@ -2,6 +2,7 @@
 import os, sys
 import pdb
 import torch
+import torch.nn as nn
 import numpy as np
 import tqdm
 from collections import defaultdict
@@ -14,6 +15,22 @@ from projects.gsplat.gsplat import GSplatModel
 from projects.gsplat import config
 
 # from projects.predictor import config
+
+
+def get_nested_attr(obj, attr):
+    try:
+        for part in attr.split("."):
+            obj = getattr(obj, part)
+        return obj
+    except AttributeError:
+        return None  # or raise an error if you prefer
+
+
+def set_nested_attr(obj, attr, val):
+    parts = attr.split(".")
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    setattr(obj, parts[-1], val)
 
 
 class GSplatTrainer(Trainer):
@@ -171,7 +188,8 @@ class GSplatTrainer(Trainer):
             self.scheduler.step()
             self.optimizer.zero_grad()
 
-            # self.model.add_densification_stats()
+            # keep track of xyz spatial gradients for densification
+            self.model.update_densification_stats()
 
             if get_local_rank() == 0:
                 # update scalar dict
@@ -186,3 +204,64 @@ class GSplatTrainer(Trainer):
                 loss_dict.update(grad_dict)
                 self.add_scalar(self.log, loss_dict, self.current_steps)
             self.current_steps += 1
+
+    def update_aux_vars(self):
+        self.model.update_geometry_aux()
+        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
+
+        # densify and prune
+        clone_mask = self.model.gaussians.densify_and_clone()
+        prune_mask = self.model.gaussians.prune()
+
+        # update stats
+        self.model.gaussians.update_point_stats(prune_mask, clone_mask)
+
+        if prune_mask.sum() or clone_mask.sum():
+            self.prune_parameters(~prune_mask, clone_mask)
+
+            self.model.update_geometry_aux()
+            self.model.export_geometry_aux(
+                "%s/post-%03d" % (self.save_dir, self.current_round)
+            )
+            print("cloned %d/%d" % (clone_mask.sum(), clone_mask.shape[0]))
+            print("pruned %d/%d" % (prune_mask.sum(), prune_mask.shape[0]))
+            # torch.cuda.empty_cache()
+            # self.reset_opacity()
+
+        # update optimizer
+        self.optimizer_init()
+        self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
+
+    def prune_parameters(self, valid_mask, clone_mask):
+        """
+        Remove the optimizer state of the pruned parameters.
+        Set the parameters to the remaining ones.
+        """
+        # first clone, then prune
+        dev = self.device
+        clone_mask = torch.logical_and(valid_mask, clone_mask)
+        valid_mask = torch.cat(
+            (valid_mask, torch.ones(clone_mask.sum(), device=dev).bool())
+        )
+
+        for param_dict in self.params_ref_list:
+            ((name, _),) = param_dict.items()
+            param = get_nested_attr(self.model, name)
+            stored_state = self.optimizer.state.get(param, None)
+            if stored_state is not None:
+                exp_avg = stored_state["exp_avg"]
+                exp_avg_sq = stored_state["exp_avg_sq"]
+
+                exp_avg = torch.cat((exp_avg, exp_avg[clone_mask]))[valid_mask]
+                exp_avg_sq = torch.cat((exp_avg_sq, exp_avg_sq[clone_mask]))[valid_mask]
+
+                stored_state["exp_avg"] = exp_avg
+                stored_state["exp_avg_sq"] = exp_avg_sq
+
+                del self.optimizer.state[param]
+                self.optimizer.state[param] = stored_state
+
+            # set param
+            param = torch.cat((param, param[clone_mask]))[valid_mask]
+            param = nn.Parameter(param.requires_grad_(True))
+            set_nested_attr(self.model, name, param)
