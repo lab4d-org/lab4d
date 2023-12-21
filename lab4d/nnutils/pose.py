@@ -922,8 +922,17 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         # run forward kinematics
         out = self.fk_se3(local_rest_joints, so3, self.edges)
         out = self.shift_joints_to_bones(out)
-        out = apply_root_offset(out, self.shift, self.orient)
+        out = apply_root_offset(out, self.get_shift(), self.orient)
         return out
+
+    def get_shift(self):
+        """Get the root shift. Only allow shift along the yz axis.
+        Returns:
+            shift: (3,) Root shift
+        """
+        shift = self.shift
+        shift = shift * torch.tensor([0.0, 1.0, 1.0], device=shift.device)
+        return shift
 
     def shift_joints_to_bones(self, se3):
         return shift_joints_to_bones_dq(se3, self.edges)
