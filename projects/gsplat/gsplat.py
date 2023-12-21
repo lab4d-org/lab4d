@@ -16,7 +16,6 @@ from diff_gaussian_rasterization import (
     GaussianRasterizer,
 )
 
-
 sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.utils.loss_utils import get_mask_balance_wt
@@ -50,7 +49,6 @@ class GSplatModel(nn.Module):
             config["white_background"] if "white_background" in config else True
         )
         radius = config["radius"] if "radius" in config else 2.5  # dreamgaussian
-        # radius = config["radius"] if "radius" in config else 3  # ours
         num_pts = config["num_pts"] if "num_pts" in config else 5000
 
         self.sh_degree = sh_degree
@@ -74,7 +72,13 @@ class GSplatModel(nn.Module):
         #     np.zeros((mesh.vertices.shape[0], 3)),
         # )
         # self.initialize(input=pcd)
-        self.gaussians.training_setup()
+
+        # initialize temporal part: (dx,dy,dz)t
+        num_steps = data_info["total_frames"]
+        trajectory = torch.zeros(self.gaussians.get_num_pts, num_steps, 3)
+        self.trajectory = nn.Parameter(trajectory)
+
+        self.gaussians.construct_stat_vars()
 
         # diffusion
         if config["guidance_sd_wt"] > 0:
@@ -89,7 +93,6 @@ class GSplatModel(nn.Module):
         # load checkpoint
         if input is None:
             # init from random point cloud
-
             phis = np.random.random((num_pts,)) * 2 * np.pi
             costheta = np.random.random((num_pts,)) * 2 - 1
             thetas = np.arccos(costheta)
@@ -99,7 +102,6 @@ class GSplatModel(nn.Module):
             y = radius * np.sin(thetas) * np.sin(phis)
             z = radius * np.cos(thetas)
             xyz = np.stack((x, y, z), axis=1)
-            # xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
 
             shs = np.random.random((num_pts, 3)) / 255.0
             pcd = BasicPointCloud(
@@ -110,8 +112,7 @@ class GSplatModel(nn.Module):
             # load from a provided pcd
             self.gaussians.create_from_pcd(input, 1)
         else:
-            # load from saved ply
-            self.gaussians.load_ply(input)
+            raise NotImplementedError
 
     def render(
         self,
@@ -119,7 +120,6 @@ class GSplatModel(nn.Module):
         w2c=None,
         scaling_modifier=1.0,
         bg_color=None,
-        override_color=None,
     ):
         assert "Kmat" in camera_dict
 
@@ -193,19 +193,14 @@ class GSplatModel(nn.Module):
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
-        shs = None
-        colors_precomp = None
-        if colors_precomp is None:
-            shs = self.gaussians.get_features
-        else:
-            colors_precomp = override_color
+        shs = self.gaussians.get_features
 
         # Rasterize visible Gaussians to image, obtain their radii (on screen).
         rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
             means3D=means3D,
             means2D=means2D,
             shs=shs,
-            colors_precomp=colors_precomp,
+            colors_precomp=None,
             opacities=opacity,
             scales=scales,
             rotations=rotations,

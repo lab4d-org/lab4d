@@ -15,11 +15,6 @@ from simple_knn._C import distCUDA2
 sys.path.insert(0, os.getcwd())
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
 
-# from projects.gsplat.mesh import Mesh
-# from projects.gsplat.mesh_utils import decimate_mesh, clean_mesh
-
-# import kiui
-
 
 def inverse_sigmoid(x):
     return torch.log(x / (1 - x))
@@ -181,42 +176,6 @@ class GaussianModel(nn.Module):
         self.spatial_lr_scale = 0
         self.setup_functions()
 
-    def capture(self):
-        return (
-            self.active_sh_degree,
-            self._xyz,
-            self._features_dc,
-            self._features_rest,
-            self._scaling,
-            self._rotation,
-            self._opacity,
-            self.max_radii2D,
-            self.xyz_gradient_accum,
-            self.denom,
-            self.optimizer.state_dict(),
-            self.spatial_lr_scale,
-        )
-
-    def restore(self, model_args, training_args):
-        (
-            self.active_sh_degree,
-            self._xyz,
-            self._features_dc,
-            self._features_rest,
-            self._scaling,
-            self._rotation,
-            self._opacity,
-            self.max_radii2D,
-            xyz_gradient_accum,
-            denom,
-            opt_dict,
-            self.spatial_lr_scale,
-        ) = model_args
-        self.training_setup(training_args)
-        self.xyz_gradient_accum = xyz_gradient_accum
-        self.denom = denom
-        self.optimizer.load_state_dict(opt_dict)
-
     @property
     def get_scaling(self):
         return self.scaling_activation(self._scaling)
@@ -238,6 +197,10 @@ class GaussianModel(nn.Module):
     @property
     def get_opacity(self):
         return self.opacity_activation(self._opacity)
+
+    @property
+    def get_num_pts(self):
+        return self._xyz.shape[0]
 
     @torch.no_grad()
     def extract_fields(self, resolution=128, num_blocks=16, relax_ratio=1.5):
@@ -398,10 +361,10 @@ class GaussianModel(nn.Module):
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
-        features = (
-            torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2))
-            .float()
-            .cuda()
+        features = torch.zeros(
+            (fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2),
+            device="cuda",
+            dtype=torch.float,
         )
         features[:, :3, 0] = fused_color
         features[:, 3:, 1:] = 0.0
@@ -412,12 +375,12 @@ class GaussianModel(nn.Module):
             distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()),
             0.0000001,
         )
+
         # # TODO force larger scale
         # dist2[:] = 0.002
         scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
-
         opacities = inverse_sigmoid(
             0.1
             * torch.ones(
@@ -435,11 +398,11 @@ class GaussianModel(nn.Module):
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-    def training_setup(self):
+    def construct_stat_vars(self):
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def update_learning_rate(self, iteration):
         """Learning rate scheduling per step"""
