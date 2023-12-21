@@ -74,9 +74,10 @@ class GSplatModel(nn.Module):
         # self.initialize(input=pcd)
 
         # initialize temporal part: (dx,dy,dz)t
-        num_steps = data_info["total_frames"]
-        trajectory = torch.zeros(self.gaussians.get_num_pts, num_steps, 3)
-        self.trajectory = nn.Parameter(trajectory)
+        total_frames = data_info["total_frames"]
+        self.gaussians.init_trajectory(total_frames)
+        # trajectory = torch.zeros(self.gaussians.get_num_pts, num_steps, 3)
+        # self.trajectory = nn.Parameter(trajectory)
 
         self.gaussians.construct_stat_vars()
 
@@ -120,6 +121,7 @@ class GSplatModel(nn.Module):
         w2c=None,
         scaling_modifier=1.0,
         bg_color=None,
+        frameid=None,
     ):
         assert "Kmat" in camera_dict
 
@@ -182,6 +184,10 @@ class GSplatModel(nn.Module):
         cov3D_precomp = None
         scales = self.gaussians.get_scaling
         rotations = self.gaussians.get_rotation
+
+        # # trajectory
+        # if frameid is not None:
+        #     means3D = means3D + self.trajectory[:, frameid]
 
         if w2c is not None:
             if not torch.is_tensor(w2c):
@@ -265,13 +271,14 @@ class GSplatModel(nn.Module):
         return Kmat
 
     def forward(self, batch):
+        self.process_frameid(batch)
         loss_dict = {}
 
         # render reference view
         crop_size = self.config["train_res"]
         bg_color = self.get_bg_color()
 
-        frameid = batch["frameid_sub"][0, 0]
+        frameid = self.get_frameid(batch)[0, 0]
         crop2raw = batch["crop2raw"][0, 0]
         Kmat = K2mat(self.data_info["intrinsics"][frameid])
         Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
@@ -279,7 +286,7 @@ class GSplatModel(nn.Module):
         w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
-        rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color)
+        rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color, frameid=frameid)
         rgb = rendered["rgb"]
         mask = rendered["alpha"]
 
@@ -536,6 +543,13 @@ class GSplatModel(nn.Module):
         batch["frameid"] = batch["frameid_sub"] + inst_id
         return batch
 
+    def get_frameid(self, batch):
+        if self.config["use_timesync"]:
+            frameid = batch["frameid_sub"]
+        else:
+            frameid = batch["frameid"]
+        return frameid
+
     @torch.no_grad()
     def evaluate(self, batch, is_pair=True):
         """Evaluate model on a batch of data"""
@@ -552,7 +566,7 @@ class GSplatModel(nn.Module):
             # get dataset camera intrinsics and extrinsics
             if is_pair:
                 idx = idx * 2
-            frameid = batch["frameid_sub"][idx]
+            frameid = self.get_frameid(batch)[idx]
             if "crop2raw" in batch.keys():
                 crop2raw = batch["crop2raw"][idx]
             else:
@@ -580,7 +594,7 @@ class GSplatModel(nn.Module):
             # Kmat = K2mat(K)
             # cam_dict = self.get_default_cam(Kmat=Kmat)
 
-            rendered = self.render(cam_dict, w2c=w2c)
+            rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
             out_dict["rgb"].append(rendered["rgb"][0].permute(1, 2, 0).cpu().numpy())
             out_dict["depth"].append(
                 rendered["depth"][0].permute(1, 2, 0).cpu().numpy()

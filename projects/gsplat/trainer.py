@@ -116,8 +116,8 @@ class GSplatTrainer(Trainer):
             "module.gaussians._scaling": lr_base * 0.5,
             "module.gaussians._rotation": lr_base * 0.5,
             "module.gaussians._opacity": lr_base * 5,
+            "module.gaussians.trajectory": lr_base,
             "module.guidance_sd": 0.0,
-            "module.trajectory": lr_base,
         }
         param_lr_with = {}
 
