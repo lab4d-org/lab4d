@@ -431,6 +431,7 @@ class GSplatModel(nn.Module):
             # )
 
         loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss()
+        loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, config):
@@ -674,7 +675,7 @@ class GSplatModel(nn.Module):
 
     def export_geometry_aux(self, path):
         """Export proxy geometry for all neural fields"""
-        return self.gaussians.export_geometry_aux(path)
+        self.gaussians.export_geometry_aux(path)
 
     @torch.no_grad()
     def get_cameras(self, frame_id=None):

@@ -184,9 +184,12 @@ class GaussianModel(nn.Module):
         return self.rotation_activation(self._rotation)
 
     def get_xyz(self, frameid=None):
-        if frameid is None or not hasattr(self, "trajectory"):
-            return self._xyz
-        return self._xyz + self.trajectory[:, frameid]
+        if frameid is None:
+            if hasattr(self, "_trajectory"):
+                return self._xyz + self._trajectory[:, 0]
+            else:
+                return self._xyz
+        return self._xyz + self._trajectory[:, frameid]
 
     @property
     def get_features(self):
@@ -303,7 +306,7 @@ class GaussianModel(nn.Module):
 
     def init_trajectory(self, total_frames):
         trajectory = torch.zeros(self.get_num_pts, total_frames, 3)
-        self.trajectory = nn.Parameter(trajectory)
+        self._trajectory = nn.Parameter(trajectory)
 
     def construct_stat_vars(self):
         self.xyz_gradient_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
@@ -410,10 +413,22 @@ class GaussianModel(nn.Module):
         return aabb
 
     def get_least_deform_loss(self):
-        if hasattr(self, "trajectory"):
+        if hasattr(self, "_trajectory"):
             # least deform loss
-            least_deform_loss = torch.mean(torch.norm(self.trajectory, 2, -1))
+            least_deform_loss = torch.mean(torch.norm(self._trajectory, 2, -1))
             return least_deform_loss
+        else:
+            return torch.tensor(0.0, device="cuda")
+
+    def get_least_action_loss(self):
+        if hasattr(self, "_trajectory"):
+            # least action loss
+            # vt = xt-xt-1
+            # at = vt-vt-1
+            v_traj = self._trajectory[:, 1:] - self._trajectory[:, :-1]
+            a_traj = v_traj[:, 1:] - v_traj[:, :-1]
+            least_action_loss = torch.mean(torch.norm(a_traj, 2, -1))
+            return least_action_loss
         else:
             return torch.tensor(0.0, device="cuda")
 

@@ -3,6 +3,22 @@ import torch
 import torch.nn as nn
 
 
+def get_nested_attr(obj, attr):
+    try:
+        for part in attr.split("."):
+            obj = getattr(obj, part)
+        return obj
+    except AttributeError:
+        return None  # or raise an error if you prefer
+
+
+def set_nested_attr(obj, attr, val):
+    parts = attr.split(".")
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    setattr(obj, parts[-1], val)
+
+
 def resolve_size_mismatch(model, ckpt_states):
     """Resolve size mismatch between model and model_states
     Rules:
@@ -17,6 +33,13 @@ def resolve_size_mismatch(model, ckpt_states):
         model_v = model_states[k]
         if v.shape == model_v.shape:
             continue
+
+        # if GSplat, ignore
+        if "gaussians._" in k:
+            set_nested_attr(model, k, nn.Parameter(v))
+            print("ignored due to gsplats")
+            continue
+
         # resolve size mismatch
         print("Found size mismatch for {}, {} vs {}".format(k, v.shape, model_v.shape))
         if len(model_v.shape) == len(v.shape) + 1 and model_v.shape[1:] == v.shape:

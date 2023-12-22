@@ -1,23 +1,24 @@
-# # dynamic
-# dev=0
-# seqname=eagle-d
-# logname=gsplat-ref-test
-# rm -rf logdir/$seqname-$logname
-# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
-#   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
-#   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync
-
-# rigid, no sds
+# dynamic
 dev=0
-seqname=eagle
-# seqname=cat-pikachu-0
-logname=gsplat-ref-resetstat
+seqname=eagle-d
+logname=gsplat-ref-la0
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --fg_motion rigid
+  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
+  --reg_least_action_wt 1e-2 --fg_motion dynamic
+
+# # rigid, no sds
+# dev=0
+# seqname=eagle
+# # seqname=cat-pikachu-0
+# logname=gsplat-ref-resetstat
+# rm -rf logdir/$seqname-$logname
+# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
+#   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
+#   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
+#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --fg_motion rigid
 
 # # image-based
 # dev=0

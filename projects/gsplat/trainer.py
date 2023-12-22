@@ -10,25 +10,10 @@ import gc
 
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
+from lab4d.utils.torch_utils import get_nested_attr, set_nested_attr
 
 from projects.gsplat.gsplat import GSplatModel
 from projects.gsplat import config
-
-
-def get_nested_attr(obj, attr):
-    try:
-        for part in attr.split("."):
-            obj = getattr(obj, part)
-        return obj
-    except AttributeError:
-        return None  # or raise an error if you prefer
-
-
-def set_nested_attr(obj, attr, val):
-    parts = attr.split(".")
-    for part in parts[:-1]:
-        obj = getattr(obj, part)
-    setattr(obj, parts[-1], val)
 
 
 class GSplatTrainer(Trainer):
@@ -116,7 +101,7 @@ class GSplatTrainer(Trainer):
             "module.gaussians._scaling": lr_base * 0.5,
             "module.gaussians._rotation": lr_base * 0.5,
             "module.gaussians._opacity": lr_base * 5,
-            "module.gaussians.trajectory": lr_base * 0.5,
+            "module.gaussians._trajectory": lr_base * 0.5,
             "module.guidance_sd": 0.0,
         }
         param_lr_with = {}
