@@ -14,6 +14,7 @@ from simple_knn._C import distCUDA2
 
 sys.path.insert(0, os.getcwd())
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
+from lab4d.utils.quat_transform import quaternion_translation_to_se3
 
 
 def inverse_sigmoid(x):
@@ -183,7 +184,7 @@ class GaussianModel(nn.Module):
         return self.rotation_activation(self._rotation)
 
     def get_xyz(self, frameid=None):
-        if frameid is None:
+        if frameid is None or not hasattr(self, "trajectory"):
             return self._xyz
         return self._xyz + self.trajectory[:, frameid]
 
@@ -201,30 +202,44 @@ class GaussianModel(nn.Module):
     def get_num_pts(self):
         return self._xyz.shape[0]
 
+    @torch.no_grad()
     def update_geometry_aux(self):
-        xyz = self.get_xyz().detach().cpu().numpy()
-        # xyz = []
-        # for i in range(self.trajectory.shape[1]):
-        #     xyz.append(self.get_xyz(i).detach().cpu().numpy())
-        # xyz = np.concatenate(xyz, axis=0)
+        # xyz = self.get_xyz().detach().cpu().numpy()
+        # # xyz = []
+        # # for i in range(self.trajectory.shape[1]):
+        # #     xyz.append(self.get_xyz(i).detach().cpu().numpy())
+        # # xyz = np.concatenate(xyz, axis=0)
 
-        # f_dc = (
-        #     self._features_dc.detach()
-        #     .transpose(1, 2)
-        #     .flatten(start_dim=1)
-        #     .contiguous()
-        #     .cpu()
-        #     .numpy()
-        # )
-        # f_rest = (
-        #     self._features_rest.detach()
-        #     .transpose(1, 2)
-        #     .flatten(start_dim=1)
-        #     .contiguous()
-        #     .cpu()
-        #     .numpy()
-        # )
-        self.proxy_geometry = trimesh.Trimesh(vertices=xyz)
+        # # f_dc = (
+        # #     self._features_dc.detach()
+        # #     .transpose(1, 2)
+        # #     .flatten(start_dim=1)
+        # #     .contiguous()
+        # #     .cpu()
+        # #     .numpy()
+        # # )
+        # # f_rest = (
+        # #     self._features_rest.detach()
+        # #     .transpose(1, 2)
+        # #     .flatten(start_dim=1)
+        # #     .contiguous()
+        # #     .cpu()
+        # #     .numpy()
+        # # )
+        # self.proxy_geometry = trimesh.Trimesh(vertices=xyz)
+
+        # add bone center / joints
+        meshes = []
+        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        centers = self.get_xyz().cpu()
+        orientations = self.get_rotation.cpu()
+        for k, gauss in enumerate(self.get_scaling.cpu().numpy()):
+            ellips = sph.copy()
+            ellips.vertices *= gauss[None]
+            articulation = quaternion_translation_to_se3(orientations[k], centers[k])
+            ellips.apply_transform(articulation.numpy())
+            meshes.append(ellips)
+        self.proxy_geometry = trimesh.util.concatenate(meshes)
 
     def export_geometry_aux(self, path):
         self.proxy_geometry.export("%s-proxy.obj" % (path))
@@ -281,8 +296,8 @@ class GaussianModel(nn.Module):
         rots[:, 0] = 1
         self._rotation = nn.Parameter(rots)
 
-        opacities = inverse_sigmoid(
-            0.1 * torch.ones((pts.shape[0], 1), dtype=torch.float)
+        opacities = self.inverse_opacity_activation(
+            0.5 * torch.ones((pts.shape[0], 1), dtype=torch.float)
         )
         self._opacity = nn.Parameter(opacities)
 
@@ -320,7 +335,7 @@ class GaussianModel(nn.Module):
     def reset_opacity(self):
         if self.optimizer is None:
             return
-        opacities_new = inverse_sigmoid(
+        opacities_new = self.inverse_opacity_activation(
             torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * 0.01)
         )
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
@@ -348,23 +363,31 @@ class GaussianModel(nn.Module):
         self.denom = self.denom[valid_mask]
         self.max_radii2D = self.max_radii2D[valid_mask]
 
-    def densify_and_clone(self, grad_threshold=0.01):
-        grads = self.xyz_gradient_accum / self.denom
-        grads[grads.isnan()] = 0.0
+        # reset
+        self.xyz_gradient_accum[:] = 0
+        self.denom[:] = 0
+        self.max_radii2D[:] = 0
 
-        # Extract points that satisfy the gradient condition
-        selected_pts_mask = torch.where(
-            torch.norm(grads, dim=-1) >= grad_threshold, True, False
-        )
-        print("max grad: ", torch.max(torch.norm(grads, dim=-1)))
-        return selected_pts_mask
+    def densify_and_prune(
+        self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-6
+    ):
+        grads = self.xyz_gradient_accum / (self.denom + 1e-6)
+        grads = grads[..., 0]
+        print("min grad: ", torch.min(grads))
+        print("max grad: ", torch.max(grads))
 
-    def prune(self, min_opacity=0.01, extent=4):
-        prune_mask = (self.get_opacity < min_opacity).squeeze()
-        big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+        # Clone if grad is high
+        clone_mask = grads > max_grad
+
+        # Prune if opacity is low, scale if high, or grad is low
+        selected_trans_pts = (self.get_opacity < min_opacity).squeeze()
+        selected_big_pts = self.get_scaling.max(dim=1).values > max_scale
+        selected_out_pts = torch.logical_and(grads < min_grad, self.denom[..., 0] > 0)
+        print("selected_out_pts: ", selected_out_pts.sum())
         print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
-        prune_mask = torch.logical_or(prune_mask, big_points_ws)
-        return prune_mask
+        prune_mask = torch.logical_or(selected_trans_pts, selected_big_pts)
+        prune_mask = torch.logical_or(prune_mask, selected_out_pts)
+        return clone_mask, prune_mask
 
     def add_xyz_grad_stats(self, viewspace_point_grad, update_filter):
         """
@@ -387,9 +410,12 @@ class GaussianModel(nn.Module):
         return aabb
 
     def get_least_deform_loss(self):
-        # least deform loss
-        least_deform_loss = torch.mean(torch.norm(self.trajectory, 2, -1))
-        return least_deform_loss
+        if hasattr(self, "trajectory"):
+            # least deform loss
+            least_deform_loss = torch.mean(torch.norm(self.trajectory, 2, -1))
+            return least_deform_loss
+        else:
+            return torch.tensor(0.0, device="cuda")
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):

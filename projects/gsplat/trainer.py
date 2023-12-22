@@ -211,8 +211,7 @@ class GSplatTrainer(Trainer):
         )
 
         # densify and prune
-        clone_mask = self.model.gaussians.densify_and_clone()
-        prune_mask = self.model.gaussians.prune()
+        clone_mask, prune_mask = self.model.gaussians.densify_and_prune()
 
         # update stats
         self.model.gaussians.update_point_stats(prune_mask, clone_mask)

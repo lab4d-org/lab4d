@@ -74,11 +74,12 @@ class GSplatModel(nn.Module):
         # self.initialize(input=pcd)
 
         # initialize temporal part: (dx,dy,dz)t
-        total_frames = data_info["total_frames"]
-        if config["use_timesync"]:
-            num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
-            total_frames = total_frames // num_vids
-        self.gaussians.init_trajectory(total_frames)
+        if not config["fg_motion"] == "rigid":
+            total_frames = data_info["total_frames"]
+            if config["use_timesync"]:
+                num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
+                total_frames = total_frames // num_vids
+            self.gaussians.init_trajectory(total_frames)
         # trajectory = torch.zeros(self.gaussians.get_num_pts, num_steps, 3)
         # self.trajectory = nn.Parameter(trajectory)
 
