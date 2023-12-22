@@ -116,7 +116,7 @@ class GSplatTrainer(Trainer):
             "module.gaussians._scaling": lr_base * 0.5,
             "module.gaussians._rotation": lr_base * 0.5,
             "module.gaussians._opacity": lr_base * 5,
-            "module.gaussians.trajectory": lr_base,
+            "module.gaussians.trajectory": lr_base * 0.5,
             "module.guidance_sd": 0.0,
         }
         param_lr_with = {}
@@ -206,7 +206,9 @@ class GSplatTrainer(Trainer):
 
     def update_aux_vars(self):
         self.model.update_geometry_aux()
-        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
+        self.model.export_geometry_aux(
+            "%s/%03d-all" % (self.save_dir, self.current_round)
+        )
 
         # densify and prune
         clone_mask = self.model.gaussians.densify_and_clone()
@@ -220,7 +222,7 @@ class GSplatTrainer(Trainer):
 
             self.model.update_geometry_aux()
             self.model.export_geometry_aux(
-                "%s/post-%03d" % (self.save_dir, self.current_round)
+                "%s/%03d-post" % (self.save_dir, self.current_round)
             )
             print("cloned %d/%d" % (clone_mask.sum(), clone_mask.shape[0]))
             print("pruned %d/%d" % (prune_mask.sum(), prune_mask.shape[0]))

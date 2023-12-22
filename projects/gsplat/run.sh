@@ -6,13 +6,13 @@
 # bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
 #   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
 #   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse
+#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync
 
 # rigid, no sds
 dev=0
 seqname=eagle
 # seqname=cat-pikachu-0
-logname=gsplat-ref-test3
+logname=gsplat-ref-test8
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \

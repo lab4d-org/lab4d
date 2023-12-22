@@ -151,7 +151,12 @@ class PyRenderWrapper:
                 raise ValueError("shape not in input_dict")
         else:
             # use new shape
-            mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
+            if isinstance(input_dict["shape"], trimesh.points.PointCloud):
+                mesh_pyrender = Mesh.from_points(input_dict["shape"].vertices)
+            elif isinstance(input_dict["shape"], trimesh.base.Trimesh):
+                mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
+            else:
+                raise ValueError("shape type not compatible")
             self.mesh_pyrender = mesh_pyrender
 
         # change material

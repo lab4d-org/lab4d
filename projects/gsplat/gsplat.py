@@ -75,6 +75,9 @@ class GSplatModel(nn.Module):
 
         # initialize temporal part: (dx,dy,dz)t
         total_frames = data_info["total_frames"]
+        if config["use_timesync"]:
+            num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
+            total_frames = total_frames // num_vids
         self.gaussians.init_trajectory(total_frames)
         # trajectory = torch.zeros(self.gaussians.get_num_pts, num_steps, 3)
         # self.trajectory = nn.Parameter(trajectory)
@@ -103,15 +106,10 @@ class GSplatModel(nn.Module):
             y = radius * np.sin(thetas) * np.sin(phis)
             z = radius * np.cos(thetas)
             xyz = np.stack((x, y, z), axis=1)
-
-            shs = np.random.random((num_pts, 3)) / 255.0
-            pcd = BasicPointCloud(
-                points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3))
-            )
-            self.gaussians.create_from_pcd(pcd, 10)
+            self.gaussians.init_gaussians(xyz)
         elif isinstance(input, BasicPointCloud):
             # load from a provided pcd
-            self.gaussians.create_from_pcd(input, 1)
+            self.gaussians.create_from_pcd(input)
         else:
             raise NotImplementedError
 
@@ -142,9 +140,9 @@ class GSplatModel(nn.Module):
 
         # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
         screenspace_points = (
-            torch.zeros_like(
-                self.gaussians.get_xyz,
-                dtype=self.gaussians.get_xyz.dtype,
+            torch.zeros(
+                (self.gaussians.get_num_pts, 3),
+                dtype=self.gaussians._xyz.dtype,
                 requires_grad=True,
                 device="cuda",
             )
@@ -178,16 +176,12 @@ class GSplatModel(nn.Module):
 
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
-        means3D = self.gaussians.get_xyz
+        means3D = self.gaussians.get_xyz(frameid)
         means2D = screenspace_points
         opacity = self.gaussians.get_opacity
         cov3D_precomp = None
         scales = self.gaussians.get_scaling
         rotations = self.gaussians.get_rotation
-
-        # # trajectory
-        # if frameid is not None:
-        #     means3D = means3D + self.trajectory[:, frameid]
 
         if w2c is not None:
             if not torch.is_tensor(w2c):
@@ -278,12 +272,13 @@ class GSplatModel(nn.Module):
         crop_size = self.config["train_res"]
         bg_color = self.get_bg_color()
 
+        frameid_abs = batch["frameid"][0, 0]
         frameid = self.get_frameid(batch)[0, 0]
         crop2raw = batch["crop2raw"][0, 0]
-        Kmat = K2mat(self.data_info["intrinsics"][frameid])
+        Kmat = K2mat(self.data_info["intrinsics"][frameid_abs])
         Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
 
-        w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
+        w2c = self.data_info["rtmat"][1][frameid_abs].astype(np.float32)
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
         rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color, frameid=frameid)
@@ -325,7 +320,7 @@ class GSplatModel(nn.Module):
         # dataset intrinsics | if full2crop=I, then Kmat = Kmat
         full2crop[2:] *= 0  # no translation
         Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
-        w2w0 = self.data_info["rtmat"][1][frameid].astype(np.float32)  # w2w0
+        w2w0 = self.data_info["rtmat"][1][frameid_abs].astype(np.float32)  # w2w0
         self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0)
 
         # weight each loss term
@@ -433,6 +428,8 @@ class GSplatModel(nn.Module):
             #     "tmp/rgb_nv.png",
             #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
             # )
+
+        loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss()
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, config):
@@ -566,6 +563,7 @@ class GSplatModel(nn.Module):
             # get dataset camera intrinsics and extrinsics
             if is_pair:
                 idx = idx * 2
+            frameid_abs = batch["frameid"][idx]
             frameid = self.get_frameid(batch)[idx]
             if "crop2raw" in batch.keys():
                 crop2raw = batch["crop2raw"][idx]
@@ -574,14 +572,14 @@ class GSplatModel(nn.Module):
             if "Kinv" in batch.keys():
                 Kmat = batch["Kinv"][frameid].inverse()
             else:
-                Kmat = K2mat(self.data_info["intrinsics"][frameid])
+                Kmat = K2mat(self.data_info["intrinsics"][frameid_abs])
             Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
             if "field2cam" in batch.keys():
                 quat_trans = batch["field2cam"]["fg"][idx]
                 quat, trans = quat_trans[:4], quat_trans[4:]
                 w2c = quaternion_translation_to_se3(quat, trans)
             else:
-                w2c = self.data_info["rtmat"][1][frameid].astype(np.float32)
+                w2c = self.data_info["rtmat"][1][frameid_abs].astype(np.float32)
             cam_dict = self.get_default_cam(Kmat=Kmat)
 
             # # manually create cameras

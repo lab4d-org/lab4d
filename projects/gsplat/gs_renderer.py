@@ -172,8 +172,6 @@ class GaussianModel(nn.Module):
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         self.optimizer = None
-        self.percent_dense = 0.01
-        self.spatial_lr_scale = 0
         self.setup_functions()
 
     @property
@@ -184,11 +182,10 @@ class GaussianModel(nn.Module):
     def get_rotation(self):
         return self.rotation_activation(self._rotation)
 
-    @property
-    def get_xyz(self):
-        # return self._xyz + self.trajectory[:, 0]
-        # return self.trajectory[:, 0]
-        return self._xyz
+    def get_xyz(self, frameid=None):
+        if frameid is None:
+            return self._xyz
+        return self._xyz + self.trajectory[:, frameid]
 
     @property
     def get_features(self):
@@ -205,7 +202,12 @@ class GaussianModel(nn.Module):
         return self._xyz.shape[0]
 
     def update_geometry_aux(self):
-        xyz = self.get_xyz.detach().cpu().numpy()
+        xyz = self.get_xyz().detach().cpu().numpy()
+        # xyz = []
+        # for i in range(self.trajectory.shape[1]):
+        #     xyz.append(self.get_xyz(i).detach().cpu().numpy())
+        # xyz = np.concatenate(xyz, axis=0)
+
         # f_dc = (
         #     self._features_dc.detach()
         #     .transpose(1, 2)
@@ -236,17 +238,9 @@ class GaussianModel(nn.Module):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
-    def create_from_pcd(self, pcd: BasicPointCloud, spatial_lr_scale: float = 1):
-        self.spatial_lr_scale = spatial_lr_scale
+    def create_from_pcd(self, pcd: BasicPointCloud):
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float())
-        features = torch.zeros(
-            (fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2),
-            device="cuda",
-            dtype=torch.float,
-        )
-        features[:, :3, 0] = fused_color
-        features[:, 3:, 1:] = 0.0
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
@@ -256,18 +250,21 @@ class GaussianModel(nn.Module):
         )
 
         scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
-        self.init_gaussians(fused_point_cloud, features, scales)
+        self.init_gaussians(fused_point_cloud, fused_color, scales)
 
-    def init_gaussians(self, fused_point_cloud, features=None, scales=None):
-        self._xyz = nn.Parameter(fused_point_cloud)
-        if features is None:
-            features = torch.zeros(
-                (fused_point_cloud.shape[0], 3, (self.max_sh_degree + 1) ** 2),
-                device="cuda",
-                dtype=torch.float,
-            )
-            features[:, :3, 0] = 1.0
-            features[:, 3:, 1:] = 0.0
+    def init_gaussians(self, pts, shs=None, scales=None):
+        if not torch.is_tensor(pts):
+            pts = torch.tensor(pts, dtype=torch.float)
+        self._xyz = nn.Parameter(pts)
+        if shs is None:
+            shs = torch.rand((pts.shape[0], 3), dtype=torch.float)
+        features = torch.zeros(
+            (shs.shape[0], 3, (self.max_sh_degree + 1) ** 2),
+            dtype=torch.float,
+        )
+        features[:, :3, 0] = shs
+        features[:, 3:, 1:] = 0.0
+
         self._features_dc = nn.Parameter(
             features[:, :, 0:1].transpose(1, 2).contiguous()
         )
@@ -276,16 +273,16 @@ class GaussianModel(nn.Module):
         )
 
         if scales is None:
-            scales = torch.zeros((fused_point_cloud.shape[0], 3))
-            scales[:] = torch.log(torch.sqrt(0.002))
+            scales = torch.zeros((pts.shape[0], 3))
+            scales[:] = np.log(np.sqrt(0.002))
         self._scaling = nn.Parameter(scales)
 
-        rots = torch.zeros((fused_point_cloud.shape[0], 4))
+        rots = torch.zeros((pts.shape[0], 4))
         rots[:, 0] = 1
         self._rotation = nn.Parameter(rots)
 
         opacities = inverse_sigmoid(
-            0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float)
+            0.1 * torch.ones((pts.shape[0], 1), dtype=torch.float)
         )
         self._opacity = nn.Parameter(opacities)
 
@@ -294,9 +291,9 @@ class GaussianModel(nn.Module):
         self.trajectory = nn.Parameter(trajectory)
 
     def construct_stat_vars(self):
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.xyz_gradient_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
+        self.denom = torch.zeros((self.get_num_pts, 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_num_pts), device="cuda")
 
     def update_learning_rate(self, iteration):
         """Learning rate scheduling per step"""
@@ -351,41 +348,7 @@ class GaussianModel(nn.Module):
         self.denom = self.denom[valid_mask]
         self.max_radii2D = self.max_radii2D[valid_mask]
 
-    def cat_tensors_to_optimizer(self, tensors_dict):
-        optimizable_tensors = {}
-        for group in self.optimizer.param_groups:
-            assert len(group["params"]) == 1
-            extension_tensor = tensors_dict[group["name"]]
-            stored_state = self.optimizer.state.get(group["params"][0], None)
-            if stored_state is not None:
-                stored_state["exp_avg"] = torch.cat(
-                    (stored_state["exp_avg"], torch.zeros_like(extension_tensor)), dim=0
-                )
-                stored_state["exp_avg_sq"] = torch.cat(
-                    (stored_state["exp_avg_sq"], torch.zeros_like(extension_tensor)),
-                    dim=0,
-                )
-
-                del self.optimizer.state[group["params"][0]]
-                group["params"][0] = nn.Parameter(
-                    torch.cat(
-                        (group["params"][0], extension_tensor), dim=0
-                    ).requires_grad_(True)
-                )
-                self.optimizer.state[group["params"][0]] = stored_state
-
-                optimizable_tensors[group["name"]] = group["params"][0]
-            else:
-                group["params"][0] = nn.Parameter(
-                    torch.cat(
-                        (group["params"][0], extension_tensor), dim=0
-                    ).requires_grad_(True)
-                )
-                optimizable_tensors[group["name"]] = group["params"][0]
-
-        return optimizable_tensors
-
-    def densify_and_clone(self, grad_threshold=0.01, scene_extent=4):
+    def densify_and_clone(self, grad_threshold=0.01):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
@@ -394,17 +357,12 @@ class GaussianModel(nn.Module):
             torch.norm(grads, dim=-1) >= grad_threshold, True, False
         )
         print("max grad: ", torch.max(torch.norm(grads, dim=-1)))
-        selected_pts_mask = torch.logical_and(
-            selected_pts_mask,
-            torch.max(self.get_scaling, dim=1).values
-            <= self.percent_dense * scene_extent,
-        )
-
         return selected_pts_mask
 
     def prune(self, min_opacity=0.01, extent=4):
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+        print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
         prune_mask = torch.logical_or(prune_mask, big_points_ws)
         return prune_mask
 
@@ -420,12 +378,18 @@ class GaussianModel(nn.Module):
 
     @torch.no_grad()
     def get_aabb(self):
+        xyz = self.get_xyz()
         aabb = (
-            self.get_xyz.min(dim=0).values,
-            self.get_xyz.max(dim=0).values,
+            xyz.min(dim=0).values,
+            xyz.max(dim=0).values,
         )
         aabb = torch.stack(aabb, dim=0).cpu().numpy()
         return aabb
+
+    def get_least_deform_loss(self):
+        # least deform loss
+        least_deform_loss = torch.mean(torch.norm(self.trajectory, 2, -1))
+        return least_deform_loss
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):
