@@ -114,16 +114,24 @@ class GSplatModel(nn.Module):
         else:
             raise NotImplementedError
 
-    def render(
-        self,
-        camera_dict,
-        w2c=None,
-        scaling_modifier=1.0,
-        bg_color=None,
-        frameid=None,
-    ):
-        assert "Kmat" in camera_dict
+    def get_screenspace_pts_placeholder(self):
+        # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
+        screenspace_points = (
+            torch.zeros(
+                (self.gaussians.get_num_pts, 3),
+                dtype=self.gaussians._xyz.dtype,
+                requires_grad=True,
+                device="cuda",
+            )
+            + 0
+        )
+        try:
+            screenspace_points.retain_grad()
+        except:
+            pass
+        return screenspace_points
 
+    def get_rasterizer(self, camera_dict, bg_color=None):
         image_height = int(camera_dict["render_resolution"])
         image_width = int(camera_dict["render_resolution"])
         viewmatrix = torch.tensor(camera_dict["w2c"]).cuda()
@@ -139,21 +147,6 @@ class GSplatModel(nn.Module):
         c2w = np.linalg.inv(camera_dict["w2c"])
         campos = -torch.tensor(c2w[:3, 3]).cuda()
 
-        # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
-        screenspace_points = (
-            torch.zeros(
-                (self.gaussians.get_num_pts, 3),
-                dtype=self.gaussians._xyz.dtype,
-                requires_grad=True,
-                device="cuda",
-            )
-            + 0
-        )
-        try:
-            screenspace_points.retain_grad()
-        except:
-            pass
-
         # Set up rasterization configuration
         FoVx = focal_to_fov(camera_dict["Kmat"][0, 0])
         FoVy = focal_to_fov(camera_dict["Kmat"][1, 1])
@@ -166,7 +159,7 @@ class GSplatModel(nn.Module):
             tanfovx=tanfovx,
             tanfovy=tanfovy,
             bg=self.bg_color if bg_color is None else bg_color,
-            scale_modifier=scaling_modifier,
+            scale_modifier=1.0,
             viewmatrix=viewmatrix,
             projmatrix=projmatrix,
             sh_degree=self.gaussians.active_sh_degree,
@@ -176,7 +169,14 @@ class GSplatModel(nn.Module):
         )
 
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+        return rasterizer
 
+    def render(self, camera_dict, w2c=None, bg_color=None, frameid=None):
+        assert "Kmat" in camera_dict
+
+        rasterizer = self.get_rasterizer(camera_dict, bg_color)
+
+        screenspace_points = self.get_screenspace_pts_placeholder()
         means3D = self.gaussians.get_xyz(frameid)
         means2D = screenspace_points
         opacity = self.gaussians.get_opacity
@@ -208,12 +208,29 @@ class GSplatModel(nn.Module):
             cov3D_precomp=cov3D_precomp,
         )
 
-        rendered_image = rendered_image.clamp(0, 1)
+        with torch.no_grad():
+            field_vals = self.gaussians.get_xyz()
+            #### render other quantities
+            rasterizer = self.get_rasterizer(
+                camera_dict, bg_color=torch.zeros_like(self.bg_color)
+            )
+            # TODO render ones
+            render_vals, _, _, _ = rasterizer(
+                means3D=means3D,
+                means2D=means2D,
+                shs=None,
+                colors_precomp=field_vals,
+                opacities=opacity,
+                scales=scales,
+                rotations=rotations,
+                cov3D_precomp=cov3D_precomp,
+            )
+            ####
 
         # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
         # They will be excluded from value updates used in the splitting criteria.
         out_dict = {
-            "rgb": rendered_image,
+            "rgb": rendered_image.clamp(0, 1),
             "depth": rendered_depth,
             "alpha": rendered_alpha,
             "viewspace_points": screenspace_points,
@@ -223,6 +240,7 @@ class GSplatModel(nn.Module):
         out_dict["rgb"] = out_dict["rgb"][None]
         out_dict["depth"] = out_dict["depth"][None]
         out_dict["alpha"] = out_dict["alpha"][None]
+        out_dict["xyz"] = render_vals[None]
 
         # save aux for densification
         if self.training:
@@ -555,7 +573,7 @@ class GSplatModel(nn.Module):
         crop_size = self.config["eval_res"]
         self.process_frameid(batch)
         scalars = {}
-        out_dict = {"rgb": [], "depth": [], "alpha": []}
+        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": []}
 
         nframes = len(batch["frameid"])
         if is_pair:
@@ -595,13 +613,16 @@ class GSplatModel(nn.Module):
             # cam_dict = self.get_default_cam(Kmat=Kmat)
 
             rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
-            out_dict["rgb"].append(rendered["rgb"][0].permute(1, 2, 0).cpu().numpy())
-            out_dict["depth"].append(
-                rendered["depth"][0].permute(1, 2, 0).cpu().numpy()
-            )
-            out_dict["alpha"].append(
-                rendered["alpha"][0].permute(1, 2, 0).cpu().numpy()
-            )
+            for k, v in rendered.items():
+                if k in out_dict.keys():
+                    out_dict[k].append(v[0].permute(1, 2, 0).cpu().numpy())
+            # out_dict["rgb"].append(rendered["rgb"][0].permute(1, 2, 0).cpu().numpy())
+            # out_dict["depth"].append(
+            #     rendered["depth"][0].permute(1, 2, 0).cpu().numpy()
+            # )
+            # out_dict["alpha"].append(
+            #     rendered["alpha"][0].permute(1, 2, 0).cpu().numpy()
+            # )
         for k, v in out_dict.items():
             out_dict[k] = np.stack(v, 0)
         return out_dict, scalars

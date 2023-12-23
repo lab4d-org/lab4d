@@ -556,11 +556,11 @@ class Trainer:
         rendered, scalars = self.model.evaluate(batch)
         self.add_image_togrid(ref_dict)
         self.add_image_togrid(rendered)
-        if "xyz" in rendered.keys():
-            self.visualize_matches(rendered["xyz"], rendered["xyz_matches"], tag="xyz")
-            self.visualize_matches(
-                rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
-            )
+        # if "xyz" in rendered.keys():
+        #     self.visualize_matches(rendered["xyz"], rendered["xyz_matches"], tag="xyz")
+        #     self.visualize_matches(
+        #         rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
+        #     )
         self.add_scalar(self.log, scalars, self.current_round)
 
     def visualize_matches(self, xyz, xyz_matches, tag):
