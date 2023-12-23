@@ -14,11 +14,21 @@ from simple_knn._C import distCUDA2
 
 sys.path.insert(0, os.getcwd())
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
-from lab4d.utils.quat_transform import quaternion_translation_to_se3
+from lab4d.utils.quat_transform import (
+    quaternion_translation_to_se3,
+    quaternion_mul,
+    quaternion_to_matrix,
+    quaternion_conjugate,
+)
+from lab4d.utils.geom_utils import rot_angle
 
 
 def inverse_sigmoid(x):
     return torch.log(x / (1 - x))
+
+
+def normalize_quaternion(q):
+    return torch.nn.functional.normalize(q, 2, -1)
 
 
 def get_expon_lr_func(
@@ -157,7 +167,7 @@ class GaussianModel(nn.Module):
         self.opacity_activation = torch.sigmoid
         self.inverse_opacity_activation = inverse_sigmoid
 
-        self.rotation_activation = torch.nn.functional.normalize
+        self.rotation_activation = normalize_quaternion
 
     def __init__(self, sh_degree: int):
         super().__init__()
@@ -179,17 +189,24 @@ class GaussianModel(nn.Module):
     def get_scaling(self):
         return self.scaling_activation(self._scaling)
 
-    @property
-    def get_rotation(self):
-        return self.rotation_activation(self._rotation)
+    def get_rotation(self, frameid=None):
+        rotation = self.rotation_activation(self._rotation)
+        if frameid is None:
+            if hasattr(self, "_trajectory"):
+                delta_rotation = self.rotation_activation(self._trajectory[:, 0, :4])
+                return quaternion_mul(rotation, delta_rotation)
+            else:
+                return rotation
+        delta_rotation = self.rotation_activation(self._trajectory[:, frameid, :4])
+        return quaternion_mul(rotation, delta_rotation)
 
     def get_xyz(self, frameid=None):
         if frameid is None:
             if hasattr(self, "_trajectory"):
-                return self._xyz + self._trajectory[:, 0]
+                return self._xyz + self._trajectory[:, 0, 4:]
             else:
                 return self._xyz
-        return self._xyz + self._trajectory[:, frameid]
+        return self._xyz + self._trajectory[:, frameid, 4:]
 
     @property
     def get_features(self):
@@ -235,7 +252,7 @@ class GaussianModel(nn.Module):
         meshes = []
         sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
         centers = self.get_xyz().cpu()
-        orientations = self.get_rotation.cpu()
+        orientations = self.get_rotation().cpu()
         for k, gauss in enumerate(self.get_scaling.cpu().numpy()):
             ellips = sph.copy()
             ellips.vertices *= gauss[None]
@@ -305,7 +322,8 @@ class GaussianModel(nn.Module):
         self._opacity = nn.Parameter(opacities)
 
     def init_trajectory(self, total_frames):
-        trajectory = torch.zeros(self.get_num_pts, total_frames, 3)
+        trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
+        trajectory[:, :, 0] = 1.0
         self._trajectory = nn.Parameter(trajectory)
 
     def construct_stat_vars(self):
@@ -415,7 +433,10 @@ class GaussianModel(nn.Module):
     def get_least_deform_loss(self):
         if hasattr(self, "_trajectory"):
             # least deform loss
-            least_deform_loss = torch.mean(torch.norm(self._trajectory, 2, -1))
+            least_trans_loss = torch.norm(self._trajectory[..., 4:], 2, -1).mean()
+            least_rot_loss = quaternion_to_matrix(self._trajectory[..., :4])
+            least_rot_loss = rot_angle(least_rot_loss).mean()
+            least_deform_loss = least_trans_loss + least_rot_loss
             return least_deform_loss
         else:
             return torch.tensor(0.0, device="cuda")
@@ -423,11 +444,23 @@ class GaussianModel(nn.Module):
     def get_least_action_loss(self):
         if hasattr(self, "_trajectory"):
             # least action loss
-            # vt = xt-xt-1
-            # at = vt-vt-1
-            v_traj = self._trajectory[:, 1:] - self._trajectory[:, :-1]
+            x_traj = self._trajectory[..., 4:]
+            v_traj = x_traj[:, 1:] - x_traj[:, :-1]
             a_traj = v_traj[:, 1:] - v_traj[:, :-1]
-            least_action_loss = torch.mean(torch.norm(a_traj, 2, -1))
+            least_trans_loss = torch.norm(a_traj, 2, -1).mean()
+
+            theta_traj = self.rotation_activation(self._trajectory[..., :4])
+            omega_traj = quaternion_mul(
+                theta_traj[:, 1:].clone(),
+                quaternion_conjugate(theta_traj[:, :-1]).clone(),
+            )
+            alpha_traj = quaternion_mul(
+                omega_traj[:, 1:].clone(),
+                quaternion_conjugate(omega_traj[:, :-1]).clone(),
+            )
+            least_rot_loss = quaternion_to_matrix(alpha_traj)
+            least_rot_loss = rot_angle(least_rot_loss).mean()
+            least_action_loss = least_trans_loss + least_rot_loss
             return least_action_loss
         else:
             return torch.tensor(0.0, device="cuda")

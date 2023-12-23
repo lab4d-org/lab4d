@@ -80,8 +80,6 @@ class GSplatModel(nn.Module):
                 num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
                 total_frames = total_frames // num_vids
             self.gaussians.init_trajectory(total_frames)
-        # trajectory = torch.zeros(self.gaussians.get_num_pts, num_steps, 3)
-        # self.trajectory = nn.Parameter(trajectory)
 
         self.gaussians.construct_stat_vars()
 
@@ -182,7 +180,7 @@ class GSplatModel(nn.Module):
         opacity = self.gaussians.get_opacity
         cov3D_precomp = None
         scales = self.gaussians.get_scaling
-        rotations = self.gaussians.get_rotation
+        rotations = self.gaussians.get_rotation(frameid)
 
         if w2c is not None:
             if not torch.is_tensor(w2c):

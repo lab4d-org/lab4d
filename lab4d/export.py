@@ -253,7 +253,7 @@ def extract_motion_params(model, opts, data_info):
 
 
 @torch.no_grad()
-def export(opts):
+def export(opts, Trainer=Trainer):
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     save_dir = make_save_dir(opts, sub_dir="export_%04d" % (opts["inst_id"]))
 
