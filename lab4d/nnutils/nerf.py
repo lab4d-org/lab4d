@@ -189,6 +189,7 @@ class NeRF(nn.Module):
 
         # inverse sampling
         self.use_importance_sampling = True
+        self.symm_ratio = 0.0
 
     def construct_extrinsics(self, rtmat, frame_info, extrinsics_type):
         if extrinsics_type == "mlp":
@@ -1006,12 +1007,12 @@ class NeRF(nn.Module):
             frame_id = frame_id[:, None, None].expand(shape[:3])[valid_idx]
             inst_id = inst_id[:, None, None].expand(shape[:3])[valid_idx]
 
-        # # symmetrically normalize
-        # symm_ratio = 0.5
-        # xyz_x = xyz[..., :1].clone()
-        # symm_mask = torch.rand_like(xyz_x) < symm_ratio
-        # xyz_x[symm_mask] = -xyz_x[symm_mask]
-        # xyz = torch.cat([xyz_x, xyz[..., 1:3]], -1)
+        # symmetrize canonical shape
+        if self.symm_ratio > 0.0:
+            xyz_x = xyz[..., :1].clone()
+            symm_mask = torch.rand_like(xyz_x) < self.symm_ratio
+            xyz_x[symm_mask] = -xyz_x[symm_mask]
+            xyz = torch.cat([xyz_x, xyz[..., 1:3]], -1)
 
         rgb, sdf, density = self.forward(
             xyz,

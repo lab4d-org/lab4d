@@ -156,6 +156,15 @@ class MultiFields(nn.Module):
         for field in self.field_params.values():
             field.use_importance_sampling = use_importance_sampling
 
+    def set_symm_ratio(self, symm_ratio):
+        """Set symmetry ratio for all child fields
+
+        Args:
+            symm_ratio (float): 0 to 1
+        """
+        for field in self.field_params.values():
+            field.symm_ratio = symm_ratio
+
     def set_beta_prob(self, beta_prob):
         """Set beta probability for all child fields. This determines the
         probability of instance code swapping

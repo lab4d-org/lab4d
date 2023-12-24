@@ -101,6 +101,7 @@ class TrainOptConfig:
     flags.DEFINE_float("init_scale_fg", 0.2, "initial scale for the fg field")
     flags.DEFINE_float("init_scale_bg", 0.05, "initial scale for the bg field")
     flags.DEFINE_integer("num_freq_xyz", 10, "number of base frequencies for 3D points")
+    flags.DEFINE_float("symm_ratio", 0.0, "points to get reflected along x at train")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")
