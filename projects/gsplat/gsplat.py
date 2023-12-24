@@ -18,6 +18,8 @@ from diff_gaussian_rasterization import (
 
 sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
+from lab4d.nnutils.intrinsics import IntrinsicsConst
+from lab4d.nnutils.pose import CameraConst
 from lab4d.utils.loss_utils import get_mask_balance_wt
 from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
 from lab4d.utils.quat_transform import (
@@ -42,6 +44,15 @@ class GSplatModel(nn.Module):
         self.config = config
         self.device = get_local_rank()
         self.data_info = data_info
+
+        # dataset info
+        frame_info = data_info["frame_info"]
+        frame_offset = data_info["frame_info"]["frame_offset"]
+        frame_offset_raw = data_info["frame_info"]["frame_offset_raw"]
+        self.frame_offset = frame_offset
+        self.frame_offset_raw = frame_offset_raw
+        self.frame_mapping = frame_info["frame_mapping"]
+        self.num_frames = frame_offset[-1]
 
         # 3DGS
         sh_degree = config["sh_degree"] if "sh_degree" in config else 3
@@ -79,6 +90,9 @@ class GSplatModel(nn.Module):
             if config["use_timesync"]:
                 num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
                 total_frames = total_frames // num_vids
+                self.use_timesync = True
+            else:
+                self.use_timesync = False
             self.gaussians.init_trajectory(total_frames)
 
         self.gaussians.construct_stat_vars()
@@ -91,6 +105,33 @@ class GSplatModel(nn.Module):
             self.guidance_sd.get_text_embeds([self.prompt], [self.negative_prompt])
         if config["guidance_zero123_wt"] > 0:
             self.guidance_zero123 = Zero123(self.device)
+
+        # intrinsics and extrinsics
+        self.construct_intrinsics()
+        self.construct_extrinsics()
+
+    def construct_intrinsics(self):
+        """Construct camera intrinsics module"""
+        config = self.config
+        if config["intrinsics_type"] == "const":
+            self.intrinsics = IntrinsicsConst(
+                self.data_info["intrinsics"],
+                frame_info=self.data_info["frame_info"],
+            )
+        else:
+            raise NotImplementedError
+
+    def construct_extrinsics(self):
+        """Construct camera extrinsics module"""
+        tracklet_id = 1
+        config = self.config
+        if config["extrinsics_type"] == "const":
+            self.camera_mlp = CameraConst(
+                self.data_info["rtmat"][tracklet_id],
+                frame_info=self.data_info["frame_info"],
+            )
+        else:
+            raise NotImplementedError
 
     def initialize(self, input=None, num_pts=5000, radius=0.5):
         # load checkpoint
@@ -292,10 +333,11 @@ class GSplatModel(nn.Module):
         frameid_abs = batch["frameid"][0, 0]
         frameid = self.get_frameid(batch)[0, 0]
         crop2raw = batch["crop2raw"][0, 0]
-        Kmat = K2mat(self.data_info["intrinsics"][frameid_abs])
+        Kmat = K2mat(self.intrinsics.get_vals(frameid_abs))
         Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
 
-        w2c = self.data_info["rtmat"][1][frameid_abs].astype(np.float32)
+        quat, trans = self.camera_mlp.get_vals(frameid_abs)
+        w2c = quaternion_translation_to_se3(quat, trans)
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
         rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color, frameid=frameid)
@@ -337,7 +379,8 @@ class GSplatModel(nn.Module):
         # dataset intrinsics | if full2crop=I, then Kmat = Kmat
         full2crop[2:] *= 0  # no translation
         Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
-        w2w0 = self.data_info["rtmat"][1][frameid_abs].astype(np.float32)  # w2w0
+        quat0, trans0 = self.camera_mlp.get_vals(frameid_abs)
+        w2w0 = quaternion_translation_to_se3(quat0, trans0)
         self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0)
 
         # weight each loss term
@@ -396,6 +439,7 @@ class GSplatModel(nn.Module):
         w2c[:, 1:3] *= -1
 
         # dataset extrinsics at frameid | if w2c=I, then w2w0 = w2c
+        w2c = torch.tensor(w2c, dtype=torch.float32, device=self.device)
         w2w0[:3, :3] = w2c[:3, :3] @ w2w0[:3, :3]
         w2c = w2w0
 
@@ -590,14 +634,15 @@ class GSplatModel(nn.Module):
             if "Kinv" in batch.keys():
                 Kmat = batch["Kinv"][frameid].inverse()
             else:
-                Kmat = K2mat(self.data_info["intrinsics"][frameid_abs])
+                Kmat = K2mat(self.intrinsics.get_vals(frameid_abs))
             Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
             if "field2cam" in batch.keys():
                 quat_trans = batch["field2cam"]["fg"][idx]
                 quat, trans = quat_trans[:4], quat_trans[4:]
                 w2c = quaternion_translation_to_se3(quat, trans)
             else:
-                w2c = self.data_info["rtmat"][1][frameid_abs].astype(np.float32)
+                quat, trans = self.camera_mlp.get_vals(frameid_abs)
+                w2c = quaternion_translation_to_se3(quat, trans)
             cam_dict = self.get_default_cam(Kmat=Kmat)
 
             # # manually create cameras
@@ -703,13 +748,10 @@ class GSplatModel(nn.Module):
         Returns:
             field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
         """
-        if torch.is_tensor(frame_id):
-            frame_id = frame_id.cpu().numpy()
-        field2cam_dict = {}
-        if frame_id is None:
-            field2cam_dict["fg"] = self.data_info["rtmat"][1]
-        field2cam_dict["fg"] = self.data_info["rtmat"][1][frame_id]
-        return field2cam_dict
+        field2cam = {}
+        quat, trans = self.camera_mlp.get_vals(frame_id=frame_id)
+        field2cam["fg"] = quaternion_translation_to_se3(quat, trans)
+        return field2cam
 
     @torch.no_grad()
     def get_intrinsics(self, frame_id=None):
@@ -720,9 +762,7 @@ class GSplatModel(nn.Module):
         Returns:
             intrinsics: (..., 4) Output camera intrinsics
         """
-        if frame_id is None:
-            return self.data_info["intrinsics"]
-        return self.data_info["intrinsics"][frame_id]
+        return self.intrinsics.get_vals(frame_id=frame_id)
 
     @torch.no_grad()
     def get_aabb(self, inst_id=None):

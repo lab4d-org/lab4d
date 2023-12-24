@@ -249,20 +249,25 @@ class GaussianModel(nn.Module):
         # self.proxy_geometry = trimesh.Trimesh(vertices=xyz)
 
         # add bone center / joints
+        self.proxy_geometry = self.create_mesh_visualization()
+
+    def export_geometry_aux(self, path):
+        self.proxy_geometry.export("%s-proxy.obj" % (path))
+
+    @torch.no_grad()
+    def create_mesh_visualization(self, frameid=None):
         meshes = []
         sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
-        centers = self.get_xyz().cpu()
-        orientations = self.get_rotation().cpu()
+        centers = self.get_xyz(frameid).cpu()
+        orientations = self.get_rotation(frameid).cpu()
         for k, gauss in enumerate(self.get_scaling.cpu().numpy()):
             ellips = sph.copy()
             ellips.vertices *= gauss[None]
             articulation = quaternion_translation_to_se3(orientations[k], centers[k])
             ellips.apply_transform(articulation.numpy())
             meshes.append(ellips)
-        self.proxy_geometry = trimesh.util.concatenate(meshes)
-
-    def export_geometry_aux(self, path):
-        self.proxy_geometry.export("%s-proxy.obj" % (path))
+        meshes = trimesh.util.concatenate(meshes)
+        return meshes
 
     def get_covariance(self, scaling_modifier=1):
         return self.covariance_activation(
@@ -460,7 +465,7 @@ class GaussianModel(nn.Module):
             )
             least_rot_loss = quaternion_to_matrix(alpha_traj)
             least_rot_loss = rot_angle(least_rot_loss).mean()
-            least_action_loss = least_trans_loss + least_rot_loss
+            least_action_loss = least_trans_loss + 0.01 * least_rot_loss
             return least_action_loss
         else:
             return torch.tensor(0.0, device="cuda")

@@ -7,7 +7,8 @@ bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
-  --reg_least_action_wt 1e-2 --fg_motion dynamic
+  --reg_least_action_wt 1e-2 --fg_motion dynamic \
+  --intrinsics_type const --extrinsics_type const
 
 # # rigid, no sds
 # dev=0
