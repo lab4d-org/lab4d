@@ -19,6 +19,7 @@ from diff_gaussian_rasterization import (
 sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsConst
+from lab4d.utils.numpy_utils import interp_wt
 from lab4d.utils.loss_utils import get_mask_balance_wt
 from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
 from lab4d.utils.quat_transform import (
@@ -43,6 +44,7 @@ class GSplatModel(nn.Module):
         self.config = config
         self.device = get_local_rank()
         self.data_info = data_info
+        self.progress = 0.0
 
         # dataset info
         frame_info = data_info["frame_info"]
@@ -96,6 +98,10 @@ class GSplatModel(nn.Module):
 
         self.gaussians.construct_stat_vars()
 
+        # intrinsics and extrinsics
+        self.construct_intrinsics()
+        self.gaussians.construct_extrinsics(config, data_info)
+
         # diffusion
         if config["guidance_sd_wt"] > 0:
             self.guidance_sd = StableDiffusion(self.device)
@@ -104,10 +110,6 @@ class GSplatModel(nn.Module):
             self.guidance_sd.get_text_embeds([self.prompt], [self.negative_prompt])
         if config["guidance_zero123_wt"] > 0:
             self.guidance_zero123 = Zero123(self.device)
-
-        # intrinsics and extrinsics
-        self.construct_intrinsics()
-        self.gaussians.construct_extrinsics(config, data_info)
 
     def construct_intrinsics(self):
         """Construct camera intrinsics module"""
@@ -363,7 +365,7 @@ class GSplatModel(nn.Module):
         full2crop[2:] *= 0  # no translation
         Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
         w2w0 = self.gaussians.get_extrinsics(frameid_abs)
-        self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0)
+        self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0, frameid)
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
@@ -402,7 +404,7 @@ class GSplatModel(nn.Module):
         ref_rgb = torch.tensor(ref_rgb, device=dev).permute(2, 0, 1)[None]
         return ref_rgb
 
-    def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0):
+    def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0, frameid):
         bg_color = self.get_bg_color()
         # render a random novel view
         bs = 1
@@ -477,7 +479,7 @@ class GSplatModel(nn.Module):
         if self.config["reg_least_action_wt"] > 0:
             loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
         if self.config["reg_arap_wt"] > 0:
-            loss_dict["reg_arap"] = self.gaussians.get_arap_loss()
+            loss_dict["reg_arap"] = self.gaussians.get_arap_loss(frameid=frameid)
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, config):
@@ -688,6 +690,20 @@ class GSplatModel(nn.Module):
         """
         self.progress = progress
         self.current_steps = current_steps
+        config = self.config
+
+        # local vs global arap loss
+        if self.progress > config["inc_warmup_ratio"]:
+            self.gaussians.use_local_arap = False
+        else:
+            self.gaussians.use_local_arap = True
+
+        # # knn for arap
+        # anchor_x = (0, 1.0)
+        # anchor_y = (0.1, 0.0)
+        # type = "linear"
+        # ratio_knn = interp_wt(anchor_x, anchor_y, progress, type=type)
+        # self.gaussians.ratio_knn = ratio_knn
 
     @torch.no_grad()
     def get_field_params(self):
@@ -734,7 +750,7 @@ class GSplatModel(nn.Module):
             field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
         """
         field2cam = {}
-        field2cam["fg"] = self.gaussians.get_extrinsics(frame_id=frame_id)
+        field2cam["fg"] = self.gaussians.get_extrinsics(frameid=frame_id)
         return field2cam
 
     @torch.no_grad()

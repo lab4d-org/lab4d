@@ -31,7 +31,7 @@ class GSplatTrainer(Trainer):
             self.model,
             device_ids=[get_local_rank()],
             output_device=get_local_rank(),
-            find_unused_parameters=False,
+            find_unused_parameters=True,
         )
 
     def define_model(self):
@@ -54,7 +54,7 @@ class GSplatTrainer(Trainer):
                 self.first_round = self.current_round
                 self.first_step = self.current_steps
 
-    def optimizer_init(self, is_resumed=False):
+    def optimizer_init(self, is_resumed=False, use_warmup_param=False):
         """Set the learning rate for all trainable parameters and initialize
         the optimizer and scheduler.
 
@@ -62,16 +62,26 @@ class GSplatTrainer(Trainer):
             is_resumed (bool): True if resuming from checkpoint
         """
         opts = self.opts
-        self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list()
+        param_lr_startwith, param_lr_with = self.get_lr_dict(
+            use_warmup_param=use_warmup_param
+        )
+        self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list(
+            param_lr_startwith, param_lr_with
+        )
         self.optimizer = torch.optim.AdamW(
             params_list,
             lr=opts["learning_rate"],
             betas=(0.9, 0.999),
             weight_decay=1e-4,
         )
-        div_factor = 25.0
-        final_div_factor = 1.0
-        pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
+        if opts["inc_warmup_ratio"] > 0:
+            div_factor = 1.0
+            final_div_factor = 25.0
+            pct_start = opts["inc_warmup_ratio"]
+        else:
+            div_factor = 25.0
+            final_div_factor = 1.0
+            pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
             self.optimizer,
             lr_list,
@@ -83,7 +93,7 @@ class GSplatTrainer(Trainer):
             final_div_factor=final_div_factor,
         )
 
-    def get_lr_dict(self, pose_correction=False):
+    def get_lr_dict(self, use_warmup_param=False):
         """Return the learning rate for each category of trainable parameters
 
         Returns:
@@ -94,17 +104,27 @@ class GSplatTrainer(Trainer):
         opts = self.opts
         lr_base = opts["learning_rate"]
 
-        param_lr_startwith = {
-            "module.gaussians._xyz": lr_base,
-            "module.gaussians._features_dc": lr_base,
-            "module.gaussians._features_rest": lr_base * 0.05,
-            "module.gaussians._scaling": lr_base * 0.5,
-            "module.gaussians._rotation": lr_base * 0.5,
-            "module.gaussians._opacity": lr_base * 5,
-            "module.gaussians._trajectory": lr_base * 0.5,
-            "module.gaussians.camera_mlp": lr_base,
-            "module.guidance_sd": 0.0,
-        }
+        if use_warmup_param:
+            param_lr_startwith = {
+                "module.gaussians._features_dc": lr_base,
+                "module.gaussians._features_rest": lr_base * 0.05,
+                "module.gaussians._opacity": lr_base * 5,
+                "module.gaussians._trajectory": lr_base,
+                "module.gaussians.camera_mlp": lr_base,
+            }
+        else:
+            param_lr_startwith = {
+                "module.gaussians._xyz": lr_base,
+                "module.gaussians._features_dc": lr_base,
+                "module.gaussians._features_rest": lr_base * 0.05,
+                "module.gaussians._scaling": lr_base * 0.5,
+                "module.gaussians._rotation": lr_base * 0.5,
+                "module.gaussians._opacity": lr_base * 5,
+                "module.gaussians._trajectory": lr_base * 0.5,
+                "module.gaussians.camera_mlp": lr_base,
+                "module.guidance_sd": 0.0,
+            }
+
         param_lr_with = {}
 
         return param_lr_startwith, param_lr_with
@@ -154,8 +174,8 @@ class GSplatTrainer(Trainer):
         # necessary for shuffling
         self.trainloader.sampler.set_epoch(self.current_round)
         # set max loader length for incremental opt
-        for dataset in self.trainloader.dataset.datasets:
-            dataset.set_max_loader_len(self.current_round + 1)
+        if opts["inc_warmup_ratio"] > 0:
+            self.set_warmup_hparams()
         for i, batch in tqdm.tqdm(enumerate(self.trainloader)):
             if i == opts["iters_per_round"]:
                 break
@@ -193,12 +213,49 @@ class GSplatTrainer(Trainer):
                 self.add_scalar(self.log, loss_dict, self.current_steps)
             self.current_steps += 1
 
+    def set_warmup_hparams(self):
+        """Set the loader range for incremental optimization"""
+        inc_warmup_ratio = self.opts["inc_warmup_ratio"]
+        warmup_rounds = inc_warmup_ratio * self.opts["num_rounds"]
+
+        # config optimizer
+        if self.current_round == 0:
+            self.optimizer_init(use_warmup_param=True)
+        elif self.current_round == warmup_rounds:
+            self.optimizer_init(use_warmup_param=False)
+        self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
+
+        # config dataloader
+        completion_ratio = self.current_round / (warmup_rounds - 1)
+        for dataset in self.trainloader.dataset.datasets:
+            # per pair opt
+            if self.current_round < warmup_rounds:
+                min_frameid = int((len(dataset) - 1) * completion_ratio)
+                max_frameid = min_frameid + 1
+                # set parameters for incremental opt
+                self.model.gaussians.set_future_time_params(max_frameid - 2)
+            else:
+                min_frameid = 0
+                max_frameid = len(dataset)
+
+            # # global opt
+            # min_frameid = 0
+            # max_frameid = int((len(dataset) - 1) * completion_ratio) + 1
+            # # set parameters for incremental opt
+            # self.model.gaussians.set_future_time_params(max_frameid - 2)
+
+            dataset.set_loader_range(min_frameid=min_frameid, max_frameid=max_frameid)
+
     def update_aux_vars(self):
         self.model.update_geometry_aux()
         self.model.export_geometry_aux(
             "%s/%03d-all" % (self.save_dir, self.current_round)
         )
 
+        if self.model.progress > self.opts["inc_warmup_ratio"]:
+            self.densify_and_prune()
+
+    def densify_and_prune(self):
         # densify and prune
         clone_mask, prune_mask = self.model.gaussians.densify_and_prune()
 
@@ -235,6 +292,8 @@ class GSplatTrainer(Trainer):
 
         for param_dict in self.params_ref_list:
             ((name, _),) = param_dict.items()
+            if not name.startswith("module.gaussians._"):
+                continue
             param = get_nested_attr(self.model, name)
             stored_state = self.optimizer.state.get(param, None)
             if stored_state is not None:

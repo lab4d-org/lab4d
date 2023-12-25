@@ -245,7 +245,12 @@ class Trainer:
             is_resumed (bool): True if resuming from checkpoint
         """
         opts = self.opts
-        self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list()
+        param_lr_startwith, param_lr_with = self.get_lr_dict(
+            pose_correction=opts["pose_correction"]
+        )
+        self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list(
+            param_lr_startwith, param_lr_with
+        )
         self.optimizer = torch.optim.AdamW(
             params_list,
             lr=opts["learning_rate"],
@@ -276,7 +281,7 @@ class Trainer:
             final_div_factor=final_div_factor,
         )
 
-    def get_optimizable_param_list(self):
+    def get_optimizable_param_list(self, param_lr_startwith, param_lr_with):
         """
         Get the optimizable param list
         Returns:
@@ -284,9 +289,6 @@ class Trainer:
             params_list (List): List of params
             lr_list (List): List of learning rates
         """
-        param_lr_startwith, param_lr_with = self.get_lr_dict(
-            pose_correction=self.opts["pose_correction"]
-        )
         params_ref_list = []
         params_list = []
         lr_list = []

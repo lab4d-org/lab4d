@@ -203,6 +203,8 @@ class GaussianModel(nn.Module):
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         self.optimizer = None
+        self.use_local_arap = False
+        self.ratio_knn = 0.1
         self.setup_functions()
 
     def get_extrinsics(self, frameid):
@@ -219,7 +221,7 @@ class GaussianModel(nn.Module):
         if frameid is None:
             if hasattr(self, "_trajectory"):
                 delta_rotation = self.rotation_activation(self._trajectory[:, 0, :4])
-                return quaternion_mul(rotation, delta_rotation)
+                return quaternion_mul(delta_rotation, rotation)
             else:
                 return rotation
         delta_rotation = self.rotation_activation(self._trajectory[:, frameid, :4])
@@ -493,7 +495,7 @@ class GaussianModel(nn.Module):
         aabb = torch.stack(aabb, dim=0).cpu().numpy()
         return aabb
 
-    def get_arap_loss(self):
+    def get_arap_loss(self, frameid=None):
         """
         Compute arap loss with annealing.
         Begining: 100pts, 100nn
@@ -501,15 +503,20 @@ class GaussianModel(nn.Module):
         num_pts * ratio_knn * num_pts = 10k
         num_pts = sq(10k / ratio_knn)
         """
-        ratio_knn = 0.1
+        ratio_knn = self.ratio_knn
         num_pts = int(np.sqrt(4e5 / ratio_knn))  # 2k pts
         num_knn = max(int(ratio_knn * num_pts), 2)  # get 1-nn
-        rand_frameid = np.random.randint(self.get_num_frames - 1)
+        if frameid is None:
+            frameid = np.random.randint(self.get_num_frames - 1)
+        if self.use_local_arap:
+            frameid_next = frameid + 1
+        else:
+            frameid_next = np.random.randint(self.get_num_frames)
         rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
-        pts0 = self.get_xyz(rand_frameid)[rand_ptsid]
-        pts1 = self.get_xyz(rand_frameid + 1)[rand_ptsid]  # N,3
-        rot0 = self.get_rotation(rand_frameid)[rand_ptsid]
-        rot1 = self.get_rotation(rand_frameid + 1)[rand_ptsid]
+        pts0 = self.get_xyz(frameid)[rand_ptsid]
+        pts1 = self.get_xyz(frameid_next)[rand_ptsid]  # N,3
+        rot0 = self.get_rotation(frameid)[rand_ptsid]
+        rot1 = self.get_rotation(frameid_next)[rand_ptsid]
 
         # dist(t,t+1)
         sq_dist, neighbor_indices = knn_cuda(pts0, num_knn)
@@ -572,6 +579,18 @@ class GaussianModel(nn.Module):
             return least_action_loss
         else:
             return torch.tensor(0.0, device="cuda")
+
+    def set_future_time_params(self, last_opt_frameid):
+        """
+        set trajecories after last frame to be the same as last frame
+        """
+        # range is 0 to N-2
+        if last_opt_frameid >= self.get_num_frames - 1 or last_opt_frameid < 0:
+            return
+        if hasattr(self, "_trajectory"):
+            print("set future time params to id: ", last_opt_frameid)
+            last_pt = self._trajectory[:, last_opt_frameid : last_opt_frameid + 1, :]
+            self._trajectory.data[:, last_opt_frameid + 1 :, :] = last_pt.data
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):

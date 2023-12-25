@@ -101,7 +101,8 @@ class VidDataset(Dataset):
         # self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
         self.idx_sampler = RangeSampler2D(num_elems_1d=self.img_size[0])
         self.frame_info = FrameInfo(self.dict_list["ref"])
-        self.max_loader_len = len(self.dict_list["ref"])
+        self.min_frameid = 0
+        self.max_frameid = self.__len__()
 
     def construct_data_list(self, reflist, prefix, feature_type):
         """Construct a dict of .npy/.txt paths that contain all the frame data
@@ -221,17 +222,21 @@ class VidDataset(Dataset):
         return len(self.dict_list["ref"]) - 1
 
     def __getitem__(self, index):
-        index = index % self.max_loader_len
+        index = max(index - self.min_frameid, 0)
+        index = index % (self.max_frameid - self.min_frameid)
+        index = index + self.min_frameid
         data_dict = self.load_data(index)
         return data_dict
 
-    def set_max_loader_len(self, max_loader_len):
+    def set_loader_range(self, min_frameid=0, max_frameid=None):
         """Set the maximum frame id to load
 
         Args:
             max_frameid (int): Maximum frame id to load
         """
-        self.max_loader_len = max_loader_len
+        self.min_frameid = min(self.__len__() - 1, max(0, min_frameid))
+        if max_frameid is not None:
+            self.max_frameid = min(self.__len__(), max_frameid)
 
     def sample_delta(self, index):
         """Sample random delta frame
