@@ -3,6 +3,8 @@ import math
 import numpy as np
 from typing import NamedTuple
 import trimesh
+import open3d as o3d
+import open3d.core as o3c
 import pdb
 
 # from plyfile import PlyData, PlyElement
@@ -14,13 +16,31 @@ from simple_knn._C import distCUDA2
 
 sys.path.insert(0, os.getcwd())
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
+from lab4d.nnutils.pose import CameraConst, CameraExplicit
 from lab4d.utils.quat_transform import (
     quaternion_translation_to_se3,
     quaternion_mul,
+    quaternion_apply,
     quaternion_to_matrix,
     quaternion_conjugate,
+    matrix_to_quaternion,
 )
 from lab4d.utils.geom_utils import rot_angle
+from lab4d.utils.vis_utils import get_colormap
+
+colormap = get_colormap()
+
+
+def knn_cuda(pts, k):
+    pts = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pts))
+    nns = o3c.nns.NearestNeighborSearch(pts)
+    nns.knn_index()
+
+    # Single query point.
+    indices, distances = nns.knn_search(pts, k)
+    indices = torch.utils.dlpack.from_dlpack(indices.to_dlpack())
+    distances = torch.utils.dlpack.from_dlpack(distances.to_dlpack())
+    return distances, indices
 
 
 def inverse_sigmoid(x):
@@ -185,6 +205,11 @@ class GaussianModel(nn.Module):
         self.optimizer = None
         self.setup_functions()
 
+    def get_extrinsics(self, frameid):
+        quat, trans = self.camera_mlp.get_vals(frameid)
+        w2c = quaternion_translation_to_se3(quat, trans)
+        return w2c
+
     @property
     def get_scaling(self):
         return self.scaling_activation(self._scaling)
@@ -198,7 +223,7 @@ class GaussianModel(nn.Module):
             else:
                 return rotation
         delta_rotation = self.rotation_activation(self._trajectory[:, frameid, :4])
-        return quaternion_mul(rotation, delta_rotation)
+        return quaternion_mul(delta_rotation, rotation)  # w2c @ delta @ rest gaussian
 
     def get_xyz(self, frameid=None):
         if frameid is None:
@@ -263,6 +288,7 @@ class GaussianModel(nn.Module):
         for k, gauss in enumerate(self.get_scaling.cpu().numpy()):
             ellips = sph.copy()
             ellips.vertices *= gauss[None]
+            ellips.visual.vertex_colors = colormap[k % len(colormap)]
             articulation = quaternion_translation_to_se3(orientations[k], centers[k])
             ellips.apply_transform(articulation.numpy())
             meshes.append(ellips)
@@ -326,10 +352,29 @@ class GaussianModel(nn.Module):
         )
         self._opacity = nn.Parameter(opacities)
 
+    @property
+    def get_num_frames(self):
+        if hasattr(self, "_trajectory"):
+            return self._trajectory.shape[1]
+        else:
+            return 0
+
     def init_trajectory(self, total_frames):
         trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
         trajectory[:, :, 0] = 1.0
         self._trajectory = nn.Parameter(trajectory)
+
+    def construct_extrinsics(self, config, data_info):
+        """Construct camera extrinsics module"""
+        tracklet_id = 1
+        rtmat = data_info["rtmat"][tracklet_id]
+        frame_info = data_info["frame_info"]
+        if config["extrinsics_type"] == "const":
+            self.camera_mlp = CameraConst(rtmat, frame_info)
+        elif config["extrinsics_type"] == "explicit":
+            self.camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
+        else:
+            raise NotImplementedError
 
     def construct_stat_vars(self):
         self.xyz_gradient_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
@@ -425,6 +470,19 @@ class GaussianModel(nn.Module):
         )
         self.denom[update_filter] += 1
 
+    @staticmethod
+    def transform(center, rotations, w2c):
+        """
+        center: [N, 3]
+        rotations: [N, 4]
+        w2c: [4, 4]
+        """
+        center = center @ w2c[:3, :3].T + w2c[:3, 3][None]
+        rmat = w2c[:3, :3][None].repeat(len(center), 1, 1)
+        # gaussian space to world then to camera
+        rotations = quaternion_mul(matrix_to_quaternion(rmat), rotations)  # wxyz
+        return center, rotations
+
     @torch.no_grad()
     def get_aabb(self):
         xyz = self.get_xyz()
@@ -434,6 +492,51 @@ class GaussianModel(nn.Module):
         )
         aabb = torch.stack(aabb, dim=0).cpu().numpy()
         return aabb
+
+    def get_arap_loss(self):
+        """
+        Compute arap loss with annealing.
+        Begining: 100pts, 100nn
+        End: 10000pts, 2nn
+        num_pts * ratio_knn * num_pts = 10k
+        num_pts = sq(10k / ratio_knn)
+        """
+        ratio_knn = 0.1
+        num_pts = int(np.sqrt(4e5 / ratio_knn))  # 2k pts
+        num_knn = max(int(ratio_knn * num_pts), 2)  # get 1-nn
+        rand_frameid = np.random.randint(self.get_num_frames - 1)
+        rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+        pts0 = self.get_xyz(rand_frameid)[rand_ptsid]
+        pts1 = self.get_xyz(rand_frameid + 1)[rand_ptsid]  # N,3
+        rot0 = self.get_rotation(rand_frameid)[rand_ptsid]
+        rot1 = self.get_rotation(rand_frameid + 1)[rand_ptsid]
+
+        # dist(t,t+1)
+        sq_dist, neighbor_indices = knn_cuda(pts0, num_knn)
+
+        # N, K, 3/4
+        offset0 = pts0[neighbor_indices] - pts0[:, None]  # in camera 0
+        offset1 = pts1[neighbor_indices] - pts1[:, None]  # in camera 1
+        c1_to_c0 = quaternion_mul(rot0, quaternion_conjugate(rot1))  # N, 4
+        c1_to_c0 = c1_to_c0[:, None].repeat(1, num_knn, 1)
+        offset1_0 = quaternion_apply(c1_to_c0, offset1)
+        arap_loss_trans = torch.norm(offset0 - offset1_0, 2, -1)
+        # neighbor_weight = (-2000 * torch.tensor(neighbor_sq_dist, device="cuda")).exp()
+        # arap_loss_trans = arap_loss_trans * neighbor_weight
+
+        # # relrot
+        # rot0inv = quaternion_conjugate(rot0)[:, None].repeat(1, num_knn, 1)
+        # rot1inv = quaternion_conjugate(rot1)[:, None].repeat(1, num_knn, 1)
+        # omega0 = quaternion_mul(rot0inv, rot0[neighbor_indices])  # in gauss space
+        # omega1 = quaternion_mul(rot1inv, rot1[neighbor_indices])  # in gauss space
+        # relrot = quaternion_mul(omega0, quaternion_conjugate(omega1))
+        # arap_loss_rot = quaternion_to_matrix(relrot)
+        # arap_loss_rot = rot_angle(arap_loss_rot)
+        # # arap_loss_rot = arap_loss_rot * neighbor_weight
+
+        # arap_loss_trans = arap_loss_trans.mean() + arap_loss_rot.mean()
+        arap_loss_trans = arap_loss_trans.mean()
+        return arap_loss_trans
 
     def get_least_deform_loss(self):
         if hasattr(self, "_trajectory"):

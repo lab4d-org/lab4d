@@ -137,12 +137,12 @@ if __name__ == "__main__":
         # set cameras
         # rotx = np.random.rand()
         if args.rot_axis == "x":
-            rotx = args.init_a * 6.28 + args.alpha * 6.28 * i / args.nframes
+            rotx = (args.init_a * +args.alpha * i / args.nframes) * np.pi * 2
         else:
             rotx = 0.0
         #    if i==0: rotx=0.
         if args.rot_axis == "y":
-            roty = args.init_a * 6.28 + args.alpha * 6.28 * i / args.nframes
+            roty = (args.init_a + args.alpha * i / args.nframes) * np.pi * 2
         else:
             roty = 0
         rotz = 0.0
@@ -163,13 +163,16 @@ if __name__ == "__main__":
         ).cuda()
         Kmat = K2mat(K)
 
+        # use first frame cam as world-to-cam
         # add RTK: [R_3x3|T_3x1]
         #          [fx,fy,px,py], to the ndc space
-        rtk = np.eye(4)
-        rtk[:3, :3] = Rmat.cpu().numpy()
-        rtk[:3, 3] = Tmat.cpu().numpy()
-        rtks.append(rtk)
-        rtk = torch.Tensor(rtk).cuda()
+        rtk = torch.eye(4).to(Rmat.device)
+        rtk[:3, :3] = Rmat
+        rtk[:3, 3] = Tmat
+
+        if i == 0:
+            rtk0 = rtk.clone()
+        rtks.append(rtk0.cpu().numpy())
 
         # obj-cam transform
         verts_view = obj_to_cam(verts, rtk[None])

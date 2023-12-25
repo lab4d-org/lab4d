@@ -19,7 +19,6 @@ from diff_gaussian_rasterization import (
 sys.path.insert(0, os.getcwd())
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsConst
-from lab4d.nnutils.pose import CameraConst
 from lab4d.utils.loss_utils import get_mask_balance_wt
 from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
 from lab4d.utils.quat_transform import (
@@ -108,7 +107,7 @@ class GSplatModel(nn.Module):
 
         # intrinsics and extrinsics
         self.construct_intrinsics()
-        self.construct_extrinsics()
+        self.gaussians.construct_extrinsics(config, data_info)
 
     def construct_intrinsics(self):
         """Construct camera intrinsics module"""
@@ -116,18 +115,6 @@ class GSplatModel(nn.Module):
         if config["intrinsics_type"] == "const":
             self.intrinsics = IntrinsicsConst(
                 self.data_info["intrinsics"],
-                frame_info=self.data_info["frame_info"],
-            )
-        else:
-            raise NotImplementedError
-
-    def construct_extrinsics(self):
-        """Construct camera extrinsics module"""
-        tracklet_id = 1
-        config = self.config
-        if config["extrinsics_type"] == "const":
-            self.camera_mlp = CameraConst(
-                self.data_info["rtmat"][tracklet_id],
                 frame_info=self.data_info["frame_info"],
             )
         else:
@@ -226,10 +213,7 @@ class GSplatModel(nn.Module):
         if w2c is not None:
             if not torch.is_tensor(w2c):
                 w2c = torch.tensor(w2c, dtype=torch.float, device=means3D.device)
-            means3D = means3D @ w2c[:3, :3].T + w2c[:3, 3][None]
-            rmat = w2c[:3, :3][None].repeat(len(means3D), 1, 1)
-            # gaussian space to world then to camera
-            rotations = quaternion_mul(matrix_to_quaternion(rmat), rotations)  # wxyz
+            means3D, rotations = self.gaussians.transform(means3D, rotations, w2c)
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
@@ -336,8 +320,7 @@ class GSplatModel(nn.Module):
         Kmat = K2mat(self.intrinsics.get_vals(frameid_abs))
         Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
 
-        quat, trans = self.camera_mlp.get_vals(frameid_abs)
-        w2c = quaternion_translation_to_se3(quat, trans)
+        w2c = self.gaussians.get_extrinsics(frameid_abs)
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
         rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color, frameid=frameid)
@@ -379,8 +362,7 @@ class GSplatModel(nn.Module):
         # dataset intrinsics | if full2crop=I, then Kmat = Kmat
         full2crop[2:] *= 0  # no translation
         Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
-        quat0, trans0 = self.camera_mlp.get_vals(frameid_abs)
-        w2w0 = quaternion_translation_to_se3(quat0, trans0)
+        w2w0 = self.gaussians.get_extrinsics(frameid_abs)
         self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0)
 
         # weight each loss term
@@ -490,8 +472,12 @@ class GSplatModel(nn.Module):
             #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
             # )
 
-        loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss()
-        loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
+        if self.config["reg_least_deform_wt"] > 0:
+            loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss()
+        if self.config["reg_least_action_wt"] > 0:
+            loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
+        if self.config["reg_arap_wt"] > 0:
+            loss_dict["reg_arap"] = self.gaussians.get_arap_loss()
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, config):
@@ -641,8 +627,7 @@ class GSplatModel(nn.Module):
                 quat, trans = quat_trans[:4], quat_trans[4:]
                 w2c = quaternion_translation_to_se3(quat, trans)
             else:
-                quat, trans = self.camera_mlp.get_vals(frameid_abs)
-                w2c = quaternion_translation_to_se3(quat, trans)
+                w2c = self.gaussians.get_extrinsics(frameid_abs)
             cam_dict = self.get_default_cam(Kmat=Kmat)
 
             # # manually create cameras
@@ -749,8 +734,7 @@ class GSplatModel(nn.Module):
             field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
         """
         field2cam = {}
-        quat, trans = self.camera_mlp.get_vals(frame_id=frame_id)
-        field2cam["fg"] = quaternion_translation_to_se3(quat, trans)
+        field2cam["fg"] = self.gaussians.get_extrinsics(frame_id=frame_id)
         return field2cam
 
     @torch.no_grad()

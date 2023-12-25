@@ -31,7 +31,7 @@ class GSplatTrainer(Trainer):
             self.model,
             device_ids=[get_local_rank()],
             output_device=get_local_rank(),
-            find_unused_parameters=True,
+            find_unused_parameters=False,
         )
 
     def define_model(self):
@@ -102,6 +102,7 @@ class GSplatTrainer(Trainer):
             "module.gaussians._rotation": lr_base * 0.5,
             "module.gaussians._opacity": lr_base * 5,
             "module.gaussians._trajectory": lr_base * 0.5,
+            "module.gaussians.camera_mlp": lr_base,
             "module.guidance_sd": 0.0,
         }
         param_lr_with = {}
@@ -152,6 +153,9 @@ class GSplatTrainer(Trainer):
 
         # necessary for shuffling
         self.trainloader.sampler.set_epoch(self.current_round)
+        # set max loader length for incremental opt
+        for dataset in self.trainloader.dataset.datasets:
+            dataset.set_max_loader_len(self.current_round + 1)
         for i, batch in tqdm.tqdm(enumerate(self.trainloader)):
             if i == opts["iters_per_round"]:
                 break
