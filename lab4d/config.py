@@ -64,6 +64,7 @@ class TrainOptConfig:
     flags.DEFINE_string(
         "data_prefix", "crop", "prefix of the data entries, {crop, full}"
     )
+    flags.DEFINE_string("delta_list", "2,4,8", "list of delta values")
     flags.DEFINE_integer("train_res", 256, "size of training images")
     flags.DEFINE_string("logroot", "logdir/", "root directory for log files")
     flags.DEFINE_string("load_suffix", "", "sufix of params, {latest, 0, 10, ...}")

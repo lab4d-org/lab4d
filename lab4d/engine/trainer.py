@@ -529,7 +529,7 @@ class Trainer:
             # duplicate dataset to fix number of iterations per round
             opts_dict["multiply"] = True
             opts_dict["pixels_per_image"] = opts["pixels_per_image"]
-            opts_dict["delta_list"] = [2, 4, 8]
+            opts_dict["delta_list"] = [int(x) for x in opts["delta_list"].split(",")]
             opts_dict["res"] = opts["train_res"]
             opts_dict["num_workers"] = opts["num_workers"]
 

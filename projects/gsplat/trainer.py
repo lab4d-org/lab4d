@@ -72,10 +72,10 @@ class GSplatTrainer(Trainer):
             params_list,
             lr=opts["learning_rate"],
             betas=(0.9, 0.999),
-            weight_decay=1e-4,
+            weight_decay=0.0,
         )
         if opts["inc_warmup_ratio"] > 0:
-            div_factor = 1.0
+            div_factor = 5.0
             final_div_factor = 25.0
             pct_start = opts["inc_warmup_ratio"]
         else:
@@ -231,8 +231,6 @@ class GSplatTrainer(Trainer):
             if self.current_round < warmup_rounds:
                 min_frameid = int((len(dataset) - 1) * completion_ratio)
                 max_frameid = min_frameid + 1
-                # set parameters for incremental opt
-                self.model.gaussians.set_future_time_params(max_frameid - 2)
             else:
                 min_frameid = 0
                 max_frameid = len(dataset)
@@ -240,10 +238,12 @@ class GSplatTrainer(Trainer):
             # # global opt
             # min_frameid = 0
             # max_frameid = int((len(dataset) - 1) * completion_ratio) + 1
-            # # set parameters for incremental opt
-            # self.model.gaussians.set_future_time_params(max_frameid - 2)
 
             dataset.set_loader_range(min_frameid=min_frameid, max_frameid=max_frameid)
+
+        # set parameters for incremental opt
+        if self.current_round < warmup_rounds:
+            self.model.gaussians.set_future_time_params(max_frameid)
 
     def update_aux_vars(self):
         self.model.update_geometry_aux()

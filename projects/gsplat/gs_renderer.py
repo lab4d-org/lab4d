@@ -204,7 +204,7 @@ class GaussianModel(nn.Module):
         self.denom = torch.empty(0)
         self.optimizer = None
         self.is_inc_mode = False
-        self.ratio_knn = 0.1
+        self.ratio_knn = 1.0
         self.setup_functions()
 
     def get_extrinsics(self, frameid):
@@ -217,23 +217,22 @@ class GaussianModel(nn.Module):
         return self.scaling_activation(self._scaling)
 
     def get_rotation(self, frameid=None):
-        rotation = self.rotation_activation(self._rotation)
-        if frameid is None:
-            if hasattr(self, "_trajectory"):
-                delta_rotation = self.rotation_activation(self._trajectory[:, 0, :4])
-                return quaternion_mul(delta_rotation, rotation)
+        rot = self.rotation_activation(self._rotation)
+        if hasattr(self, "_trajectory"):
+            if frameid is None:
+                delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
             else:
-                return rotation
-        delta_rotation = self.rotation_activation(self._trajectory[:, frameid, :4])
-        return quaternion_mul(delta_rotation, rotation)  # w2c @ delta @ rest gaussian
+                delta_rot = self.rotation_activation(self._trajectory[:, frameid, :4])
+            return quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
+        return rot
 
     def get_xyz(self, frameid=None):
-        if frameid is None:
-            if hasattr(self, "_trajectory"):
+        if hasattr(self, "_trajectory"):
+            if frameid is None:
                 return self._xyz + self._trajectory[:, 0, 4:]
             else:
-                return self._xyz
-        return self._xyz + self._trajectory[:, frameid, 4:]
+                return self._xyz + self._trajectory[:, frameid, 4:]
+        return self._xyz
 
     @property
     def get_features(self):
@@ -358,6 +357,8 @@ class GaussianModel(nn.Module):
     def get_num_frames(self):
         if hasattr(self, "_trajectory"):
             return self._trajectory.shape[1]
+        elif hasattr(self, "camera_mlp"):
+            return self.camera_mlp.quat.shape[0]
         else:
             return 0
 
@@ -479,6 +480,8 @@ class GaussianModel(nn.Module):
         rotations: [N, 4]
         w2c: [4, 4]
         """
+        if not torch.is_tensor(w2c):
+            w2c = torch.tensor(w2c, dtype=torch.float, device=center.device)
         center = center @ w2c[:3, :3].T + w2c[:3, 3][None]
         rmat = w2c[:3, :3][None].repeat(len(center), 1, 1)
         # gaussian space to world then to camera
@@ -495,7 +498,7 @@ class GaussianModel(nn.Module):
         aabb = torch.stack(aabb, dim=0).cpu().numpy()
         return aabb
 
-    def get_arap_loss(self, frameid=None):
+    def get_arap_loss(self, frameid=None, frameid_2=None):
         """
         Compute arap loss with annealing.
         Begining: 100pts, 100nn
@@ -504,29 +507,27 @@ class GaussianModel(nn.Module):
         num_pts = sq(10k / ratio_knn)
         """
         ratio_knn = self.ratio_knn
-        num_pts = int(np.sqrt(4e5 / ratio_knn))  # 2k pts
-        num_knn = max(int(ratio_knn * num_pts), 2)  # get 1-nn
+        num_pts = int(np.sqrt(4e6 / ratio_knn))  # 2k pts
+        num_knn = min(self.get_num_pts, max(int(ratio_knn * num_pts), 2))  # get 1-nn
         if frameid is None:
             frameid = np.random.randint(self.get_num_frames - 1)
         elif torch.is_tensor(frameid):
             frameid = frameid.cpu().numpy()
-        if self.is_inc_mode:
-            if frameid == 0:
-                frameid_next = frameid
+        if frameid_2 is None:
+            if self.is_inc_mode:
+                if frameid == 0:
+                    frameid_2 = frameid
+                else:
+                    frameid_2 = np.random.randint(frameid)  # 0-frameid-1
             else:
-                frameid_next = np.random.randint(frameid)  # 0-frameid-1
-        else:
-            frameid_next = np.random.randint(self.get_num_frames)
+                frameid_2 = np.random.randint(self.get_num_frames)
+        elif torch.is_tensor(frameid_2):
+            frameid_2 = frameid_2.cpu().numpy()
         rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
         pts0 = self.get_xyz(frameid)[rand_ptsid]
-        pts1 = self.get_xyz(frameid_next)[rand_ptsid]  # N,3
+        pts1 = self.get_xyz(frameid_2)[rand_ptsid]  # N,3
         rot0 = self.get_rotation(frameid)[rand_ptsid]
-        rot1 = self.get_rotation(frameid_next)[rand_ptsid]
-
-        # do not optimize the second frame
-        if self.is_inc_mode:
-            pts1 = pts1.detach()
-            rot1 = rot1.detach()
+        rot1 = self.get_rotation(frameid_2)[rand_ptsid]
 
         # dist(t,t+1)
         sq_dist, neighbor_indices = knn_cuda(pts0, num_knn)
@@ -601,6 +602,13 @@ class GaussianModel(nn.Module):
             print("set future time params to id: ", last_opt_frameid)
             last_pt = self._trajectory[:, last_opt_frameid : last_opt_frameid + 1, :]
             self._trajectory.data[:, last_opt_frameid + 1 :, :] = last_pt.data
+
+        if hasattr(self, "camera_mlp"):
+            print("set future time params to id: ", last_opt_frameid)
+            last_quat = self.camera_mlp.quat[last_opt_frameid]
+            last_trans = self.camera_mlp.trans[last_opt_frameid]
+            self.camera_mlp.quat.data[last_opt_frameid + 1 :] = last_quat.data
+            self.camera_mlp.trans.data[last_opt_frameid + 1 :] = last_trans.data
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):

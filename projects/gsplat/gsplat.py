@@ -21,7 +21,13 @@ from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsConst
 from lab4d.utils.numpy_utils import interp_wt
 from lab4d.utils.loss_utils import get_mask_balance_wt
-from lab4d.utils.geom_utils import fov_to_focal, focal_to_fov, K2mat, K2inv
+from lab4d.utils.geom_utils import (
+    fov_to_focal,
+    focal_to_fov,
+    K2mat,
+    K2inv,
+    pinhole_projection,
+)
 from lab4d.utils.quat_transform import (
     quaternion_mul,
     matrix_to_quaternion,
@@ -95,6 +101,8 @@ class GSplatModel(nn.Module):
             else:
                 self.use_timesync = False
             self.gaussians.init_trajectory(total_frames)
+        else:
+            self.use_timesync = False
 
         self.gaussians.construct_stat_vars()
 
@@ -109,10 +117,10 @@ class GSplatModel(nn.Module):
             self.negative_prompt = ""
             self.guidance_sd.get_text_embeds([self.prompt], [self.negative_prompt])
         if config["guidance_zero123_wt"] > 0:
-            self.guidance_zero123 = Zero123(self.device)
-            # self.guidance_zero123 = Zero123(
-            #     self.device, model_key="ashawkey/stable-zero123-diffusers"
-            # )
+            # self.guidance_zero123 = Zero123(self.device)
+            self.guidance_zero123 = Zero123(
+                self.device, model_key="ashawkey/stable-zero123-diffusers"
+            )
 
     def construct_intrinsics(self):
         """Construct camera intrinsics module"""
@@ -202,7 +210,16 @@ class GSplatModel(nn.Module):
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
         return rasterizer
 
-    def render(self, camera_dict, w2c=None, bg_color=None, frameid=None):
+    def render(
+        self,
+        camera_dict,
+        w2c=None,
+        bg_color=None,
+        frameid=None,
+        w2c_2=None,
+        frameid_2=None,
+        Kmat_2=None,
+    ):
         assert "Kmat" in camera_dict
 
         rasterizer = self.get_rasterizer(camera_dict, bg_color)
@@ -216,8 +233,6 @@ class GSplatModel(nn.Module):
         rotations = self.gaussians.get_rotation(frameid)
 
         if w2c is not None:
-            if not torch.is_tensor(w2c):
-                w2c = torch.tensor(w2c, dtype=torch.float, device=means3D.device)
             means3D, rotations = self.gaussians.transform(means3D, rotations, w2c)
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
@@ -242,7 +257,6 @@ class GSplatModel(nn.Module):
             rasterizer = self.get_rasterizer(
                 camera_dict, bg_color=torch.zeros_like(self.bg_color)
             )
-            # TODO render ones
             render_vals, _, _, _ = rasterizer(
                 means3D=means3D,
                 means2D=means2D,
@@ -269,6 +283,41 @@ class GSplatModel(nn.Module):
         out_dict["depth"] = out_dict["depth"][None]
         out_dict["alpha"] = out_dict["alpha"][None]
         out_dict["xyz"] = render_vals[None]
+
+        # render flow
+        if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
+            Kmat = camera_dict["Kmat"]
+
+            means3D_2 = self.gaussians.get_xyz(frameid_2)
+            rotations_2 = self.gaussians.get_rotation(frameid_2)
+            means3D_2, rotations_2 = self.gaussians.transform(
+                means3D_2, rotations_2, w2c_2
+            )
+            xy_2 = pinhole_projection(Kmat_2[None], means3D_2[None])[0]
+            xy_1 = pinhole_projection(Kmat[None], means3D[None])[0]
+            render_xy1, _, _, _ = rasterizer(
+                means3D=means3D,
+                means2D=means2D,
+                shs=None,
+                colors_precomp=xy_1,
+                opacities=opacity,
+                scales=scales,
+                rotations=rotations,
+                cov3D_precomp=cov3D_precomp,
+            )
+            render_xy2, _, _, _ = rasterizer(
+                means3D=means3D,
+                means2D=means2D,
+                shs=None,
+                colors_precomp=xy_2,
+                opacities=opacity,
+                scales=scales,
+                rotations=rotations,
+                cov3D_precomp=cov3D_precomp,
+            )
+            flow = (render_xy2 - render_xy1)[None, :2]
+            flow = flow * camera_dict["render_resolution"] / 2
+            out_dict["flow"] = flow
 
         # save aux for densification
         if self.training:
@@ -328,19 +377,58 @@ class GSplatModel(nn.Module):
         w2c = self.gaussians.get_extrinsics(frameid_abs)
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
-        rendered = self.render(cam_dict, w2c=w2c, bg_color=bg_color, frameid=frameid)
+        # flow args
+        frameid_2 = self.get_frameid(batch)[0, 1]
+        w2c_2 = self.gaussians.get_extrinsics(frameid_2)
+        crop2raw_2 = batch["crop2raw"][0, 1]
+        Kmat_2 = K2mat(self.intrinsics.get_vals(frameid_2))
+        Kmat_2 = self.compute_Kmat(crop_size, crop2raw_2, Kmat_2)
+        cam_dict_2 = self.get_default_cam(Kmat=Kmat_2)
+
+        rendered = self.render(
+            cam_dict,
+            w2c=w2c,
+            bg_color=bg_color,
+            frameid=frameid,
+            w2c_2=w2c_2,
+            frameid_2=frameid_2,
+            Kmat_2=Kmat_2,
+        )
+
+        rendered_2 = self.render(
+            cam_dict_2,
+            w2c=w2c_2,
+            bg_color=bg_color,
+            frameid=frameid_2,
+            w2c_2=w2c,
+            frameid_2=frameid,
+            Kmat_2=Kmat,
+        )
+
         rgb = rendered["rgb"]
         mask = rendered["alpha"]
+        flow = rendered["flow"]
+        rgb_2 = rendered_2["rgb"]
+        mask_2 = rendered_2["alpha"]
+        flow_2 = rendered_2["flow"]
 
         # prepare reference view GT
         ref_rgb = batch["rgb"][:1, :1]
         ref_mask = batch["mask"][:1, :1].float()
         ref_vis2d = batch["vis2d"][:1, :1].float()
+        ref_flow = batch["flow"][:1, :1]
+        ref_flow_uct = batch["flow_uct"][:1, :1]
+        ref_rgb_2 = batch["rgb"][:1, 1:]
+        ref_mask_2 = batch["mask"][:1, 1:].float()
+        ref_vis2d_2 = batch["vis2d"][:1, 1:].float()
+        ref_flow_2 = batch["flow"][:1, 1:]
+        ref_flow_uct_2 = batch["flow_uct"][:1, 1:]
         white_img = torch.ones_like(ref_rgb)
         ref_rgb = torch.where(ref_mask > 0, ref_rgb, white_img)
+        ref_rgb_2 = torch.where(ref_mask_2 > 0, ref_rgb_2, white_img)
+
         res = self.config["train_res"]
         # M,N,C => (N, C, d1, d2, ...,dK)
-
         ref_rgb = ref_rgb.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
         ref_rgb = F.interpolate(
             ref_rgb, (256, 256), mode="bilinear", align_corners=False
@@ -349,10 +437,50 @@ class GSplatModel(nn.Module):
         ref_mask = F.interpolate(ref_mask, (256, 256), mode="nearest")
         ref_vis2d = ref_vis2d.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
         ref_vis2d = F.interpolate(ref_vis2d, (256, 256), mode="nearest")
+        ref_flow = ref_flow.permute(0, 1, 3, 2).reshape(-1, 2, res, res)
+        ref_flow = F.interpolate(ref_flow, (256, 256), mode="bilinear")
+        ref_flow_uct = ref_flow_uct.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
+        ref_flow_uct = F.interpolate(ref_flow_uct, (256, 256), mode="bilinear")
+
+        ref_rgb_2 = ref_rgb_2.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
+        ref_rgb_2 = F.interpolate(
+            ref_rgb_2, (256, 256), mode="bilinear", align_corners=False
+        )
+        ref_mask_2 = ref_mask_2.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
+        ref_mask_2 = F.interpolate(ref_mask_2, (256, 256), mode="nearest")
+        ref_vis2d_2 = ref_vis2d_2.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
+        ref_vis2d_2 = F.interpolate(ref_vis2d_2, (256, 256), mode="nearest")
+        ref_flow_2 = ref_flow_2.permute(0, 1, 3, 2).reshape(-1, 2, res, res)
+        ref_flow_2 = F.interpolate(ref_flow_2, (256, 256), mode="bilinear")
+        ref_flow_uct_2 = ref_flow_uct_2.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
+        ref_flow_uct_2 = F.interpolate(ref_flow_uct_2, (256, 256), mode="bilinear")
+
+        # concat them
+        rgb = torch.cat([rgb, rgb_2], 0)
+        mask = torch.cat([mask, mask_2], 0)
+        flow = torch.cat([flow, flow_2], 0)
+
+        ref_rgb = torch.cat([ref_rgb, ref_rgb_2], 0)
+        ref_mask = torch.cat([ref_mask, ref_mask_2], 0)
+        ref_vis2d = torch.cat([ref_vis2d, ref_vis2d_2], 0)
+        ref_flow = torch.cat([ref_flow, ref_flow_2], 0)
+        ref_flow_uct = torch.cat([ref_flow_uct, ref_flow_uct_2], 0)
+
+        # from flowutils.flowlib import point_vec, warp_flow
+        # img_numpy = rgb[0].permute(1, 2, 0).detach().cpu().numpy()
+        # flow_numpy = flow[0].permute(1, 2, 0).detach().cpu().numpy()
+        # img_gt = ref_rgb[0].permute(1, 2, 0).cpu().numpy()
+        # flow_gt = ref_flow[0].permute(1, 2, 0).cpu().numpy()
+        # flow_vis = point_vec(img_numpy * 255, flow_numpy, skip=10)
+        # flow_vis_gt = point_vec(img_gt * 255, flow_gt, skip=10)
+        # cv2.imwrite("tmp/0.jpg", flow_vis)
+        # cv2.imwrite("tmp/1.jpg", flow_vis_gt)
 
         # reference view loss
         loss_dict["rgb"] = (rgb - ref_rgb).pow(2)
         loss_dict["mask"] = (mask - ref_mask).pow(2)
+        loss_dict["flow"] = (flow - ref_flow).norm(2, 1, keepdim=True)
+        loss_dict["flow"] = loss_dict["flow"] * (ref_flow_uct > 0).float()
         # mask_balance_wt = get_mask_balance_wt(
         #     batch["mask"], batch["vis2d"], batch["is_detected"]
         # )
@@ -368,7 +496,7 @@ class GSplatModel(nn.Module):
         full2crop[2:] *= 0  # no translation
         Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
         w2w0 = self.gaussians.get_extrinsics(frameid_abs)
-        self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0, frameid)
+        self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0, frameid, frameid_2)
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
@@ -407,7 +535,7 @@ class GSplatModel(nn.Module):
         ref_rgb = torch.tensor(ref_rgb, device=dev).permute(2, 0, 1)[None]
         return ref_rgb
 
-    def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0, frameid):
+    def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0, frameid, frameid_2):
         bg_color = self.get_bg_color()
         # render a random novel view
         bs = 1
@@ -447,11 +575,8 @@ class GSplatModel(nn.Module):
             self.guidance_zero123.get_img_embeds(ref_rgb)
 
             loss_guidance_zero123 = self.guidance_zero123.train_step(
-                rgb_nv, polar, azimuth, radius
+                rgb_nv, polar, azimuth, radius, step_ratio=self.progress
             )
-            # loss_guidance_zero123 = self.guidance_zero123.train_step(
-            #     rgb_nv, polar, azimuth, radius, step_ratio=self.progress
-            # )
             loss_dict["guidance_zero123"] = loss_guidance_zero123
 
             # # DEBUG
@@ -482,7 +607,9 @@ class GSplatModel(nn.Module):
         if self.config["reg_least_action_wt"] > 0:
             loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
         if self.config["reg_arap_wt"] > 0:
-            loss_dict["reg_arap"] = self.gaussians.get_arap_loss(frameid=frameid)
+            loss_dict["reg_arap"] = self.gaussians.get_arap_loss(
+                frameid=frameid, frameid_2=frameid_2
+            )
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, config):
@@ -503,7 +630,7 @@ class GSplatModel(nn.Module):
         # always mask-out non-visible (out-of-frame) pixels
         keys_allpix = ["mask"]
         # field type specific keys
-        keys_type_specific = ["rgb"]
+        keys_type_specific = ["rgb", "flow"]
 
         # type-specific masking rules
         if config["field_type"] == "bg":
@@ -531,6 +658,7 @@ class GSplatModel(nn.Module):
             loss_dict (Dict): Loss values for each loss term
             config (Dict): Command-line options
         """
+        px_unit_keys = ["flow"]
         for k, v in loss_dict.items():
             # average over non-zero pixels
             v = v[v > 0]
@@ -538,6 +666,10 @@ class GSplatModel(nn.Module):
                 loss_dict[k] = v.mean()
             else:
                 loss_dict[k] = v.sum()  # return zero
+
+            # scale with image resolution
+            if k in px_unit_keys:
+                loss_dict[k] /= config["train_res"]
 
             # scale with loss weights
             wt_name = k + "_wt"

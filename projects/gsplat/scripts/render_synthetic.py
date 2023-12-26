@@ -173,6 +173,7 @@ if __name__ == "__main__":
         if i == 0:
             rtk0 = rtk.clone()
         rtks.append(rtk0.cpu().numpy())
+        # rtks.append(rtk.cpu().numpy())
 
         # obj-cam transform
         verts_view = obj_to_cam(verts, rtk[None])
