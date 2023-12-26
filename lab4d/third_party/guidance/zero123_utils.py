@@ -1,10 +1,4 @@
-from transformers import CLIPTextModel, CLIPTokenizer, logging
-from diffusers import (
-    AutoencoderKL,
-    UNet2DConditionModel,
-    DDIMScheduler,
-    StableDiffusionPipeline,
-)
+from diffusers import DDIMScheduler
 import torchvision.transforms.functional as TF
 
 import numpy as np
@@ -21,7 +15,13 @@ from zero123 import Zero123Pipeline
 
 
 class Zero123(nn.Module):
-    def __init__(self, device, fp16=True, t_range=[0.02, 0.98]):
+    def __init__(
+        self,
+        device,
+        fp16=True,
+        t_range=[0.02, 0.98],
+        model_key="ashawkey/zero123-xl-diffusers",
+    ):
         super().__init__()
 
         self.device = device
@@ -30,15 +30,17 @@ class Zero123(nn.Module):
 
         assert self.fp16, "Only zero123 fp16 is supported for now."
 
+        # model_key = "ashawkey/zero123-xl-diffusers"
+        # model_key = './model_cache/stable_zero123_diffusers'
+
         self.pipe = Zero123Pipeline.from_pretrained(
-            "ashawkey/zero123-xl-diffusers",
-            # './model_cache/zero123_xl',
+            model_key,
             torch_dtype=self.dtype,
             trust_remote_code=True,
         ).to(self.device)
 
-        # for param in self.pipe.parameters():
-        #     param.requires_grad = False
+        # stable-zero123 has a different camera embedding
+        self.use_stable_zero123 = "stable" in model_key
 
         self.pipe.image_encoder.eval()
         self.pipe.vae.eval()
@@ -71,16 +73,44 @@ class Zero123(nn.Module):
         v = self.encode_imgs(x.to(self.dtype)) / self.vae.config.scaling_factor
         self.embeddings = [c, v]
 
+    def get_cam_embeddings(self, elevation, azimuth, radius, default_elevation=0):
+        if self.use_stable_zero123:
+            T = np.stack(
+                [
+                    np.deg2rad(elevation),
+                    np.sin(np.deg2rad(azimuth)),
+                    np.cos(np.deg2rad(azimuth)),
+                    np.deg2rad([90 + default_elevation] * len(elevation)),
+                ],
+                axis=-1,
+            )
+        else:
+            # original zero123 camera embedding
+            T = np.stack(
+                [
+                    np.deg2rad(elevation),
+                    np.sin(np.deg2rad(azimuth)),
+                    np.cos(np.deg2rad(azimuth)),
+                    radius,
+                ],
+                axis=-1,
+            )
+        T = (
+            torch.from_numpy(T).unsqueeze(1).to(dtype=self.dtype, device=self.device)
+        )  # [8, 1, 4]
+        return T
+
     @torch.no_grad()
     def refine(
         self,
         pred_rgb,
-        polar,
+        elevation,
         azimuth,
         radius,
         guidance_scale=5,
         steps=50,
         strength=0.8,
+        default_elevation=0,
     ):
         batch_size = pred_rgb.shape[0]
 
@@ -99,16 +129,7 @@ class Zero123(nn.Module):
                 latents, torch.randn_like(latents), self.scheduler.timesteps[init_step]
             )
 
-        T = np.stack(
-            [
-                np.deg2rad(polar),
-                np.sin(np.deg2rad(azimuth)),
-                np.cos(np.deg2rad(azimuth)),
-                radius,
-            ],
-            axis=-1,
-        )
-        T = torch.from_numpy(T).unsqueeze(1).to(self.dtype).to(self.device)  # [8, 1, 4]
+        T = self.get_cam_embeddings(elevation, azimuth, radius, default_elevation)
         cc_emb = torch.cat([self.embeddings[0].repeat(batch_size, 1, 1), T], dim=-1)
         cc_emb = self.pipe.clip_camera_projection(cc_emb)
         cc_emb = torch.cat([cc_emb, torch.zeros_like(cc_emb)], dim=0)
@@ -117,7 +138,6 @@ class Zero123(nn.Module):
         vae_emb = torch.cat([vae_emb, torch.zeros_like(vae_emb)], dim=0)
 
         for i, t in enumerate(self.scheduler.timesteps[init_step:]):
-            print(i)
             x_in = torch.cat([latents] * 2)
             t_in = torch.cat([t.view(1)] * 2).to(self.device)
 
@@ -140,12 +160,13 @@ class Zero123(nn.Module):
     def train_step(
         self,
         pred_rgb,
-        polar,
+        elevation,
         azimuth,
         radius,
         step_ratio=None,
         guidance_scale=5,
         as_latent=False,
+        default_elevation=0,
     ):
         # pred_rgb: tensor [1, 3, H, W] in [0, 1]
 
@@ -188,18 +209,7 @@ class Zero123(nn.Module):
             x_in = torch.cat([latents_noisy] * 2)
             t_in = torch.cat([t] * 2)
 
-            T = np.stack(
-                [
-                    np.deg2rad(polar),
-                    np.sin(np.deg2rad(azimuth)),
-                    np.cos(np.deg2rad(azimuth)),
-                    radius,
-                ],
-                axis=-1,
-            )
-            T = (
-                torch.from_numpy(T).unsqueeze(1).to(self.dtype).to(self.device)
-            )  # [8, 1, 4]
+            T = self.get_cam_embeddings(elevation, azimuth, radius, default_elevation)
             cc_emb = torch.cat([self.embeddings[0].repeat(batch_size, 1, 1), T], dim=-1)
             cc_emb = self.pipe.clip_camera_projection(cc_emb)
             cc_emb = torch.cat([cc_emb, torch.zeros_like(cc_emb)], dim=0)
@@ -259,7 +269,7 @@ if __name__ == "__main__":
 
     parser.add_argument("input", type=str)
     parser.add_argument(
-        "--polar", type=float, default=0, help="delta polar angle in [-90, 90]"
+        "--elevation", type=float, default=0, help="delta elevation angle in [-90, 90]"
     )
     parser.add_argument(
         "--azimuth", type=float, default=0, help="delta azimuth angle in [-180, 180]"
@@ -270,6 +280,7 @@ if __name__ == "__main__":
         default=0,
         help="delta camera radius multiplier in [-0.5, 0.5]",
     )
+    parser.add_argument("--stable", action="store_true")
 
     opt = parser.parse_args()
 
@@ -277,6 +288,26 @@ if __name__ == "__main__":
 
     print(f"[INFO] loading image from {opt.input} ...")
     image = cv2.imread(opt.input, cv2.IMREAD_UNCHANGED)
+    # pad with white background
+    h, w, _ = image.shape
+    max_hw = max(h, w)
+    if h < max_hw:
+        # pad on both side
+        pad_top = (max_hw - h) // 2
+        pad_bottom = max_hw - h - pad_top
+        image = cv2.copyMakeBorder(
+            image, pad_top, pad_bottom, 0, 0, cv2.BORDER_CONSTANT, value=[255, 255, 255]
+        )
+    elif w < max_hw:
+        # pad on both side
+        pad_left = (max_hw - w) // 2
+        pad_right = max_hw - w - pad_left
+        image = cv2.copyMakeBorder(
+            image, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[255, 255, 255]
+        )
+
+    cv2.imwrite("1.jpg", image)
+
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_AREA)
     image = image.astype(np.float32) / 255.0
@@ -285,24 +316,28 @@ if __name__ == "__main__":
     )
 
     print(f"[INFO] loading model ...")
-    zero123 = Zero123(device)
+
+    if opt.stable:
+        zero123 = Zero123(device, model_key="ashawkey/stable-zero123-diffusers")
+    else:
+        zero123 = Zero123(device, model_key="ashawkey/zero123-xl-diffusers")
 
     print(f"[INFO] running model ...")
     zero123.get_img_embeds(image)
 
+    azimuth = opt.azimuth
     while True:
         outputs = zero123.refine(
             image,
-            polar=[opt.polar],
+            elevation=[opt.elevation],
             azimuth=[opt.azimuth],
             radius=[opt.radius],
-            strength=0.0,
+            strength=0,
         )
-        import cv2
-
         cv2.imwrite(
             "0.jpg",
             outputs.float().cpu().numpy().transpose(0, 2, 3, 1)[0][..., ::-1] * 255,
         )
         # plt.imshow(outputs.float().cpu().numpy().transpose(0, 2, 3, 1)[0])
         # plt.show()
+        break

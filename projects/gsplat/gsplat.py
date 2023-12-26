@@ -110,6 +110,9 @@ class GSplatModel(nn.Module):
             self.guidance_sd.get_text_embeds([self.prompt], [self.negative_prompt])
         if config["guidance_zero123_wt"] > 0:
             self.guidance_zero123 = Zero123(self.device)
+            # self.guidance_zero123 = Zero123(
+            #     self.device, model_key="ashawkey/stable-zero123-diffusers"
+            # )
 
     def construct_intrinsics(self):
         """Construct camera intrinsics module"""
@@ -430,7 +433,7 @@ class GSplatModel(nn.Module):
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
         # render
-        rendered = self.render(cam_dict, bg_color=bg_color, w2c=w2c)
+        rendered = self.render(cam_dict, bg_color=bg_color, w2c=w2c, frameid=frameid)
         rgb_nv = rendered["rgb"]
 
         # compute loss
@@ -454,7 +457,7 @@ class GSplatModel(nn.Module):
             # # DEBUG
             # outputs = self.guidance_zero123.refine(
             #     ref_rgb,
-            #     polar=polar,
+            #     elevation=polar,
             #     azimuth=azimuth,
             #     radius=radius,
             #     strength=0,
@@ -694,9 +697,9 @@ class GSplatModel(nn.Module):
 
         # local vs global arap loss
         if self.progress > config["inc_warmup_ratio"]:
-            self.gaussians.use_local_arap = False
+            self.gaussians.is_inc_mode = False
         else:
-            self.gaussians.use_local_arap = True
+            self.gaussians.is_inc_mode = True
 
         # # knn for arap
         # anchor_x = (0, 1.0)

@@ -108,7 +108,6 @@ class GSplatTrainer(Trainer):
             param_lr_startwith = {
                 "module.gaussians._features_dc": lr_base,
                 "module.gaussians._features_rest": lr_base * 0.05,
-                "module.gaussians._opacity": lr_base * 5,
                 "module.gaussians._trajectory": lr_base,
                 "module.gaussians.camera_mlp": lr_base,
             }

@@ -203,7 +203,7 @@ class GaussianModel(nn.Module):
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         self.optimizer = None
-        self.use_local_arap = False
+        self.is_inc_mode = False
         self.ratio_knn = 0.1
         self.setup_functions()
 
@@ -508,8 +508,13 @@ class GaussianModel(nn.Module):
         num_knn = max(int(ratio_knn * num_pts), 2)  # get 1-nn
         if frameid is None:
             frameid = np.random.randint(self.get_num_frames - 1)
-        if self.use_local_arap:
-            frameid_next = frameid + 1
+        elif torch.is_tensor(frameid):
+            frameid = frameid.cpu().numpy()
+        if self.is_inc_mode:
+            if frameid == 0:
+                frameid_next = frameid
+            else:
+                frameid_next = np.random.randint(frameid)  # 0-frameid-1
         else:
             frameid_next = np.random.randint(self.get_num_frames)
         rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
@@ -517,6 +522,11 @@ class GaussianModel(nn.Module):
         pts1 = self.get_xyz(frameid_next)[rand_ptsid]  # N,3
         rot0 = self.get_rotation(frameid)[rand_ptsid]
         rot1 = self.get_rotation(frameid_next)[rand_ptsid]
+
+        # do not optimize the second frame
+        if self.is_inc_mode:
+            pts1 = pts1.detach()
+            rot1 = rot1.detach()
 
         # dist(t,t+1)
         sq_dist, neighbor_indices = knn_cuda(pts0, num_knn)

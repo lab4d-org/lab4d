@@ -1,7 +1,7 @@
-# rigid multiview incremental
+# rigid singlecam incremental
 dev=1
-seqname=eagle-s
-logname=gsplat-ref-inc-full-auto2
+seqname=eagle-s-0000
+logname=gsplat-ref
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
@@ -9,6 +9,19 @@ bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname
   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
   --intrinsics_type const --extrinsics_type const --fg_motion dynamic \
   --reg_least_action_wt 0.0 --reg_arap_wt 0.1 --inc_warmup_ratio 0.25
+# --guidance_zero123_wt 2e-4
+
+# # rigid multiview incremental
+# dev=1
+# seqname=eagle-s
+# logname=gsplat-ref-inc-full-auto2
+# rm -rf logdir/$seqname-$logname
+# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
+#   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
+#   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
+#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
+#   --intrinsics_type const --extrinsics_type const --fg_motion dynamic \
+#   --reg_least_action_wt 0.0 --reg_arap_wt 0.1 --inc_warmup_ratio 0.25
 
 # # rigid multiview
 # dev=0
