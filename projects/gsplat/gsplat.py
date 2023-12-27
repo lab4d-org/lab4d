@@ -66,7 +66,7 @@ class GSplatModel(nn.Module):
         white_background = (
             config["white_background"] if "white_background" in config else True
         )
-        radius = config["radius"] if "radius" in config else 2.5  # dreamgaussian
+        radius = config["radius"] if "radius" in config else 2  # dreamgaussian
         num_pts = config["num_pts"] if "num_pts" in config else 5000
 
         self.sh_degree = sh_degree
@@ -117,10 +117,10 @@ class GSplatModel(nn.Module):
             self.negative_prompt = ""
             self.guidance_sd.get_text_embeds([self.prompt], [self.negative_prompt])
         if config["guidance_zero123_wt"] > 0:
-            # self.guidance_zero123 = Zero123(self.device)
-            self.guidance_zero123 = Zero123(
-                self.device, model_key="ashawkey/stable-zero123-diffusers"
-            )
+            self.guidance_zero123 = Zero123(self.device)
+            # self.guidance_zero123 = Zero123(
+            #     self.device, model_key="ashawkey/stable-zero123-diffusers"
+            # )
 
     def construct_intrinsics(self):
         """Construct camera intrinsics module"""
@@ -331,7 +331,7 @@ class GSplatModel(nn.Module):
         # focal=1 corresponds to 90 degree fov and identity projection matrix
         # convert this to a dict
         near = 0.01
-        far = 5
+        far = 100
         w2c = np.eye(4, dtype=np.float32)
         cam_dict = {
             "w2c": w2c,
@@ -388,29 +388,15 @@ class GSplatModel(nn.Module):
         rendered = self.render(
             cam_dict,
             w2c=w2c,
-            bg_color=bg_color,
             frameid=frameid,
             w2c_2=w2c_2,
             frameid_2=frameid_2,
             Kmat_2=Kmat_2,
         )
 
-        rendered_2 = self.render(
-            cam_dict_2,
-            w2c=w2c_2,
-            bg_color=bg_color,
-            frameid=frameid_2,
-            w2c_2=w2c,
-            frameid_2=frameid,
-            Kmat_2=Kmat,
-        )
-
         rgb = rendered["rgb"]
         mask = rendered["alpha"]
         flow = rendered["flow"]
-        rgb_2 = rendered_2["rgb"]
-        mask_2 = rendered_2["alpha"]
-        flow_2 = rendered_2["flow"]
 
         # prepare reference view GT
         ref_rgb = batch["rgb"][:1, :1]
@@ -418,14 +404,8 @@ class GSplatModel(nn.Module):
         ref_vis2d = batch["vis2d"][:1, :1].float()
         ref_flow = batch["flow"][:1, :1]
         ref_flow_uct = batch["flow_uct"][:1, :1]
-        ref_rgb_2 = batch["rgb"][:1, 1:]
-        ref_mask_2 = batch["mask"][:1, 1:].float()
-        ref_vis2d_2 = batch["vis2d"][:1, 1:].float()
-        ref_flow_2 = batch["flow"][:1, 1:]
-        ref_flow_uct_2 = batch["flow_uct"][:1, 1:]
         white_img = torch.ones_like(ref_rgb)
         ref_rgb = torch.where(ref_mask > 0, ref_rgb, white_img)
-        ref_rgb_2 = torch.where(ref_mask_2 > 0, ref_rgb_2, white_img)
 
         res = self.config["train_res"]
         # M,N,C => (N, C, d1, d2, ...,dK)
@@ -441,6 +421,25 @@ class GSplatModel(nn.Module):
         ref_flow = F.interpolate(ref_flow, (256, 256), mode="bilinear")
         ref_flow_uct = ref_flow_uct.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
         ref_flow_uct = F.interpolate(ref_flow_uct, (256, 256), mode="bilinear")
+
+        rendered_2 = self.render(
+            cam_dict_2,
+            w2c=w2c_2,
+            frameid=frameid_2,
+            w2c_2=w2c,
+            frameid_2=frameid,
+            Kmat_2=Kmat,
+        )
+        rgb_2 = rendered_2["rgb"]
+        mask_2 = rendered_2["alpha"]
+        flow_2 = rendered_2["flow"]
+
+        ref_rgb_2 = batch["rgb"][:1, 1:]
+        ref_mask_2 = batch["mask"][:1, 1:].float()
+        ref_vis2d_2 = batch["vis2d"][:1, 1:].float()
+        ref_flow_2 = batch["flow"][:1, 1:]
+        ref_flow_uct_2 = batch["flow_uct"][:1, 1:]
+        ref_rgb_2 = torch.where(ref_mask_2 > 0, ref_rgb_2, white_img)
 
         ref_rgb_2 = ref_rgb_2.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
         ref_rgb_2 = F.interpolate(
@@ -478,6 +477,14 @@ class GSplatModel(nn.Module):
 
         # reference view loss
         loss_dict["rgb"] = (rgb - ref_rgb).pow(2)
+        # pdb.set_trace()
+        # cv2.imwrite(
+        #     "tmp/0.jpg", rgb[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255
+        # )
+        # cv2.imwrite(
+        #     "tmp/1.jpg", ref_rgb[0].permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255
+        # )
+
         loss_dict["mask"] = (mask - ref_mask).pow(2)
         loss_dict["flow"] = (flow - ref_flow).norm(2, 1, keepdim=True)
         loss_dict["flow"] = loss_dict["flow"] * (ref_flow_uct > 0).float()
@@ -508,7 +515,7 @@ class GSplatModel(nn.Module):
         full2crop = np.zeros_like(crop2raw)
         full2crop[0] = 1
         full2crop[1] = crop2raw[0] / crop2raw[1]
-        full2crop *= 1.5
+        full2crop *= 1.2
         full2crop[2] = 256 * (1 - full2crop[0]) / 2
         full2crop[3] = 256 * (1 - full2crop[1]) / 2
         return full2crop
@@ -550,8 +557,8 @@ class GSplatModel(nn.Module):
         c2w = orbit_camera(elevation + polar[0], azimuth[0], self.radius + radius[0])
         w2c = np.linalg.inv(c2w)
         # GL to CV for both obj and cam space
-        w2c[1:3] *= -1
-        w2c[:, 1:3] *= -1
+        w2c[1:3] *= -1  # left size: flip cam
+        w2c[:, 1:3] *= -1  # right side: flip obj
 
         # dataset extrinsics at frameid | if w2c=I, then w2w0 = w2c
         w2c = torch.tensor(w2c, dtype=torch.float32, device=self.device)
@@ -561,7 +568,7 @@ class GSplatModel(nn.Module):
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
         # render
-        rendered = self.render(cam_dict, bg_color=bg_color, w2c=w2c, frameid=frameid)
+        rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
         rgb_nv = rendered["rgb"]
 
         # compute loss
@@ -572,6 +579,14 @@ class GSplatModel(nn.Module):
             loss_dict["guidance_sd"] = loss_guidance_sd
 
         if self.config["guidance_zero123_wt"] > 0:
+            # cv2.imwrite(
+            #     "tmp/0.jpg", ref_rgb[0].permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255
+            # )
+            # cv2.imwrite(
+            #     "tmp/1.jpg",
+            #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
+            # )
+            # pdb.set_trace()
             self.guidance_zero123.get_img_embeds(ref_rgb)
 
             loss_guidance_zero123 = self.guidance_zero123.train_step(

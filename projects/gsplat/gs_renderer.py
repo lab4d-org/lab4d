@@ -324,7 +324,7 @@ class GaussianModel(nn.Module):
             pts = torch.tensor(pts, dtype=torch.float)
         self._xyz = nn.Parameter(pts)
         if shs is None:
-            shs = torch.rand((pts.shape[0], 3), dtype=torch.float)
+            shs = torch.zeros_like(pts)
         features = torch.zeros(
             (shs.shape[0], 3, (self.max_sh_degree + 1) ** 2),
             dtype=torch.float,
