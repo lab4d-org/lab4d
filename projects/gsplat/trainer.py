@@ -118,7 +118,7 @@ class GSplatTrainer(Trainer):
                 "module.gaussians._features_rest": lr_base * 0.05,
                 "module.gaussians._scaling": lr_base * 0.5,
                 "module.gaussians._rotation": lr_base * 0.5,
-                "module.gaussians._opacity": lr_base,
+                "module.gaussians._opacity": lr_base * 5,
                 "module.gaussians._trajectory": lr_base * 0.5,
                 "module.gaussians.camera_mlp": lr_base,
                 "module.guidance_sd": 0.0,
@@ -180,7 +180,8 @@ class GSplatTrainer(Trainer):
                 break
 
             progress = (self.current_steps - self.first_step) / self.total_steps
-            self.model.set_progress(self.current_steps, progress)
+            sub_progress = i / opts["iters_per_round"]
+            self.model.set_progress(self.current_steps, progress, sub_progress)
 
             self.model.convert_img_to_pixel(batch)
 

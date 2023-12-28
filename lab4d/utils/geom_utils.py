@@ -48,6 +48,16 @@ def focal_to_fov(focal, img_size=None):
     return fov
 
 
+def Kmat_to_px(Kmat, res):
+    """invserse of the following
+    Kmat[..., :2, 2] = Kmat[..., :2, 2] - crop_size / 2
+    Kmat[..., :2, :] = Kmat[..., :2, :] / crop_size * 2
+    """
+    Kmat[..., :2, :] = Kmat[..., :2, :] / 2 * res
+    Kmat[..., :2, 2] = Kmat[..., :2, 2] + res / 2
+    return Kmat
+
+
 def pinhole_projection(Kmat, xyz_cam, keep_depth=False):
     """Project points from camera space to the image plane
 

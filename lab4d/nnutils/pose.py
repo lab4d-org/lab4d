@@ -213,6 +213,7 @@ class CameraConst(nn.Module):
                 "frame_mapping": list(range(num_frames)),
                 "frame_offset_raw": np.asarray([0, num_frames]),
             }
+        self.frame_info = frame_info
         frame_mapping = torch.tensor(frame_info["frame_mapping"])
         frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
         frame_mapping_inv[frame_mapping] = torch.arange(len(frame_mapping))

@@ -202,6 +202,8 @@ class GaussianModel(nn.Module):
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
+        self.xyz_vis_accum = torch.empty(0)
+        self.vis_denom = torch.empty(0)
         self.optimizer = None
         self.is_inc_mode = False
         self.ratio_knn = 1.0
@@ -382,6 +384,8 @@ class GaussianModel(nn.Module):
     def construct_stat_vars(self):
         self.xyz_gradient_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
         self.denom = torch.zeros((self.get_num_pts, 1), device="cuda")
+        self.xyz_vis_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
+        self.vis_denom = torch.zeros((self.get_num_pts, 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_num_pts), device="cuda")
 
     def update_learning_rate(self, iteration):
@@ -428,6 +432,10 @@ class GaussianModel(nn.Module):
             [self.xyz_gradient_accum, self.xyz_gradient_accum[clone_mask]], 0
         )
         self.denom = torch.cat([self.denom, self.denom[clone_mask]], 0)
+        self.xyz_vis_accum = torch.cat(
+            [self.xyz_vis_accum, self.xyz_vis_accum[clone_mask]], 0
+        )
+        self.vis_denom = torch.cat([self.vis_denom, self.vis_denom[clone_mask]], 0)
         self.max_radii2D = torch.cat(
             [self.max_radii2D, self.max_radii2D[clone_mask]], 0
         )
@@ -435,20 +443,25 @@ class GaussianModel(nn.Module):
         # then prune
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_mask]
         self.denom = self.denom[valid_mask]
+        self.xyz_vis_accum = self.xyz_vis_accum[valid_mask]
+        self.vis_denom = self.vis_denom[valid_mask]
         self.max_radii2D = self.max_radii2D[valid_mask]
 
         # reset
         self.xyz_gradient_accum[:] = 0
         self.denom[:] = 0
+        self.xyz_vis_accum[:] = 0
+        self.vis_denom[:] = 0
         self.max_radii2D[:] = 0
 
     def densify_and_prune(
-        self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-6
+        self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-6, min_vis=0.5
     ):
         grads = self.xyz_gradient_accum / (self.denom + 1e-6)
         grads = grads[..., 0]
         print("min grad: ", torch.min(grads))
         print("max grad: ", torch.max(grads))
+        oom_ratio = (self.xyz_vis_accum / (self.vis_denom + 1e-6))[..., 0]
 
         # Clone if grad is high
         clone_mask = grads > max_grad
@@ -456,11 +469,12 @@ class GaussianModel(nn.Module):
         # Prune if opacity is low, scale if high, or grad is low
         selected_trans_pts = (self.get_opacity < min_opacity).squeeze()
         selected_big_pts = self.get_scaling.max(dim=1).values > max_scale
-        selected_out_pts = torch.logical_and(grads < min_grad, self.denom[..., 0] > 0)
-        print("selected_out_pts: ", selected_out_pts.sum())
+        selected_oog_pts = torch.logical_and(grads < min_grad, self.denom[..., 0] > 0)
+        selected_oom_pts = oom_ratio > min_vis  # 10% frames oom
         print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
         prune_mask = torch.logical_or(selected_trans_pts, selected_big_pts)
-        prune_mask = torch.logical_or(prune_mask, selected_out_pts)
+        prune_mask = torch.logical_or(prune_mask, selected_oog_pts)
+        prune_mask = torch.logical_or(prune_mask, selected_oom_pts)
         return clone_mask, prune_mask
 
     def add_xyz_grad_stats(self, viewspace_point_grad, update_filter):
@@ -472,6 +486,14 @@ class GaussianModel(nn.Module):
             viewspace_point_grad[update_filter, :2], dim=-1, keepdim=True
         )
         self.denom[update_filter] += 1
+
+    def add_xyz_vis_stats(self, xyz_vis, update_filter):
+        """
+        xyz_vis: [N, 1]
+        update_filter: [N], bool
+        """
+        self.xyz_vis_accum[update_filter] += xyz_vis
+        self.vis_denom[update_filter] += 1
 
     @staticmethod
     def transform(center, rotations, w2c):
@@ -573,7 +595,7 @@ class GaussianModel(nn.Module):
             x_traj = self._trajectory[..., 4:]
             v_traj = x_traj[:, 1:] - x_traj[:, :-1]
             a_traj = v_traj[:, 1:] - v_traj[:, :-1]
-            least_trans_loss = torch.norm(a_traj, 2, -1).mean()
+            least_trans_loss = torch.norm(a_traj, 2, -1).max(-1)[0]
 
             theta_traj = self.rotation_activation(self._trajectory[..., :4])
             omega_traj = quaternion_mul(
@@ -585,7 +607,7 @@ class GaussianModel(nn.Module):
                 quaternion_conjugate(omega_traj[:, :-1]).clone(),
             )
             least_rot_loss = quaternion_to_matrix(alpha_traj)
-            least_rot_loss = rot_angle(least_rot_loss).mean()
+            least_rot_loss = rot_angle(least_rot_loss).max(-1)[0]
             least_action_loss = least_trans_loss + 0.01 * least_rot_loss
             return least_action_loss
         else:
@@ -600,15 +622,26 @@ class GaussianModel(nn.Module):
             return
         if hasattr(self, "_trajectory"):
             print("set future time params to id: ", last_opt_frameid)
+            # TODO: set future params for each sequence
             last_pt = self._trajectory[:, last_opt_frameid : last_opt_frameid + 1, :]
             self._trajectory.data[:, last_opt_frameid + 1 :, :] = last_pt.data
 
         if hasattr(self, "camera_mlp"):
             print("set future time params to id: ", last_opt_frameid)
-            last_quat = self.camera_mlp.quat[last_opt_frameid]
-            last_trans = self.camera_mlp.trans[last_opt_frameid]
-            self.camera_mlp.quat.data[last_opt_frameid + 1 :] = last_quat.data
-            self.camera_mlp.trans.data[last_opt_frameid + 1 :] = last_trans.data
+            # set future params for each sequence
+            frame_offset = self.camera_mlp.frame_info["frame_offset"]
+            for i in range(len(frame_offset) - 1):
+                start_frame = frame_offset[i]
+                end_frame = frame_offset[i + 1]
+                last_opt_frameid_abs = last_opt_frameid + start_frame
+                last_quat = self.camera_mlp.quat[last_opt_frameid_abs]
+                last_trans = self.camera_mlp.trans[last_opt_frameid_abs]
+                self.camera_mlp.quat.data[
+                    last_opt_frameid_abs + 1 : end_frame
+                ] = last_quat.data
+                self.camera_mlp.trans.data[
+                    last_opt_frameid_abs + 1 : end_frame
+                ] = last_trans.data
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):

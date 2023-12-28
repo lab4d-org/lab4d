@@ -43,6 +43,8 @@ from projects.gsplat.gs_renderer import (
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.gsplat.cam_utils import orbit_camera
 
+from flowutils.flowlib import point_vec, warp_flow
+
 
 class GSplatModel(nn.Module):
     def __init__(self, config, data_info):
@@ -227,6 +229,7 @@ class GSplatModel(nn.Module):
         screenspace_points = self.get_screenspace_pts_placeholder()
         means3D = self.gaussians.get_xyz(frameid)
         means2D = screenspace_points
+        means2D_tmp = self.get_screenspace_pts_placeholder()
         opacity = self.gaussians.get_opacity
         cov3D_precomp = None
         scales = self.gaussians.get_scaling
@@ -234,6 +237,9 @@ class GSplatModel(nn.Module):
 
         if w2c is not None:
             means3D, rotations = self.gaussians.transform(means3D, rotations, w2c)
+            xy_1 = pinhole_projection(camera_dict["Kmat"], means3D[None])[0]
+        else:
+            raise NotImplementedError
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
@@ -254,12 +260,12 @@ class GSplatModel(nn.Module):
         with torch.no_grad():
             field_vals = self.gaussians.get_xyz()
             #### render other quantities
-            rasterizer = self.get_rasterizer(
+            rasterizer_xyz = self.get_rasterizer(
                 camera_dict, bg_color=torch.zeros_like(self.bg_color)
             )
-            render_vals, _, _, _ = rasterizer(
+            render_vals, _, _, _ = rasterizer_xyz(
                 means3D=means3D,
-                means2D=means2D,
+                means2D=torch.zeros_like(means2D),
                 shs=None,
                 colors_precomp=field_vals,
                 opacities=opacity,
@@ -278,6 +284,7 @@ class GSplatModel(nn.Module):
             "viewspace_points": screenspace_points,
             "visibility_mask": radii > 0,
             "radii": radii,
+            "reproj_xy": xy_1[None, ..., :2],
         }
         out_dict["rgb"] = out_dict["rgb"][None]
         out_dict["depth"] = out_dict["depth"][None]
@@ -286,38 +293,27 @@ class GSplatModel(nn.Module):
 
         # render flow
         if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
-            Kmat = camera_dict["Kmat"]
-
+            rasterizer_flow = self.get_rasterizer(
+                camera_dict, torch.zeros_like(self.bg_color)
+            )
             means3D_2 = self.gaussians.get_xyz(frameid_2)
             rotations_2 = self.gaussians.get_rotation(frameid_2)
             means3D_2, rotations_2 = self.gaussians.transform(
                 means3D_2, rotations_2, w2c_2
             )
             xy_2 = pinhole_projection(Kmat_2[None], means3D_2[None])[0]
-            xy_1 = pinhole_projection(Kmat[None], means3D[None])[0]
-            render_xy1, _, _, _ = rasterizer(
+            flow, _, _, _ = rasterizer_flow(
                 means3D=means3D,
-                means2D=means2D,
+                means2D=means2D_tmp,
                 shs=None,
-                colors_precomp=xy_1,
-                opacities=opacity,
-                scales=scales,
-                rotations=rotations,
+                colors_precomp=(xy_2 - xy_1),
+                opacities=opacity.detach(),
+                scales=scales.detach(),
+                rotations=rotations.detach(),
                 cov3D_precomp=cov3D_precomp,
             )
-            render_xy2, _, _, _ = rasterizer(
-                means3D=means3D,
-                means2D=means2D,
-                shs=None,
-                colors_precomp=xy_2,
-                opacities=opacity,
-                scales=scales,
-                rotations=rotations,
-                cov3D_precomp=cov3D_precomp,
-            )
-            flow = (render_xy2 - render_xy1)[None, :2]
-            flow = flow * camera_dict["render_resolution"] / 2
-            out_dict["flow"] = flow
+            out_dict["flow"] = flow[None, :2] * camera_dict["render_resolution"] / 2
+            out_dict["means2D_tmp"] = means2D_tmp
 
         # save aux for densification
         if self.training:
@@ -379,9 +375,10 @@ class GSplatModel(nn.Module):
 
         # flow args
         frameid_2 = self.get_frameid(batch)[0, 1]
-        w2c_2 = self.gaussians.get_extrinsics(frameid_2)
+        frameid_abs_2 = batch["frameid"][0, 1]
+        w2c_2 = self.gaussians.get_extrinsics(frameid_abs_2)
         crop2raw_2 = batch["crop2raw"][0, 1]
-        Kmat_2 = K2mat(self.intrinsics.get_vals(frameid_2))
+        Kmat_2 = K2mat(self.intrinsics.get_vals(frameid_abs_2))
         Kmat_2 = self.compute_Kmat(crop_size, crop2raw_2, Kmat_2)
         cam_dict_2 = self.get_default_cam(Kmat=Kmat_2)
 
@@ -397,6 +394,7 @@ class GSplatModel(nn.Module):
         rgb = rendered["rgb"]
         mask = rendered["alpha"]
         flow = rendered["flow"]
+        reproj_xy = rendered["reproj_xy"]
 
         # prepare reference view GT
         ref_rgb = batch["rgb"][:1, :1]
@@ -422,6 +420,7 @@ class GSplatModel(nn.Module):
         ref_flow_uct = ref_flow_uct.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
         ref_flow_uct = F.interpolate(ref_flow_uct, (256, 256), mode="bilinear")
 
+        # render second pair
         rendered_2 = self.render(
             cam_dict_2,
             w2c=w2c_2,
@@ -433,6 +432,7 @@ class GSplatModel(nn.Module):
         rgb_2 = rendered_2["rgb"]
         mask_2 = rendered_2["alpha"]
         flow_2 = rendered_2["flow"]
+        reproj_xy_2 = rendered["reproj_xy"]
 
         ref_rgb_2 = batch["rgb"][:1, 1:]
         ref_mask_2 = batch["mask"][:1, 1:].float()
@@ -458,6 +458,7 @@ class GSplatModel(nn.Module):
         rgb = torch.cat([rgb, rgb_2], 0)
         mask = torch.cat([mask, mask_2], 0)
         flow = torch.cat([flow, flow_2], 0)
+        reproj_xy = torch.cat([reproj_xy, reproj_xy_2], 0)
 
         ref_rgb = torch.cat([ref_rgb, ref_rgb_2], 0)
         ref_mask = torch.cat([ref_mask, ref_mask_2], 0)
@@ -465,7 +466,6 @@ class GSplatModel(nn.Module):
         ref_flow = torch.cat([ref_flow, ref_flow_2], 0)
         ref_flow_uct = torch.cat([ref_flow_uct, ref_flow_uct_2], 0)
 
-        # from flowutils.flowlib import point_vec, warp_flow
         # img_numpy = rgb[0].permute(1, 2, 0).detach().cpu().numpy()
         # flow_numpy = flow[0].permute(1, 2, 0).detach().cpu().numpy()
         # img_gt = ref_rgb[0].permute(1, 2, 0).cpu().numpy()
@@ -492,6 +492,15 @@ class GSplatModel(nn.Module):
         #     batch["mask"], batch["vis2d"], batch["is_detected"]
         # )
         # loss_dict["mask"] *= mask_balance_wt
+
+        # update pts visibility
+        # oom: pts not in ref_mask and pts inside of vis2d
+        reproj_xy = reproj_xy[:, :, None]
+        # resample ref_mask based of reproj_xy
+        outside_mask = F.grid_sample(ref_mask, reproj_xy, align_corners=True) == 0
+        inside_vis2d = F.grid_sample(ref_vis2d, reproj_xy, align_corners=True) > 0
+        is_oom = (outside_mask & inside_vis2d)[:, 0, :].float().mean(0)
+        self.gaussians.add_xyz_vis_stats(is_oom, torch.ones_like(is_oom[..., 0]) > 0)
 
         # mask loss
         self.mask_losses(loss_dict, ref_mask, ref_vis2d, self.config)
@@ -521,7 +530,7 @@ class GSplatModel(nn.Module):
         return full2crop
 
     @staticmethod
-    def uncrop_img(ref_rgb, full2crop):
+    def uncrop_img(ref_rgb, full2crop, mode=cv2.INTER_LINEAR):
         dev = ref_rgb.device
         ref_rgb = ref_rgb.permute(0, 2, 3, 1).cpu().numpy()[0]
         x0, y0 = np.meshgrid(range(256), range(256))
@@ -534,7 +543,7 @@ class GSplatModel(nn.Module):
             ref_rgb,
             x0,
             y0,
-            cv2.INTER_LINEAR,
+            interpolation=mode,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(1, 1, 1),
         )
@@ -567,9 +576,10 @@ class GSplatModel(nn.Module):
 
         cam_dict = self.get_default_cam(Kmat=Kmat)
 
-        # render
-        rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
-        rgb_nv = rendered["rgb"]
+        if self.config["guidance_sd_wt"] > 0 or self.config["guidance_zero123_wt"] > 0:
+            # render
+            rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
+            rgb_nv = rendered["rgb"]
 
         # compute loss
         if self.config["guidance_sd_wt"] > 0:
@@ -646,6 +656,8 @@ class GSplatModel(nn.Module):
         keys_allpix = ["mask"]
         # field type specific keys
         keys_type_specific = ["rgb", "flow"]
+        # rendered-mask weighted losses
+        keys_mask_weighted = ["flow"]
 
         # type-specific masking rules
         if config["field_type"] == "bg":
@@ -664,6 +676,10 @@ class GSplatModel(nn.Module):
                 loss_dict[k] = v * mask
             else:
                 raise ("loss %s not defined" % k)
+
+        # # apply mask weights
+        # for k in keys_mask_weighted:
+        #     loss_dict[k] *= loss_dict["mask"].detach()
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):
@@ -753,7 +769,7 @@ class GSplatModel(nn.Module):
         crop_size = self.config["eval_res"]
         self.process_frameid(batch)
         scalars = {}
-        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": []}
+        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": []}
 
         nframes = len(batch["frameid"])
         if is_pair:
@@ -765,22 +781,36 @@ class GSplatModel(nn.Module):
                 idx = idx * 2
             frameid_abs = batch["frameid"][idx]
             frameid = self.get_frameid(batch)[idx]
+            try:
+                frameid_2 = self.get_frameid(batch)[idx + 1]
+            except:
+                frameid_2 = frameid
             if "crop2raw" in batch.keys():
                 crop2raw = batch["crop2raw"][idx]
+                crop2raw_2 = batch["crop2raw"][idx + 1]
             else:
                 crop2raw = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
+                crop2raw_2 = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
             if "Kinv" in batch.keys():
                 Kmat = batch["Kinv"][frameid].inverse()
+                Kmat_2 = batch["Kinv"][frameid_2].inverse()
             else:
                 Kmat = K2mat(self.intrinsics.get_vals(frameid_abs))
+                Kmat_2 = K2mat(self.intrinsics.get_vals(frameid_abs + 1))
             Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
+            Kmat_2 = self.compute_Kmat(crop_size, crop2raw_2, Kmat_2)
             if "field2cam" in batch.keys():
                 quat_trans = batch["field2cam"]["fg"][idx]
                 quat, trans = quat_trans[:4], quat_trans[4:]
                 w2c = quaternion_translation_to_se3(quat, trans)
+
+                quat_trans_2 = batch["field2cam"]["fg"][idx + 1]
+                quat_2, trans_2 = quat_trans_2[:4], quat_trans_2[4:]
+                w2c_2 = quaternion_translation_to_se3(quat_2, trans_2)
             else:
                 w2c = self.gaussians.get_extrinsics(frameid_abs)
-            cam_dict = self.get_default_cam(Kmat=Kmat)
+                w2c_2 = self.gaussians.get_extrinsics(frameid_abs + 1)
+            cam_dict = self.get_default_cam(Kmat=Kmat, render_resolution=crop_size)
 
             # # manually create cameras
             # w2c = np.eye(4, dtype=np.float32)
@@ -792,17 +822,23 @@ class GSplatModel(nn.Module):
             # Kmat = K2mat(K)
             # cam_dict = self.get_default_cam(Kmat=Kmat)
 
-            rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
+            rendered = self.render(
+                cam_dict,
+                w2c=w2c,
+                frameid=frameid,
+                w2c_2=w2c_2,
+                frameid_2=frameid_2,
+                Kmat_2=Kmat_2,
+            )
+
+            # img_numpy = rendered["rgb"][0].permute(1, 2, 0).detach().cpu().numpy()
+            # flow_numpy = rendered["flow"][0].permute(1, 2, 0).detach().cpu().numpy()
+            # flow_vis = point_vec(img_numpy * 255, flow_numpy, skip=10)
+            # cv2.imwrite("tmp/0.jpg", flow_vis)
+
             for k, v in rendered.items():
                 if k in out_dict.keys():
                     out_dict[k].append(v[0].permute(1, 2, 0).cpu().numpy())
-            # out_dict["rgb"].append(rendered["rgb"][0].permute(1, 2, 0).cpu().numpy())
-            # out_dict["depth"].append(
-            #     rendered["depth"][0].permute(1, 2, 0).cpu().numpy()
-            # )
-            # out_dict["alpha"].append(
-            #     rendered["alpha"][0].permute(1, 2, 0).cpu().numpy()
-            # )
         for k, v in out_dict.items():
             out_dict[k] = np.stack(v, 0)
         return out_dict, scalars
@@ -831,7 +867,7 @@ class GSplatModel(nn.Module):
             motion_id = batch["dataid"]
         batch["frameid"] = batch["frameid_sub"] + self.offset_cache[motion_id]
 
-    def set_progress(self, current_steps, progress):
+    def set_progress(self, current_steps, progress, sub_progress):
         """Adjust loss weights and other constants throughout training
 
         Args:
@@ -848,12 +884,52 @@ class GSplatModel(nn.Module):
         else:
             self.gaussians.is_inc_mode = True
 
-        # # knn for arap
-        # anchor_x = (0, 1.0)
-        # anchor_y = (0.1, 0.0)
+        # knn for arap
+        anchor_x = (0, 1.0)
+        anchor_y = (1.0, 0.0)
+        type = "linear"
+        if self.progress > config["inc_warmup_ratio"]:
+            ratio_knn = interp_wt(anchor_x, anchor_y, progress, type=type)
+        else:
+            ratio_knn = interp_wt(anchor_x, anchor_y, sub_progress, type=type)
+        self.gaussians.ratio_knn = ratio_knn
+
+        # least action wt
+        loss_name = "reg_least_action_wt"
+        anchor_x = (0, 1.0)
+        anchor_y = (1.0, 0.0)
+        type = "linear"
+        if self.progress > config["inc_warmup_ratio"]:
+            self.set_loss_weight(loss_name, anchor_x, anchor_y, progress, type=type)
+        else:
+            self.set_loss_weight(loss_name, anchor_x, anchor_y, sub_progress, type=type)
+
+        # # flow wt
+        # loss_name = "flow_wt"
+        # anchor_x = (
+        #     config["inc_warmup_ratio"],
+        #     min(config["inc_warmup_ratio"] + 0.001, 1),
+        # )
+        # anchor_y = (1.0, 0.0)
         # type = "linear"
-        # ratio_knn = interp_wt(anchor_x, anchor_y, progress, type=type)
-        # self.gaussians.ratio_knn = ratio_knn
+        # self.set_loss_weight(loss_name, anchor_x, anchor_y, progress, type=type)
+
+    def set_loss_weight(
+        self, loss_name, anchor_x, anchor_y, progress_ratio, type="linear"
+    ):
+        """Set a loss weight according to the current training step
+
+        Args:
+            loss_name (str): Name of loss weight to set
+            anchor_x: Tuple of optimization steps [x0, x1]
+            anchor_y: Tuple of loss values [y0, y1]
+            progress_ratio (float): Current optimization ratio, 0 to 1
+            type (str): Interpolation type ("linear" or "log")
+        """
+        if "%s_init" % loss_name not in self.config.keys():
+            self.config["%s_init" % loss_name] = self.config[loss_name]
+        factor = interp_wt(anchor_x, anchor_y, progress_ratio, type=type)
+        self.config[loss_name] = self.config["%s_init" % loss_name] * factor
 
     @torch.no_grad()
     def get_field_params(self):
@@ -862,7 +938,7 @@ class GSplatModel(nn.Module):
         Returns:
             betas (Dict): Beta values for each neural field
         """
-        beta_dicts = {}
+        beta_dicts = {"num_pts": self.gaussians.get_num_pts}
         return beta_dicts
 
     def convert_img_to_pixel(self, batch):
@@ -928,19 +1004,20 @@ class GSplatModel(nn.Module):
         return aabb
 
     def update_densification_stats(self):
-        for rendered_aux in self.rendered_aux:
-            if rendered_aux["viewspace_points"].grad is None:
+        grads = []
+        vis_masks = []
+        for aux in self.rendered_aux:
+            if aux["viewspace_points"].grad is None:
                 continue
-            viewspace_point_grad, visibility_mask, radii = (
-                rendered_aux["viewspace_points"].grad,
-                rendered_aux["visibility_mask"],
-                rendered_aux["radii"],
-            )
-            self.gaussians.max_radii2D[visibility_mask] = torch.max(
-                self.gaussians.max_radii2D[visibility_mask],
-                radii[visibility_mask],
-            )
-            self.gaussians.add_xyz_grad_stats(viewspace_point_grad, visibility_mask)
+            grad = aux["viewspace_points"].grad
+            # if "means2D_tmp" in aux.keys():
+            #     grad = grad + aux["means2D_tmp"].grad
+            grads.append(grad)
+            vis_masks.append(aux["visibility_mask"])
+        len_grads = len(grads)
+        for grad, vis_mask in zip(grads, vis_masks):
+            # d(L1+L2)/dx = dL1/dx + dL2/dx
+            self.gaussians.add_xyz_grad_stats(grad * len_grads, vis_mask)
         # delete after update
         del self.rendered_aux
 
