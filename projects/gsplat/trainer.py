@@ -231,7 +231,6 @@ class GSplatTrainer(Trainer):
             grad_dict = self.check_grad()
             self.optimizer.step()
             self.scheduler.step(self.current_steps)
-            self.scheduler.step()
             self.optimizer.zero_grad()
 
             # keep track of xyz spatial gradients for densification
