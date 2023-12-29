@@ -26,15 +26,16 @@
 # rigid singlecam incremental
 dev=1
 seqname=eagle-s-0001
-logname=gsplat-ref-flow-arap-opt2-alldata-fix3
+logname=gsplat-ref-flow-arap-opt2-alldata-z123
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
-  --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
+  --num_rounds 120 --iters_per_round 200 --learning_rate 0.01 \
   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
   --intrinsics_type const --extrinsics_type const --fg_motion dynamic \
   --reg_least_action_wt 0.0 --reg_arap_wt 1.0 --inc_warmup_ratio 0.25 --flow_wt 1.0 --num_pts 500 \
-  # --guidance_zero123_wt 2e-4 --rgb_wt 1.0 
+  --guidance_zero123_wt 2e-4
+  # --guidance_zero123_wt 1 --rgb_wt 1e3 --mask_wt 1e3 --flow_wt 1e4 --reg_arap_wt 1e4
 
 # # rigid multiview incremental
 # dev=1
@@ -86,16 +87,15 @@ bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname
 
 # # image-based
 # dev=2
-# seqname=eagle-s-0001
-# # seqname=cat-pikachu-0
-# logname=gsplat-ref-z1234
+# # seqname=eagle-s-0001
+# seqname=cat-pikachu-0
+# logname=gsplat-ref-z123
 # rm -rf logdir/$seqname-$logname
 # bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
 #   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --intrinsics_type const --extrinsics_type const \
-#   --num_rounds 10 --iters_per_round 50 --learning_rate 1e-2 \
-#   --guidance_sd_wt 0.0 --guidance_zero123_wt 2e-4 --rgb_wt 1.0 
-# # --flow_wt 0.0
-# # --guidance_zero123_wt 1 --rgb_wt 1e4 --mask_wt 1e3 --flow_wt 0.0
+#   --num_rounds 120 --iters_per_round 200 --learning_rate 1e-2 --eval_res 256 --feature_type cse --fg_motion dynamic \
+#   --guidance_zero123_wt 2e-4 --flow_wt 1.0 --reg_arap_wt 1.0 
+# # --guidance_zero123_wt 1 --rgb_wt 1e4 --mask_wt 1e3 --flow_wt 1e4 --reg_arap_wt 1e4
 
 # # text-based
 # dev=0

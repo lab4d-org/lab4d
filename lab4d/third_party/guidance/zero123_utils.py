@@ -59,10 +59,19 @@ class Zero123(nn.Module):
         self.max_step = int(self.num_train_timesteps * t_range[1])
         self.alphas = self.scheduler.alphas_cumprod.to(self.device)  # for convenience
 
-        self.embeddings = None
+        self.embeddings = {}
 
     @torch.no_grad()
-    def get_img_embeds(self, x):
+    def has_embeddings(self, frameid):
+        if frameid in self.embeddings:
+            return True
+
+    @torch.no_grad()
+    def get_embeddings(self, frameid):
+        return self.embeddings[frameid]
+
+    @torch.no_grad()
+    def get_img_embeds(self, x, frameid):
         # x: image tensor in [0, 1]
         x = F.interpolate(x, (256, 256), mode="bilinear", align_corners=False)
         x_pil = [TF.to_pil_image(image) for image in x]
@@ -71,7 +80,7 @@ class Zero123(nn.Module):
         ).pixel_values.to(device=self.device, dtype=self.dtype)
         c = self.pipe.image_encoder(x_clip).image_embeds
         v = self.encode_imgs(x.to(self.dtype)) / self.vae.config.scaling_factor
-        self.embeddings = [c, v]
+        self.embeddings[frameid] = [c, v]
 
     def get_cam_embeddings(self, elevation, azimuth, radius, default_elevation=0):
         if self.use_stable_zero123:
@@ -107,6 +116,7 @@ class Zero123(nn.Module):
         elevation,
         azimuth,
         radius,
+        embeddings,
         guidance_scale=5,
         steps=50,
         strength=0.8,
@@ -130,11 +140,11 @@ class Zero123(nn.Module):
             )
 
         T = self.get_cam_embeddings(elevation, azimuth, radius, default_elevation)
-        cc_emb = torch.cat([self.embeddings[0].repeat(batch_size, 1, 1), T], dim=-1)
+        cc_emb = torch.cat([embeddings[0].repeat(batch_size, 1, 1), T], dim=-1)
         cc_emb = self.pipe.clip_camera_projection(cc_emb)
         cc_emb = torch.cat([cc_emb, torch.zeros_like(cc_emb)], dim=0)
 
-        vae_emb = self.embeddings[1].repeat(batch_size, 1, 1, 1)
+        vae_emb = embeddings[1].repeat(batch_size, 1, 1, 1)
         vae_emb = torch.cat([vae_emb, torch.zeros_like(vae_emb)], dim=0)
 
         for i, t in enumerate(self.scheduler.timesteps[init_step:]):
@@ -163,6 +173,7 @@ class Zero123(nn.Module):
         elevation,
         azimuth,
         radius,
+        embeddings,
         step_ratio=None,
         guidance_scale=5,
         as_latent=False,
@@ -210,11 +221,11 @@ class Zero123(nn.Module):
             t_in = torch.cat([t] * 2)
 
             T = self.get_cam_embeddings(elevation, azimuth, radius, default_elevation)
-            cc_emb = torch.cat([self.embeddings[0].repeat(batch_size, 1, 1), T], dim=-1)
+            cc_emb = torch.cat([embeddings[0].repeat(batch_size, 1, 1), T], dim=-1)
             cc_emb = self.pipe.clip_camera_projection(cc_emb)
             cc_emb = torch.cat([cc_emb, torch.zeros_like(cc_emb)], dim=0)
 
-            vae_emb = self.embeddings[1].repeat(batch_size, 1, 1, 1)
+            vae_emb = embeddings[1].repeat(batch_size, 1, 1, 1)
             vae_emb = torch.cat([vae_emb, torch.zeros_like(vae_emb)], dim=0)
 
             noise_pred = self.unet(

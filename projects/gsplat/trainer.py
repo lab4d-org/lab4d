@@ -7,6 +7,7 @@ import numpy as np
 import tqdm
 from collections import defaultdict
 import gc
+from bisect import bisect_right
 
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
@@ -14,6 +15,15 @@ from lab4d.utils.torch_utils import get_nested_attr, set_nested_attr
 
 from projects.gsplat.gsplat import GSplatModel
 from projects.gsplat import config
+
+
+class CustomSequentialLR(torch.optim.lr_scheduler.SequentialLR):
+    def step(self, epoch=None):
+        self.last_epoch += 1
+        idx = bisect_right(self._milestones, self.last_epoch)
+        scheduler = self._schedulers[idx]
+        scheduler.step(epoch)
+        self._last_lr = scheduler.get_last_lr()
 
 
 class GSplatTrainer(Trainer):
@@ -74,24 +84,51 @@ class GSplatTrainer(Trainer):
             betas=(0.9, 0.999),
             weight_decay=0.0,
         )
-        if opts["inc_warmup_ratio"] > 0:
-            div_factor = 5.0
-            final_div_factor = 25.0
-            pct_start = opts["inc_warmup_ratio"]
+        if opts["guidance_zero123_wt"] > 0 or opts["guidance_sd_wt"] > 0:
+            # new scheduler
+            exp_rate = 0.9922
+            warmup_iters = 500  # 1=>1/50
+            scheduler_exp = torch.optim.lr_scheduler.ExponentialLR(
+                self.optimizer, exp_rate
+            )
+            scheduler_lin = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer,
+                exp_rate**warmup_iters,
+                1e-3,
+                total_iters=self.total_steps,
+            )
+            milestones = [warmup_iters]
+            schedulers = [scheduler_exp, scheduler_lin]
+            if opts["inc_warmup_ratio"] > 0:
+                const_steps = int(opts["inc_warmup_ratio"] * self.total_steps)
+                scheduler_const = torch.optim.lr_scheduler.ExponentialLR(
+                    self.optimizer, 1
+                )
+                schedulers.insert(0, scheduler_const)
+                milestones.insert(0, const_steps)
+            self.scheduler = CustomSequentialLR(
+                self.optimizer, schedulers=schedulers, milestones=milestones
+            )
         else:
-            div_factor = 25.0
-            final_div_factor = 1.0
-            pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
-        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            self.optimizer,
-            lr_list,
-            int(self.total_steps),
-            pct_start=pct_start,
-            cycle_momentum=False,
-            anneal_strategy="linear",
-            div_factor=div_factor,
-            final_div_factor=final_div_factor,
-        )
+            # previous scheduler
+            if opts["inc_warmup_ratio"] > 0:
+                div_factor = 5.0
+                final_div_factor = 25.0
+                pct_start = opts["inc_warmup_ratio"]
+            else:
+                div_factor = 25.0
+                final_div_factor = 1.0
+                pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
+            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                self.optimizer,
+                lr_list,
+                int(self.total_steps),
+                pct_start=pct_start,
+                cycle_momentum=False,
+                anneal_strategy="linear",
+                div_factor=div_factor,
+                final_div_factor=final_div_factor,
+            )
 
     def get_lr_dict(self, use_warmup_param=False):
         """Return the learning rate for each category of trainable parameters
@@ -193,6 +230,7 @@ class GSplatTrainer(Trainer):
 
             grad_dict = self.check_grad()
             self.optimizer.step()
+            self.scheduler.step(self.current_steps)
             self.scheduler.step()
             self.optimizer.zero_grad()
 
@@ -257,7 +295,15 @@ class GSplatTrainer(Trainer):
 
     def densify_and_prune(self):
         # densify and prune
-        clone_mask, prune_mask = self.model.gaussians.densify_and_prune()
+        if self.opts["guidance_zero123_wt"] > 0:
+            max_grad = 1e-3
+            min_grad = 0.0
+        else:
+            max_grad = 1e-4
+            min_grad = 1e-6
+        clone_mask, prune_mask = self.model.gaussians.densify_and_prune(
+            max_grad=max_grad, min_grad=min_grad
+        )
 
         # update stats
         self.model.gaussians.update_point_stats(prune_mask, clone_mask)
@@ -277,6 +323,7 @@ class GSplatTrainer(Trainer):
         # update optimizer
         self.optimizer_init()
         self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
+        self.scheduler.step(self.current_steps)
 
     def prune_parameters(self, valid_mask, clone_mask):
         """

@@ -67,6 +67,8 @@ def pinhole_projection(Kmat, xyz_cam, keep_depth=False):
     Returns:
         hxy: (M, ..., 3) Homogeneous pixel coordinates on the image plane
     """
+    if not torch.is_tensor(Kmat):
+        Kmat = torch.tensor(Kmat, device=xyz_cam.device, dtype=xyz_cam.dtype)
     shape = xyz_cam.shape
     Kmat = Kmat.view(shape[:1] + (1,) * (len(shape) - 2) + (3, 3))
     hxy = torch.einsum("...ij,...j->...i", Kmat, xyz_cam)

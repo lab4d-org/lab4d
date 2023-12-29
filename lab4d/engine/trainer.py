@@ -307,7 +307,7 @@ class Trainer:
                 # print(name, "not found")
             if lr > 0:
                 params_ref_list.append({name: p})
-                params_list.append({"params": p})
+                params_list.append({"params": p, "lr": lr})
                 lr_list.append(lr)
                 if get_local_rank() == 0:
                     print(name, p.shape, lr)

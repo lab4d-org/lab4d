@@ -596,11 +596,11 @@ class GSplatModel(nn.Module):
             #     "tmp/1.jpg",
             #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
             # )
-            # pdb.set_trace()
-            self.guidance_zero123.get_img_embeds(ref_rgb)
-
+            if not self.guidance_zero123.has_embeddings(frameid):
+                self.guidance_zero123.get_img_embeds(ref_rgb, frameid)
+            embeddings = self.guidance_zero123.get_embeddings(frameid)
             loss_guidance_zero123 = self.guidance_zero123.train_step(
-                rgb_nv, polar, azimuth, radius, step_ratio=self.progress
+                rgb_nv, polar, azimuth, radius, embeddings, step_ratio=self.progress
             )
             loss_dict["guidance_zero123"] = loss_guidance_zero123
 
@@ -610,6 +610,7 @@ class GSplatModel(nn.Module):
             #     elevation=polar,
             #     azimuth=azimuth,
             #     radius=radius,
+            #     embeddings=embeddings,
             #     strength=0,
             # )
             # cv2.imwrite(
