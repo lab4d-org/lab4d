@@ -199,6 +199,7 @@ class GaussianModel(nn.Module):
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
+        self.bg_color = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
@@ -249,6 +250,9 @@ class GaussianModel(nn.Module):
     @property
     def get_num_pts(self):
         return self._xyz.shape[0]
+
+    def get_bg_color(self):
+        return self.bg_color
 
     @torch.no_grad()
     def update_geometry_aux(self):
@@ -354,6 +358,10 @@ class GaussianModel(nn.Module):
             0.5 * torch.ones((pts.shape[0], 1), dtype=torch.float)
         )
         self._opacity = nn.Parameter(opacities)
+
+    def init_background(self, resolution):
+        bg_color = torch.ones((3, resolution, resolution), dtype=torch.float)
+        self.bg_color = nn.Parameter(bg_color)
 
     @property
     def get_num_frames(self):

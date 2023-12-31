@@ -239,6 +239,29 @@ class Zero123(nn.Module):
             noise_pred_cond - noise_pred_uncond
         )
 
+        # import pdb
+        # import cv2
+
+        # cv2.imwrite(
+        #     "tmp/0.jpg",
+        #     (
+        #         (latents_noisy - latents_noisy.min())
+        #         / (latents_noisy.max() - latents_noisy.min())
+        #     )[0, 0]
+        #     .cpu()
+        #     .numpy()
+        #     .astype(np.float32)
+        #     * 255,
+        # )
+        # cv2.imwrite(
+        #     "tmp/1.jpg",
+        #     ((latents - latents.min()) / (latents.max() - latents.min()))[0, 0]
+        #     .cpu()
+        #     .detach()
+        #     .numpy()
+        #     .astype(np.float32)
+        #     * 255,
+        # )
         grad = w * (noise_pred - noise)
         grad = torch.nan_to_num(grad)
 

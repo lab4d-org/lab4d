@@ -225,6 +225,7 @@ class VidDataset(Dataset):
         index = max(index - self.min_frameid, 0)
         index = index % (self.max_frameid - self.min_frameid)
         index = index + self.min_frameid
+        index = 0
         data_dict = self.load_data(index)
         return data_dict
 

@@ -27,6 +27,7 @@ from lab4d.utils.geom_utils import (
     K2mat,
     K2inv,
     pinhole_projection,
+    rot_angle,
 )
 from lab4d.utils.quat_transform import (
     quaternion_mul,
@@ -105,6 +106,8 @@ class GSplatModel(nn.Module):
             self.gaussians.init_trajectory(total_frames)
         else:
             self.use_timesync = False
+
+        self.gaussians.init_background(config["train_res"])
 
         self.gaussians.construct_stat_vars()
 
@@ -338,14 +341,6 @@ class GSplatModel(nn.Module):
         }
         return cam_dict
 
-    def get_bg_color(self):
-        bg_color = torch.tensor(
-            [1, 1, 1] if np.random.rand() > 0.5 else [0, 0, 0],
-            dtype=torch.float32,
-            device=self.device,
-        )
-        return bg_color
-
     def compute_Kmat(self, crop_size, crop2raw, Kmat):
         # Kmat = Kmat_crop2raw^-1 @ Kmat_raw
         if not torch.is_tensor(Kmat):
@@ -362,7 +357,6 @@ class GSplatModel(nn.Module):
 
         # render reference view
         crop_size = self.config["train_res"]
-        bg_color = self.get_bg_color()
 
         frameid_abs = batch["frameid"][0, 0]
         frameid = self.get_frameid(batch)[0, 0]
@@ -498,15 +492,17 @@ class GSplatModel(nn.Module):
         reproj_xy = reproj_xy[:, :, None]
         # resample ref_mask based of reproj_xy
         outside_mask = F.grid_sample(ref_mask, reproj_xy, align_corners=True) == 0
-        inside_vis2d = F.grid_sample(ref_vis2d, reproj_xy, align_corners=True) > 0
-        is_oom = (outside_mask & inside_vis2d)[:, 0, :].float().mean(0)
+        # inside_vis2d = F.grid_sample(ref_vis2d, reproj_xy, align_corners=True) > 0
+        # is_oom = (outside_mask & inside_vis2d)[:, 0, :].float().mean(0)
+        is_oom = outside_mask[:, 0, :].float().mean(0)
         self.gaussians.add_xyz_vis_stats(is_oom, torch.ones_like(is_oom[..., 0]) > 0)
 
         # mask loss
         self.mask_losses(loss_dict, ref_mask, ref_vis2d, self.config)
 
         # warp ref_rgb to normal aspect ratio and make it smaller
-        full2crop = self.construct_uncrop_mat(crop2raw)
+        extend_factor = np.random.uniform(1.1, 1.5)
+        full2crop = self.construct_uncrop_mat(crop2raw, extend_factor=extend_factor)
         ref_rgb = self.uncrop_img(ref_rgb, full2crop)
         # dataset intrinsics | if full2crop=I, then Kmat = Kmat
         full2crop[2:] *= 0  # no translation
@@ -519,18 +515,18 @@ class GSplatModel(nn.Module):
         return loss_dict
 
     @staticmethod
-    def construct_uncrop_mat(crop2raw):
+    def construct_uncrop_mat(crop2raw, extend_factor=1.2):
         crop2raw = crop2raw.cpu().numpy()
         full2crop = np.zeros_like(crop2raw)
         full2crop[0] = 1
         full2crop[1] = crop2raw[0] / crop2raw[1]
-        full2crop *= 1.2
+        full2crop *= extend_factor
         full2crop[2] = 256 * (1 - full2crop[0]) / 2
         full2crop[3] = 256 * (1 - full2crop[1]) / 2
         return full2crop
 
     @staticmethod
-    def uncrop_img(ref_rgb, full2crop, mode=cv2.INTER_LINEAR):
+    def uncrop_img(ref_rgb, full2crop, mode=cv2.INTER_LINEAR, borderValue=(1, 1, 1)):
         dev = ref_rgb.device
         ref_rgb = ref_rgb.permute(0, 2, 3, 1).cpu().numpy()[0]
         x0, y0 = np.meshgrid(range(256), range(256))
@@ -545,14 +541,13 @@ class GSplatModel(nn.Module):
             y0,
             interpolation=mode,
             borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(1, 1, 1),
-        )
+            borderValue=borderValue,
+        ).reshape(ref_rgb.shape)
         # cv2.imwrite("tmp/ref_rgb.png", ref_rgb[..., ::-1] * 255)
         ref_rgb = torch.tensor(ref_rgb, device=dev).permute(2, 0, 1)[None]
         return ref_rgb
 
     def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0, frameid, frameid_2):
-        bg_color = self.get_bg_color()
         # render a random novel view
         bs = 1
         elevation = 0
@@ -571,6 +566,8 @@ class GSplatModel(nn.Module):
 
         # dataset extrinsics at frameid | if w2c=I, then w2w0 = w2c
         w2c = torch.tensor(w2c, dtype=torch.float32, device=self.device)
+        nv_angle = rot_angle(w2c[:3, :3])
+        nv_factor = nv_angle / np.pi
         w2w0[:3, :3] = w2c[:3, :3] @ w2w0[:3, :3]
         w2c = w2w0
 
@@ -580,6 +577,8 @@ class GSplatModel(nn.Module):
             # render
             rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
             rgb_nv = rendered["rgb"]
+            bg_color = self.gaussians.get_bg_color()
+            rgb_nv = rgb_nv * rendered["alpha"] + bg_color * (1 - rendered["alpha"])
 
         # compute loss
         if self.config["guidance_sd_wt"] > 0:
@@ -599,9 +598,17 @@ class GSplatModel(nn.Module):
             if not self.guidance_zero123.has_embeddings(frameid):
                 self.guidance_zero123.get_img_embeds(ref_rgb, frameid)
             embeddings = self.guidance_zero123.get_embeddings(frameid)
-            loss_guidance_zero123 = self.guidance_zero123.train_step(
-                rgb_nv, polar, azimuth, radius, embeddings, step_ratio=self.progress
+            step_ratio = np.random.rand()
+            progress_scaled = np.clip(
+                (self.progress - self.config["inc_warmup_ratio"]) * 5, 0, 1
             )
+            step_ratio = step_ratio + progress_scaled * 0.5 * (1 - step_ratio)
+            step_ratio = np.clip(step_ratio, 0.02, 0.98)
+
+            loss_guidance_zero123 = self.guidance_zero123.train_step(
+                rgb_nv, polar, azimuth, radius, embeddings, step_ratio=step_ratio
+            )
+            loss_guidance_zero123 = loss_guidance_zero123 * (0.5 * nv_factor + 0.5)
             loss_dict["guidance_zero123"] = loss_guidance_zero123
 
             # # DEBUG

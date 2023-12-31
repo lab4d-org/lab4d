@@ -52,6 +52,14 @@ class GSplatTrainer(Trainer):
         self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
         self.model = self.model.to(self.device)
 
+        # cache queue of length 2
+        self.model_cache = [None, None]
+        self.optimizer_cache = [None, None]
+        self.scheduler_cache = [None, None]
+
+        self.grad_queue = {}
+        self.param_clip_startwith = {}
+
     def load_checkpoint_train(self):
         if self.opts["load_path"] != "":
             # training time
@@ -84,51 +92,24 @@ class GSplatTrainer(Trainer):
             betas=(0.9, 0.999),
             weight_decay=0.0,
         )
-        if opts["guidance_zero123_wt"] > 0 or opts["guidance_sd_wt"] > 0:
-            # new scheduler
-            exp_rate = 0.9922
-            warmup_iters = 500  # 1=>1/50
-            scheduler_exp = torch.optim.lr_scheduler.ExponentialLR(
-                self.optimizer, exp_rate
-            )
-            scheduler_lin = torch.optim.lr_scheduler.LinearLR(
-                self.optimizer,
-                exp_rate**warmup_iters,
-                1e-3,
-                total_iters=self.total_steps,
-            )
-            milestones = [warmup_iters]
-            schedulers = [scheduler_exp, scheduler_lin]
-            if opts["inc_warmup_ratio"] > 0:
-                const_steps = int(opts["inc_warmup_ratio"] * self.total_steps)
-                scheduler_const = torch.optim.lr_scheduler.ExponentialLR(
-                    self.optimizer, 1
-                )
-                schedulers.insert(0, scheduler_const)
-                milestones.insert(0, const_steps)
-            self.scheduler = CustomSequentialLR(
-                self.optimizer, schedulers=schedulers, milestones=milestones
-            )
+        if opts["inc_warmup_ratio"] > 0:
+            div_factor = 5.0
+            final_div_factor = 25.0
+            pct_start = opts["inc_warmup_ratio"]
         else:
-            # previous scheduler
-            if opts["inc_warmup_ratio"] > 0:
-                div_factor = 5.0
-                final_div_factor = 25.0
-                pct_start = opts["inc_warmup_ratio"]
-            else:
-                div_factor = 25.0
-                final_div_factor = 1.0
-                pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
-            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                self.optimizer,
-                lr_list,
-                int(self.total_steps),
-                pct_start=pct_start,
-                cycle_momentum=False,
-                anneal_strategy="linear",
-                div_factor=div_factor,
-                final_div_factor=final_div_factor,
-            )
+            div_factor = 25.0
+            final_div_factor = 1.0
+            pct_start = min(1 - 1e-5, 0.02)  # use 2% to warm up
+        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            self.optimizer,
+            lr_list,
+            int(self.total_steps),
+            pct_start=pct_start,
+            cycle_momentum=False,
+            anneal_strategy="linear",
+            div_factor=div_factor,
+            final_div_factor=final_div_factor,
+        )
 
     def get_lr_dict(self, use_warmup_param=False):
         """Return the learning rate for each category of trainable parameters
@@ -155,8 +136,9 @@ class GSplatTrainer(Trainer):
                 "module.gaussians._features_rest": lr_base * 0.05,
                 "module.gaussians._scaling": lr_base * 0.5,
                 "module.gaussians._rotation": lr_base * 0.5,
-                "module.gaussians._opacity": lr_base,
+                "module.gaussians._opacity": lr_base * 5,
                 "module.gaussians._trajectory": lr_base * 0.5,
+                "module.gaussians.bg_color": lr_base * 5,
                 "module.gaussians.camera_mlp": lr_base,
                 "module.guidance_sd": 0.0,
             }
@@ -294,15 +276,7 @@ class GSplatTrainer(Trainer):
 
     def densify_and_prune(self):
         # densify and prune
-        if self.opts["guidance_zero123_wt"] > 0:
-            max_grad = 1e-3
-            min_grad = 0.0
-        else:
-            max_grad = 1e-4
-            min_grad = 1e-6
-        clone_mask, prune_mask = self.model.gaussians.densify_and_prune(
-            max_grad=max_grad, min_grad=min_grad
-        )
+        clone_mask, prune_mask = self.model.gaussians.densify_and_prune()
 
         # update stats
         self.model.gaussians.update_point_stats(prune_mask, clone_mask)
