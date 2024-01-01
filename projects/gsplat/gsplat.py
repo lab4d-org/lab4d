@@ -508,6 +508,7 @@ class GSplatModel(nn.Module):
         full2crop[2:] *= 0  # no translation
         Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
         w2w0 = self.gaussians.get_extrinsics(frameid_abs)
+        # NOTE: gradient from diffusion might make the camera optimization unstable
         self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0, frameid, frameid_2)
 
         # weight each loss term
@@ -599,10 +600,6 @@ class GSplatModel(nn.Module):
                 self.guidance_zero123.get_img_embeds(ref_rgb, frameid)
             embeddings = self.guidance_zero123.get_embeddings(frameid)
             step_ratio = np.random.rand()
-            progress_scaled = np.clip(
-                (self.progress - self.config["inc_warmup_ratio"]) * 5, 0, 1
-            )
-            step_ratio = step_ratio + progress_scaled * 0.5 * (1 - step_ratio)
             step_ratio = np.clip(step_ratio, 0.02, 0.98)
 
             loss_guidance_zero123 = self.guidance_zero123.train_step(
@@ -685,9 +682,9 @@ class GSplatModel(nn.Module):
             else:
                 raise ("loss %s not defined" % k)
 
-        # # apply mask weights
-        # for k in keys_mask_weighted:
-        #     loss_dict[k] *= loss_dict["mask"].detach()
+        # apply mask weights
+        for k in keys_mask_weighted:
+            loss_dict[k] *= loss_dict["mask"].detach()
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):
@@ -849,6 +846,9 @@ class GSplatModel(nn.Module):
                     out_dict[k].append(v[0].permute(1, 2, 0).cpu().numpy())
         for k, v in out_dict.items():
             out_dict[k] = np.stack(v, 0)
+        out_dict["bg_color"] = (
+            self.gaussians.get_bg_color().permute(1, 2, 0).cpu().numpy()[None]
+        )
         return out_dict, scalars
 
     def process_frameid(self, batch):
@@ -901,6 +901,13 @@ class GSplatModel(nn.Module):
         else:
             ratio_knn = interp_wt(anchor_x, anchor_y, sub_progress, type=type)
         self.gaussians.ratio_knn = ratio_knn
+
+        # arap wt
+        loss_name = "reg_arap_wt"
+        anchor_x = (0, 200.0)
+        anchor_y = (0.0, 1.0)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # least action wt
         loss_name = "reg_least_action_wt"

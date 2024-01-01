@@ -93,7 +93,7 @@ class GSplatTrainer(Trainer):
             weight_decay=0.0,
         )
         if opts["inc_warmup_ratio"] > 0:
-            div_factor = 5.0
+            div_factor = 1.0
             final_div_factor = 25.0
             pct_start = opts["inc_warmup_ratio"]
         else:
@@ -127,7 +127,8 @@ class GSplatTrainer(Trainer):
                 "module.gaussians._features_dc": lr_base,
                 "module.gaussians._features_rest": lr_base * 0.05,
                 "module.gaussians._trajectory": lr_base,
-                "module.gaussians.camera_mlp": lr_base,
+                "module.gaussians.bg_color": lr_base * 5,
+                "module.gaussians.camera_mlp": lr_base * 2,
             }
         else:
             param_lr_startwith = {
@@ -139,7 +140,7 @@ class GSplatTrainer(Trainer):
                 "module.gaussians._opacity": lr_base * 5,
                 "module.gaussians._trajectory": lr_base * 0.5,
                 "module.gaussians.bg_color": lr_base * 5,
-                "module.gaussians.camera_mlp": lr_base,
+                "module.gaussians.camera_mlp": lr_base * 2,
                 "module.guidance_sd": 0.0,
             }
 
@@ -245,10 +246,16 @@ class GSplatTrainer(Trainer):
         self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
 
         # config dataloader
+        first_fr_steps = self.opts["first_fr_steps"]  # 1st fr warmup steps
+        first_fr_ratio = first_fr_steps / (inc_warmup_ratio * self.total_steps)
         completion_ratio = self.current_round / (warmup_rounds - 1)
+        completion_ratio = (completion_ratio - first_fr_ratio) / (1 - first_fr_ratio)
         for dataset in self.trainloader.dataset.datasets:
             # per pair opt
-            if self.current_round < warmup_rounds:
+            if self.current_round < int(warmup_rounds * first_fr_ratio):
+                min_frameid = 0
+                max_frameid = 1
+            elif self.current_round < warmup_rounds:
                 min_frameid = int((len(dataset) - 1) * completion_ratio)
                 max_frameid = min_frameid + 1
             else:
@@ -260,10 +267,14 @@ class GSplatTrainer(Trainer):
             # max_frameid = int((len(dataset) - 1) * completion_ratio) + 1
 
             dataset.set_loader_range(min_frameid=min_frameid, max_frameid=max_frameid)
+            print("setting loader range to %d-%d" % (min_frameid, max_frameid))
 
         # set parameters for incremental opt
-        if self.current_round < warmup_rounds:
-            self.model.gaussians.set_future_time_params(max_frameid)
+        if (
+            self.current_round >= int(warmup_rounds * first_fr_ratio)
+            and self.current_round < warmup_rounds
+        ):
+            self.model.gaussians.set_future_time_params(min_frameid)
 
     def update_aux_vars(self):
         self.model.update_geometry_aux()

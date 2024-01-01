@@ -26,7 +26,7 @@ from lab4d.utils.quat_transform import (
     matrix_to_quaternion,
 )
 from lab4d.utils.geom_utils import rot_angle
-from lab4d.utils.vis_utils import get_colormap
+from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 
 colormap = get_colormap()
 
@@ -283,8 +283,19 @@ class GaussianModel(nn.Module):
         # add bone center / joints
         self.proxy_geometry = self.create_mesh_visualization()
 
+    @torch.no_grad()
     def export_geometry_aux(self, path):
-        self.proxy_geometry.export("%s-proxy.obj" % (path))
+        mesh_geo = self.proxy_geometry
+        quat, trans = self.camera_mlp.get_vals()
+        rtmat = quaternion_translation_to_se3(quat, trans).cpu().numpy()
+        # evenly pick max 200 cameras
+        if rtmat.shape[0] > 200:
+            idx = np.linspace(0, rtmat.shape[0] - 1, 200).astype(np.int32)
+            rtmat = rtmat[idx]
+        mesh_cam = draw_cams(rtmat)
+        mesh = mesh_cat(mesh_geo, mesh_cam)
+
+        mesh.export("%s-proxy.obj" % (path))
 
     @torch.no_grad()
     def create_mesh_visualization(self, frameid=None):
@@ -385,6 +396,8 @@ class GaussianModel(nn.Module):
         if config["extrinsics_type"] == "const":
             self.camera_mlp = CameraConst(rtmat, frame_info)
         elif config["extrinsics_type"] == "explicit":
+            if not config["use_init_cam"]:
+                rtmat[:, :3, :3] = np.eye(3)
             self.camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
         else:
             raise NotImplementedError
@@ -528,17 +541,7 @@ class GaussianModel(nn.Module):
         aabb = torch.stack(aabb, dim=0).cpu().numpy()
         return aabb
 
-    def get_arap_loss(self, frameid=None, frameid_2=None):
-        """
-        Compute arap loss with annealing.
-        Begining: 100pts, 100nn
-        End: 10000pts, 2nn
-        num_pts * ratio_knn * num_pts = 10k
-        num_pts = sq(10k / ratio_knn)
-        """
-        ratio_knn = self.ratio_knn
-        num_pts = int(np.sqrt(4e6 / ratio_knn))  # 2k pts
-        num_knn = min(self.get_num_pts, max(int(ratio_knn * num_pts), 2))  # get 1-nn
+    def randomize_frameid(self, frameid, frameid_2):
         if frameid is None:
             frameid = np.random.randint(self.get_num_frames - 1)
         elif torch.is_tensor(frameid):
@@ -553,11 +556,35 @@ class GaussianModel(nn.Module):
                 frameid_2 = np.random.randint(self.get_num_frames)
         elif torch.is_tensor(frameid_2):
             frameid_2 = frameid_2.cpu().numpy()
-        rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+        return frameid, frameid_2
+
+    def get_arap_loss(self, frameid=None, frameid_2=None):
+        """
+        Compute arap loss with annealing.
+        Begining: 100pts, 100nn
+        End: 10000pts, 2nn
+        num_pts * ratio_knn * num_pts = 10k
+        num_pts = sq(10k / ratio_knn)
+        """
+        ratio_knn = self.ratio_knn
+        num_pts = int(min(self.get_num_pts, np.sqrt(4e6 / ratio_knn)))  # 2k pts
+        num_knn = min(self.get_num_pts, max(int(ratio_knn * num_pts), 2))  # get 1-nn
+
+        if frameid_2 is None:
+            detach_grad = True
+        else:
+            detach_grad = False
+        frameid, frameid_2 = self.randomize_frameid(frameid, frameid_2)
+
+        rand_ptsid = np.random.permutation(num_pts)
         pts0 = self.get_xyz(frameid)[rand_ptsid]
         pts1 = self.get_xyz(frameid_2)[rand_ptsid]  # N,3
         rot0 = self.get_rotation(frameid)[rand_ptsid]
         rot1 = self.get_rotation(frameid_2)[rand_ptsid]
+
+        if detach_grad:
+            pts1 = pts1.detach()
+            rot1 = rot1.detach()
 
         # dist(t,t+1)
         sq_dist, neighbor_indices = knn_cuda(pts0, num_knn)
@@ -586,11 +613,19 @@ class GaussianModel(nn.Module):
         arap_loss_trans = arap_loss_trans.mean()
         return arap_loss_trans
 
-    def get_least_deform_loss(self):
+    def get_least_deform_loss(self, frameid=None, frameid_2=None):
         if hasattr(self, "_trajectory"):
+            frameid, frameid_2 = self.randomize_frameid(frameid, frameid_2)
             # least deform loss
-            least_trans_loss = torch.norm(self._trajectory[..., 4:], 2, -1).mean()
-            least_rot_loss = quaternion_to_matrix(self._trajectory[..., :4])
+            xyz = self.get_xyz(frameid)
+            xyz_2 = self.get_xyz(frameid_2)
+            least_trans_loss = torch.norm((xyz - xyz_2), 2, -1).mean()
+
+            rot = self.get_rotation(frameid)
+            rot_2 = self.get_rotation(frameid_2)
+            least_rot_loss = quaternion_to_matrix(
+                quaternion_mul(rot, quaternion_conjugate(rot_2))
+            )
             least_rot_loss = rot_angle(least_rot_loss).mean()
             least_deform_loss = least_trans_loss + least_rot_loss
             return least_deform_loss
@@ -634,7 +669,7 @@ class GaussianModel(nn.Module):
             last_pt = self._trajectory[:, last_opt_frameid : last_opt_frameid + 1, :]
             self._trajectory.data[:, last_opt_frameid + 1 :, :] = last_pt.data
 
-        if hasattr(self, "camera_mlp"):
+        if hasattr(self, "camera_mlp") and isinstance(self.camera_mlp, CameraExplicit):
             print("set future time params to id: ", last_opt_frameid)
             # set future params for each sequence
             frame_offset = self.camera_mlp.frame_info["frame_offset"]
