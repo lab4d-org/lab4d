@@ -444,7 +444,7 @@ class GSplatTrainer(Trainer):
         warmup_rounds = inc_warmup_ratio * self.opts["num_rounds"]
 
         # config optimizer
-        if self.current_round == 0:
+        if self.current_round < warmup_rounds:
             self.optimizer_init(use_warmup_param=True)
         elif self.current_round == warmup_rounds:
             self.optimizer_init(use_warmup_param=False)

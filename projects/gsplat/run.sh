@@ -1,8 +1,9 @@
 # dynamic singlecam incremental
 dev=2
-seqname=cat-pikachu-0
+# seqname=cat-pikachu-0
 # seqname=eagle-s-0001
-logname=gsplat-ref-fast-mask-z123-test2
+seqname=2023-11-03--20-53-19
+logname=gsplat-ref-fast-mask-z123-test
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
@@ -10,7 +11,7 @@ bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname
   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
   --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
   --reg_arap_wt 1.0 --inc_warmup_ratio 1.0 --flow_wt 0.1 --num_pts 500 --delta_list ","\
-  --guidance_zero123_wt 2e-4
+  --guidance_zero123_wt 2e-4 --save_freq 10
 
 # # rigid singlecam incremental
 # dev=1

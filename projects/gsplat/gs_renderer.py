@@ -359,6 +359,8 @@ class GaussianModel(nn.Module):
         if scales is None:
             scales = torch.zeros((pts.shape[0], 3))
             scales[:] = np.log(np.sqrt(0.002))
+        elif not torch.is_tensor(scales):
+            scales = torch.tensor(scales, dtype=torch.float)
         self._scaling = nn.Parameter(scales)
 
         rots = torch.zeros((pts.shape[0], 4))

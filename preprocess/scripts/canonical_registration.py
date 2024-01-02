@@ -64,68 +64,84 @@ def save_resampled_feat(imglist, feats, dp2raws, prefix, crop_size):
     return feats
 
 
-def canonical_registration(seqname, crop_size, obj_class, component_id=1):
+def canonical_registration(seqname, crop_size, obj_class, component_id=1, mode="opt"):
+    """
+    mode can be "max", "opt", "zero"
+    max: most likely canonical pose, not implemented
+    opt: optimize canonical pose
+    zero: no canonical pose is used
+    """
     # load rgb/depth
     imgdir = "database/processed/JPEGImages/Full-Resolution/%s" % seqname
     imglist = sorted(glob.glob("%s/*.jpg" % imgdir))
     save_path = imgdir.replace("JPEGImages", "Cameras")
 
     cams_view1 = np.load("%s/%02d.npy" % (save_path, component_id))
+    if mode == "opt":
+        # classifiy human or not
+        if obj_class == "other":
+            import json, pdb
 
-    # classifiy human or not
-    if obj_class == "other":
-        import json, pdb
-
-        cam_path = "database/processed/Cameras/Full-Resolution/%s/%02d-manual.json" % (
-            seqname,
-            component_id,
-        )
-        with open(cam_path) as f:
-            cams_canonical = json.load(f)
-            cams_canonical = {int(k): np.asarray(v) for k, v in cams_canonical.items()}
-    else:
-        if obj_class == "human":
-            is_human = True
-        elif obj_class == "quad":
-            is_human = False
+            cam_path = (
+                "database/processed/Cameras/Full-Resolution/%s/%02d-manual.json"
+                % (
+                    seqname,
+                    component_id,
+                )
+            )
+            with open(cam_path) as f:
+                cams_canonical = json.load(f)
+                cams_canonical = {
+                    int(k): np.asarray(v) for k, v in cams_canonical.items()
+                }
         else:
-            raise ValueError("Unknown object class: %s" % obj_class)
-        viewpoint_net = ViewponitNet(is_human=is_human)
-        viewpoint_net.cuda()
-        viewpoint_net.eval()
+            if obj_class == "human":
+                is_human = True
+            elif obj_class == "quad":
+                is_human = False
+            else:
+                raise ValueError("Unknown object class: %s" % obj_class)
+            viewpoint_net = ViewponitNet(is_human=is_human)
+            viewpoint_net.cuda()
+            viewpoint_net.eval()
 
-        # densepose inference
-        rgbs, masks = read_images_densepose(imglist)
-        with torch.no_grad():
-            cams_canonical, feats, dp2raws = viewpoint_net.run_inference(rgbs, masks)
+            # densepose inference
+            rgbs, masks = read_images_densepose(imglist)
+            with torch.no_grad():
+                cams_canonical, feats, dp2raws = viewpoint_net.run_inference(
+                    rgbs, masks
+                )
 
-        # save densepose features
-        # resample features to the cropped image size
-        feats_crop = save_resampled_feat(imglist, feats, dp2raws, "crop", crop_size)
-        feats_full = save_resampled_feat(imglist, feats, dp2raws, "full", crop_size)
-        save_path_dp = save_path.replace("Cameras", "Features")
-        os.makedirs(save_path_dp, exist_ok=True)
-        np.save(
-            "%s/crop-%d-cse-%02d.npy" % (save_path_dp, crop_size, component_id),
-            feats_crop.astype(np.float16),
+            # save densepose features
+            # resample features to the cropped image size
+            feats_crop = save_resampled_feat(imglist, feats, dp2raws, "crop", crop_size)
+            feats_full = save_resampled_feat(imglist, feats, dp2raws, "full", crop_size)
+            save_path_dp = save_path.replace("Cameras", "Features")
+            os.makedirs(save_path_dp, exist_ok=True)
+            np.save(
+                "%s/crop-%d-cse-%02d.npy" % (save_path_dp, crop_size, component_id),
+                feats_crop.astype(np.float16),
+            )
+            np.save(
+                "%s/full-%d-cse-%02d.npy" % (save_path_dp, crop_size, component_id),
+                feats_full.astype(np.float16),
+            )
+            cams_canonical = {k: v for k, v in enumerate(cams_canonical)}
+
+        # canonical registration (smoothes the camera poses)
+        print("num cams annotated: %d" % len(cams_canonical.keys()))
+        rgbpath_list = [imglist[i] for i in cams_canonical.keys()]
+        cams_canonical_vals = np.stack(list(cams_canonical.values()), 0)
+        draw_cams(cams_canonical_vals, rgbpath_list=rgbpath_list).export(
+            "%s/cameras-%02d-canonical-prealign.obj" % (save_path, component_id)
         )
-        np.save(
-            "%s/full-%d-cse-%02d.npy" % (save_path_dp, crop_size, component_id),
-            feats_full.astype(np.float16),
-        )
-        cams_canonical = {k: v for k, v in enumerate(cams_canonical)}
+        registration = CanonicalRegistration(cams_canonical, cams_view1)
+        registration.cuda()
+        quat, trans = registration.optimize()
+        cams_pred = quaternion_translation_to_se3(quat, trans).cpu().numpy()
 
-    # canonical registration (smoothes the camera poses)
-    print("num cams annotated: %d" % len(cams_canonical.keys()))
-    rgbpath_list = [imglist[i] for i in cams_canonical.keys()]
-    cams_canonical_vals = np.stack(list(cams_canonical.values()), 0)
-    draw_cams(cams_canonical_vals, rgbpath_list=rgbpath_list).export(
-        "%s/cameras-%02d-canonical-prealign.obj" % (save_path, component_id)
-    )
-    registration = CanonicalRegistration(cams_canonical, cams_view1)
-    registration.cuda()
-    quat, trans = registration.optimize()
-    cams_pred = quaternion_translation_to_se3(quat, trans).cpu().numpy()
+    elif mode == "zero":
+        cams_pred = cams_view1
 
     if component_id == 1:
         # fixed depth

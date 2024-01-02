@@ -82,7 +82,8 @@ class GSplatModel(nn.Module):
             device="cuda",
         )
 
-        self.initialize(num_pts=num_pts)
+        mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
+        self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
         # # DEBUG
         # mesh = trimesh.load("tmp/0.obj")
         # pcd = BasicPointCloud(
@@ -144,12 +145,13 @@ class GSplatModel(nn.Module):
             costheta = np.random.random((num_pts,)) * 2 - 1
             thetas = np.arccos(costheta)
             mu = np.random.random((num_pts,))
-            radius = radius * np.cbrt(mu)
-            x = radius * np.sin(thetas) * np.cos(phis)
-            y = radius * np.sin(thetas) * np.sin(phis)
-            z = radius * np.cos(thetas)
+            radius_rand = radius * np.cbrt(mu)
+            x = radius_rand * np.sin(thetas) * np.cos(phis)
+            y = radius_rand * np.sin(thetas) * np.sin(phis)
+            z = radius_rand * np.cos(thetas)
             xyz = np.stack((x, y, z), axis=1)
-            self.gaussians.init_gaussians(xyz)
+            scales = np.log(np.ones_like(xyz) * radius * 0.1)
+            self.gaussians.init_gaussians(xyz, scales=scales)
         elif isinstance(input, BasicPointCloud):
             # load from a provided pcd
             self.gaussians.create_from_pcd(input)
@@ -410,8 +412,15 @@ class GSplatModel(nn.Module):
             batch (Dict): Items with shape (M, 2, ...)
         """
         frameid_abs = batch["frameid"]
-        crop2raw = batch["crop2raw"]
-        Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs))
+        if "crop2raw" in batch.keys():
+            crop2raw = batch["crop2raw"]
+        else:
+            crop2raw = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
+            crop2raw = crop2raw[None, None].repeat(frameid_abs.shape[0], 2, 1)
+        if "Kinv" in batch.keys():
+            Kmat_raw = batch["Kinv"].inverse()
+        else:
+            Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs))
         Kmat_unit = self.compute_render_Kmat(crop_size, crop2raw, Kmat_raw)
         cam_dict = self.get_default_cam(crop_size)
         w2c = self.gaussians.get_extrinsics(frameid_abs)
@@ -848,16 +857,25 @@ class GSplatModel(nn.Module):
                 batch[k] = v.permute(0, 3, 1, 2)
 
     @torch.no_grad()
-    def evaluate(self, batch):
+    def evaluate(self, batch, is_pair=True):
         """Evaluate model on a batch of data"""
         self.process_frameid(batch)
-        self.reshape_batch_inv(batch)
+        if not is_pair:
+            # fake a pair
+            for k, v in batch.items():
+                batch[k] = v[:, None].repeat((1, 2) + tuple([1] * (v.ndim - 1)))
+        else:
+            self.reshape_batch_inv(batch)
         cam_dict, Kmat, w2c = self.compute_camera_samples(
             batch, self.config["eval_res"]
         )
         frameid = self.get_frameid(batch)
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
-        self.reshape_batch(rendered)
+        if is_pair:
+            self.reshape_batch(rendered)
+        else:
+            for k, v in rendered.items():
+                rendered[k] = v[:, 0]
 
         scalars = {}
         out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": []}
@@ -936,6 +954,13 @@ class GSplatModel(nn.Module):
             self.set_loss_weight(loss_name, anchor_x, anchor_y, progress, type=type)
         else:
             self.set_loss_weight(loss_name, anchor_x, anchor_y, sub_progress, type=type)
+
+        # diffusion wt
+        loss_name = "guidance_zero123_wt"
+        anchor_x = (0, 200.0)
+        anchor_y = (0.0, 1.0)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
         # # flow wt
         # loss_name = "flow_wt"
