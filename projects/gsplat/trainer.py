@@ -289,6 +289,9 @@ class GSplatTrainer(Trainer):
             weight_decay=0.0,
         )
 
+        # NOTE: Using DistributedDataParallel with create_graph=True  is not well-supported.
+        # The higher-order gradient will  not be synchronized across ranks, and backpropagation  through all_reduce operations will not occur.
+        # If you require  DDP to work with higher-order gradients for your use case,  please ping https://github.com/pytorch/pytorch/issues/63929
         # self.optimizer = AdaHessian(
         #     params_list,
         #     lr=opts["learning_rate"],

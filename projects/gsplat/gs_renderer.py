@@ -366,7 +366,7 @@ class GaussianModel(nn.Module):
         self._rotation = nn.Parameter(rots)
 
         opacities = self.inverse_opacity_activation(
-            0.5 * torch.ones((pts.shape[0], 1), dtype=torch.float)
+            0.9 * torch.ones((pts.shape[0], 1), dtype=torch.float)
         )
         self._opacity = nn.Parameter(opacities)
 

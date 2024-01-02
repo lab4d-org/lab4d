@@ -364,9 +364,9 @@ class GSplatModel(nn.Module):
                 means2D=means2D_tmp,
                 shs=None,
                 colors_precomp=(xy_2 - xy_1),
-                opacities=opacity.detach(),
-                scales=scales.detach(),
-                rotations=rotations.detach(),
+                opacities=opacity,
+                scales=scales,
+                rotations=rotations,
                 cov3D_precomp=cov3D_precomp,
             )
             out_dict["flow"] = flow[None, :2] * camera_dict["render_resolution"] / 2
@@ -692,11 +692,11 @@ class GSplatModel(nn.Module):
             config (Dict): Command-line options
         """
         # always mask-out non-visible (out-of-frame) pixels
-        keys_allpix = ["mask"]
+        keys_allpix = ["mask", "flow", "rgb"]
         # field type specific keys
-        keys_type_specific = ["rgb", "flow"]
+        keys_type_specific = []
         # rendered-mask weighted losses
-        keys_mask_weighted = ["flow"]
+        keys_mask_weighted = ["flow", "rgb"]
 
         # type-specific masking rules
         if config["field_type"] == "bg":
