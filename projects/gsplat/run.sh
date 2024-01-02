@@ -1,16 +1,16 @@
-# dynamic singlecam incremental
-dev=2
-seqname=cat-pikachu-0
-# seqname=eagle-s-0001
-logname=gsplat-ref-fast-mask-z123
-rm -rf logdir/$seqname-$logname
-bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
-  --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
-  --num_rounds 130 --iters_per_round 200 --learning_rate 5e-3 \
-  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
-  --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
-  --reg_arap_wt 1.0 --inc_warmup_ratio 1.0 --flow_wt 1.0 --num_pts 500 --delta_list ","\
-  --guidance_zero123_wt 2e-4
+# # dynamic singlecam incremental
+# dev=2
+# seqname=cat-pikachu-0
+# # seqname=eagle-s-0001
+# logname=gsplat-ref-fast-mask-z123
+# rm -rf logdir/$seqname-$logname
+# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
+#   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
+#   --num_rounds 130 --iters_per_round 200 --learning_rate 5e-3 \
+#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
+#   --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
+#   --reg_arap_wt 1.0 --inc_warmup_ratio 1.0 --flow_wt 1.0 --num_pts 500 --delta_list ","\
+#   --guidance_zero123_wt 2e-4
 
 # # rigid singlecam incremental
 # dev=1
@@ -62,22 +62,22 @@ bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname
 #   --intrinsics_type const --extrinsics_type const --fg_motion dynamic \
 #   --reg_least_action_wt 0.0 --reg_arap_wt 1.0 --flow_wt 1.0 --inc_warmup_ratio 0.25 --num_pts 500
 
-# # rigid, no sds
-# dev=0
-# seqname=eagle
-# # seqname=cat-pikachu-0
-# logname=gsplat-ref-resetstat
-# rm -rf logdir/$seqname-$logname
-# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
-#   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
-#   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --fg_motion rigid
+# rigid, no sds
+dev=0
+seqname=eagle
+# seqname=cat-pikachu-0
+logname=gsplat-ref-resetstat-test2
+rm -rf logdir/$seqname-$logname
+bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
+  --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --intrinsics_type const --extrinsics_type const \
+  --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
+  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --fg_motion rigid
 
 # # image-based
 # dev=1
 # # seqname=eagle-s-0001
 # seqname=cat-pikachu-0
-# logname=gsplat-ref-z123-opt-nv-ext
+# logname=gsplat-ref-z123-opt-nv-ext-test
 # rm -rf logdir/$seqname-$logname
 # bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
 #   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --intrinsics_type const --extrinsics_type const \

@@ -69,12 +69,10 @@ class GSplatModel(nn.Module):
         white_background = (
             config["white_background"] if "white_background" in config else True
         )
-        radius = config["radius"] if "radius" in config else 2  # dreamgaussian
         num_pts = config["num_pts"] if "num_pts" in config else 5000
 
         self.sh_degree = sh_degree
         self.white_background = white_background
-        self.radius = radius
 
         self.gaussians = GaussianModel(sh_degree)
 
@@ -175,25 +173,30 @@ class GSplatModel(nn.Module):
             pass
         return screenspace_points
 
-    def get_rasterizer(self, camera_dict, bg_color=None):
+    def get_rasterizer(self, camera_dict, Kmat, bg_color=None):
+        """
+        Kmat is (3,3)
+        """
         image_height = int(camera_dict["render_resolution"])
         image_width = int(camera_dict["render_resolution"])
-        viewmatrix = torch.tensor(camera_dict["w2c"]).cuda()
-        viewmatrix = viewmatrix.transpose(0, 1)
+        # viewmatrix = torch.tensor(camera_dict["w2c"]).cuda()
+        # viewmatrix = viewmatrix.transpose(0, 1)
+        viewmatrix = torch.eye(4, dtype=torch.float32, device="cuda")
 
         projmatrix = getProjectionMatrix_K(
             znear=camera_dict["near"],
             zfar=camera_dict["far"],
-            Kmat=torch.tensor(camera_dict["Kmat"]),
+            Kmat=Kmat,
         )
         projmatrix = projmatrix.transpose(0, 1).cuda()
         projmatrix = viewmatrix @ projmatrix
-        c2w = np.linalg.inv(camera_dict["w2c"])
-        campos = -torch.tensor(c2w[:3, 3]).cuda()
+        # c2w = np.linalg.inv(camera_dict["w2c"])
+        # campos = -torch.tensor(c2w[:3, 3]).cuda()
+        campos = torch.zeros(3, dtype=torch.float32, device="cuda")
 
         # Set up rasterization configuration
-        FoVx = focal_to_fov(camera_dict["Kmat"][0, 0])
-        FoVy = focal_to_fov(camera_dict["Kmat"][1, 1])
+        FoVx = focal_to_fov(Kmat[0, 0])
+        FoVy = focal_to_fov(Kmat[1, 1])
         tanfovx = math.tan(FoVx * 0.5)
         tanfovy = math.tan(FoVy * 0.5)
 
@@ -215,9 +218,62 @@ class GSplatModel(nn.Module):
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
         return rasterizer
 
+    def render_pair(
+        self,
+        camera_dict,
+        Kmat,
+        w2c,
+        bg_color=None,
+        frameid=None,
+    ):
+        """Render a batch of view pairs given batch with shape (M,2,...)
+        Args:
+            camera_dict (Dict): Camera parameters
+            w2c (torch.Tensor): World to camera matrix
+            bg_color (torch.Tensor): Background color
+            frameid (torch.Tensor): Frame id
+        """
+        bs = frameid.shape[0]
+        out_dicts = []
+        for i in range(bs):
+            Kmat_0 = Kmat[i, 0]
+            Kmat_1 = Kmat[i, 1]
+            w2c_0 = w2c[i, 0]
+            w2c_1 = w2c[i, 1]
+            frameid_0 = frameid[i, 0]
+            frameid_1 = frameid[i, 1]
+            out_dict_0 = self.render(
+                camera_dict,
+                Kmat_0,
+                w2c_0,
+                bg_color,
+                frameid_0,
+                w2c_1,
+                frameid_1,
+                Kmat_1,
+            )
+            out_dict_1 = self.render(
+                camera_dict,
+                Kmat_1,
+                w2c_1,
+                bg_color,
+                frameid_1,
+                w2c_0,
+                frameid_0,
+                Kmat_0,
+            )
+            for k, v in out_dict_0.items():
+                out_dict_0[k] = torch.cat([v, out_dict_1[k]], 0)
+            out_dicts.append(out_dict_0)
+        out_dict = {}
+        for k in out_dicts[0].keys():
+            out_dict[k] = torch.stack([d[k] for d in out_dicts], 0)
+        return out_dict
+
     def render(
         self,
         camera_dict,
+        Kmat,
         w2c=None,
         bg_color=None,
         frameid=None,
@@ -225,9 +281,7 @@ class GSplatModel(nn.Module):
         frameid_2=None,
         Kmat_2=None,
     ):
-        assert "Kmat" in camera_dict
-
-        rasterizer = self.get_rasterizer(camera_dict, bg_color)
+        rasterizer = self.get_rasterizer(camera_dict, Kmat, bg_color)
 
         screenspace_points = self.get_screenspace_pts_placeholder()
         means3D = self.gaussians.get_xyz(frameid)
@@ -240,7 +294,7 @@ class GSplatModel(nn.Module):
 
         if w2c is not None:
             means3D, rotations = self.gaussians.transform(means3D, rotations, w2c)
-            xy_1 = pinhole_projection(camera_dict["Kmat"], means3D[None])[0]
+            xy_1 = pinhole_projection(Kmat, means3D[None])[0]
         else:
             raise NotImplementedError
 
@@ -264,7 +318,7 @@ class GSplatModel(nn.Module):
             field_vals = self.gaussians.get_xyz()
             #### render other quantities
             rasterizer_xyz = self.get_rasterizer(
-                camera_dict, bg_color=torch.zeros_like(self.bg_color)
+                camera_dict, Kmat, bg_color=torch.zeros_like(self.bg_color)
             )
             render_vals, _, _, _ = rasterizer_xyz(
                 means3D=means3D,
@@ -297,7 +351,7 @@ class GSplatModel(nn.Module):
         # render flow
         if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
             rasterizer_flow = self.get_rasterizer(
-                camera_dict, torch.zeros_like(self.bg_color)
+                camera_dict, Kmat, torch.zeros_like(self.bg_color)
             )
             means3D_2 = self.gaussians.get_xyz(frameid_2)
             rotations_2 = self.gaussians.get_rotation(frameid_2)
@@ -326,7 +380,7 @@ class GSplatModel(nn.Module):
                 self.rendered_aux = [out_dict]
         return out_dict
 
-    def get_default_cam(self, render_resolution=256, Kmat=np.eye(3)):
+    def get_default_cam(self, render_resolution):
         # focal=1 corresponds to 90 degree fov and identity projection matrix
         # convert this to a dict
         near = 0.01
@@ -337,11 +391,10 @@ class GSplatModel(nn.Module):
             "render_resolution": render_resolution,
             "near": near,
             "far": far,
-            "Kmat": Kmat,
         }
         return cam_dict
 
-    def compute_Kmat(self, crop_size, crop2raw, Kmat):
+    def compute_render_Kmat(self, crop_size, crop2raw, Kmat):
         # Kmat = Kmat_crop2raw^-1 @ Kmat_raw
         if not torch.is_tensor(Kmat):
             Kmat = torch.tensor(Kmat, dtype=torch.float32, device=self.device)
@@ -351,115 +404,36 @@ class GSplatModel(nn.Module):
         Kmat[..., :2, :] = Kmat[..., :2, :] / crop_size * 2
         return Kmat
 
-    def forward(self, batch):
-        self.process_frameid(batch)
-        loss_dict = {}
-
-        # render reference view
-        crop_size = self.config["train_res"]
-
-        frameid_abs = batch["frameid"][0, 0]
-        frameid = self.get_frameid(batch)[0, 0]
-        crop2raw = batch["crop2raw"][0, 0]
-        Kmat = K2mat(self.intrinsics.get_vals(frameid_abs))
-        Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
-
+    def compute_camera_samples(self, batch, crop_size):
+        """Compute camera extrinsics and intrinsics
+        Args:
+            batch (Dict): Items with shape (M, 2, ...)
+        """
+        frameid_abs = batch["frameid"]
+        crop2raw = batch["crop2raw"]
+        Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs))
+        Kmat_unit = self.compute_render_Kmat(crop_size, crop2raw, Kmat_raw)
+        cam_dict = self.get_default_cam(crop_size)
         w2c = self.gaussians.get_extrinsics(frameid_abs)
-        cam_dict = self.get_default_cam(Kmat=Kmat)
+        return cam_dict, Kmat_unit, w2c
 
-        # flow args
-        frameid_2 = self.get_frameid(batch)[0, 1]
-        frameid_abs_2 = batch["frameid"][0, 1]
-        w2c_2 = self.gaussians.get_extrinsics(frameid_abs_2)
-        crop2raw_2 = batch["crop2raw"][0, 1]
-        Kmat_2 = K2mat(self.intrinsics.get_vals(frameid_abs_2))
-        Kmat_2 = self.compute_Kmat(crop_size, crop2raw_2, Kmat_2)
-        cam_dict_2 = self.get_default_cam(Kmat=Kmat_2)
-
-        rendered = self.render(
-            cam_dict,
-            w2c=w2c,
-            frameid=frameid,
-            w2c_2=w2c_2,
-            frameid_2=frameid_2,
-            Kmat_2=Kmat_2,
-        )
-
-        rgb = rendered["rgb"]
-        mask = rendered["alpha"]
-        flow = rendered["flow"]
-        reproj_xy = rendered["reproj_xy"]
-
-        # prepare reference view GT
-        ref_rgb = batch["rgb"][:1, :1]
-        ref_mask = batch["mask"][:1, :1].float()
-        ref_vis2d = batch["vis2d"][:1, :1].float()
-        ref_flow = batch["flow"][:1, :1]
-        ref_flow_uct = batch["flow_uct"][:1, :1]
-        white_img = torch.ones_like(ref_rgb)
-        ref_rgb = torch.where(ref_mask > 0, ref_rgb, white_img)
-
-        res = self.config["train_res"]
-        # M,N,C => (N, C, d1, d2, ...,dK)
-        ref_rgb = ref_rgb.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
-        ref_rgb = F.interpolate(
-            ref_rgb, (256, 256), mode="bilinear", align_corners=False
-        )
-        ref_mask = ref_mask.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
-        ref_mask = F.interpolate(ref_mask, (256, 256), mode="nearest")
-        ref_vis2d = ref_vis2d.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
-        ref_vis2d = F.interpolate(ref_vis2d, (256, 256), mode="nearest")
-        ref_flow = ref_flow.permute(0, 1, 3, 2).reshape(-1, 2, res, res)
-        ref_flow = F.interpolate(ref_flow, (256, 256), mode="bilinear")
-        ref_flow_uct = ref_flow_uct.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
-        ref_flow_uct = F.interpolate(ref_flow_uct, (256, 256), mode="bilinear")
-
-        # render second pair
-        rendered_2 = self.render(
-            cam_dict_2,
-            w2c=w2c_2,
-            frameid=frameid_2,
-            w2c_2=w2c,
-            frameid_2=frameid,
-            Kmat_2=Kmat,
-        )
-        rgb_2 = rendered_2["rgb"]
-        mask_2 = rendered_2["alpha"]
-        flow_2 = rendered_2["flow"]
-        reproj_xy_2 = rendered["reproj_xy"]
-
-        ref_rgb_2 = batch["rgb"][:1, 1:]
-        ref_mask_2 = batch["mask"][:1, 1:].float()
-        ref_vis2d_2 = batch["vis2d"][:1, 1:].float()
-        ref_flow_2 = batch["flow"][:1, 1:]
-        ref_flow_uct_2 = batch["flow_uct"][:1, 1:]
-        ref_rgb_2 = torch.where(ref_mask_2 > 0, ref_rgb_2, white_img)
-
-        ref_rgb_2 = ref_rgb_2.permute(0, 1, 3, 2).reshape(-1, 3, res, res)
-        ref_rgb_2 = F.interpolate(
-            ref_rgb_2, (256, 256), mode="bilinear", align_corners=False
-        )
-        ref_mask_2 = ref_mask_2.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
-        ref_mask_2 = F.interpolate(ref_mask_2, (256, 256), mode="nearest")
-        ref_vis2d_2 = ref_vis2d_2.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
-        ref_vis2d_2 = F.interpolate(ref_vis2d_2, (256, 256), mode="nearest")
-        ref_flow_2 = ref_flow_2.permute(0, 1, 3, 2).reshape(-1, 2, res, res)
-        ref_flow_2 = F.interpolate(ref_flow_2, (256, 256), mode="bilinear")
-        ref_flow_uct_2 = ref_flow_uct_2.permute(0, 1, 3, 2).reshape(-1, 1, res, res)
-        ref_flow_uct_2 = F.interpolate(ref_flow_uct_2, (256, 256), mode="bilinear")
-
-        # concat them
-        rgb = torch.cat([rgb, rgb_2], 0)
-        mask = torch.cat([mask, mask_2], 0)
-        flow = torch.cat([flow, flow_2], 0)
-        reproj_xy = torch.cat([reproj_xy, reproj_xy_2], 0)
-
-        ref_rgb = torch.cat([ref_rgb, ref_rgb_2], 0)
-        ref_mask = torch.cat([ref_mask, ref_mask_2], 0)
-        ref_vis2d = torch.cat([ref_vis2d, ref_vis2d_2], 0)
-        ref_flow = torch.cat([ref_flow, ref_flow_2], 0)
-        ref_flow_uct = torch.cat([ref_flow_uct, ref_flow_uct_2], 0)
-
+    def compute_recon_losses(self, loss_dict, rendered, batch):
+        # reference view loss
+        loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
+        loss_dict["mask"] = (rendered["alpha"] - batch["mask"].float()).pow(2)
+        loss_dict["flow"] = (rendered["flow"] - batch["flow"]).norm(2, 1, keepdim=True)
+        loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
+        # mask_balance_wt = get_mask_balance_wt(
+        #     batch["mask"], batch["vis2d"], batch["is_detected"]
+        # )
+        # loss_dict["mask"] *= mask_balance_wt
+        # pdb.set_trace()
+        # cv2.imwrite(
+        #     "tmp/0.jpg", rgb[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255
+        # )
+        # cv2.imwrite(
+        #     "tmp/1.jpg", ref_rgb[0].permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255
+        # )
         # img_numpy = rgb[0].permute(1, 2, 0).detach().cpu().numpy()
         # flow_numpy = flow[0].permute(1, 2, 0).detach().cpu().numpy()
         # img_gt = ref_rgb[0].permute(1, 2, 0).cpu().numpy()
@@ -469,73 +443,97 @@ class GSplatModel(nn.Module):
         # cv2.imwrite("tmp/0.jpg", flow_vis)
         # cv2.imwrite("tmp/1.jpg", flow_vis_gt)
 
-        # reference view loss
-        loss_dict["rgb"] = (rgb - ref_rgb).pow(2)
-        # pdb.set_trace()
-        # cv2.imwrite(
-        #     "tmp/0.jpg", rgb[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255
-        # )
-        # cv2.imwrite(
-        #     "tmp/1.jpg", ref_rgb[0].permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255
-        # )
-
-        loss_dict["mask"] = (mask - ref_mask).pow(2)
-        loss_dict["flow"] = (flow - ref_flow).norm(2, 1, keepdim=True)
-        loss_dict["flow"] = loss_dict["flow"] * (ref_flow_uct > 0).float()
-        # mask_balance_wt = get_mask_balance_wt(
-        #     batch["mask"], batch["vis2d"], batch["is_detected"]
-        # )
-        # loss_dict["mask"] *= mask_balance_wt
-
-        # update pts visibility
+    def update_visibility_stats(self, rendered, batch):
+        """update pts visibility"""
         # oom: pts not in ref_mask and pts inside of vis2d
-        reproj_xy = reproj_xy[:, :, None]
+        reproj_xy = rendered["reproj_xy"][:, :, None]
         # resample ref_mask based of reproj_xy
-        outside_mask = F.grid_sample(ref_mask, reproj_xy, align_corners=True) == 0
+        outside_mask = (
+            F.grid_sample(batch["mask"].float(), reproj_xy, align_corners=True) == 0
+        )
         # inside_vis2d = F.grid_sample(ref_vis2d, reproj_xy, align_corners=True) > 0
         # is_oom = (outside_mask & inside_vis2d)[:, 0, :].float().mean(0)
         is_oom = outside_mask[:, 0, :].float().mean(0)
         self.gaussians.add_xyz_vis_stats(is_oom, torch.ones_like(is_oom[..., 0]) > 0)
 
-        # mask loss
-        self.mask_losses(loss_dict, ref_mask, ref_vis2d, self.config)
+    def forward(self, batch):
+        """Run forward pass and compute losses
 
-        # warp ref_rgb to normal aspect ratio and make it smaller
-        extend_factor = np.random.uniform(1.1, 1.5)
-        full2crop = self.construct_uncrop_mat(crop2raw, extend_factor=extend_factor)
-        ref_rgb = self.uncrop_img(ref_rgb, full2crop)
-        # dataset intrinsics | if full2crop=I, then Kmat = Kmat
-        full2crop[2:] *= 0  # no translation
-        Kmat = K2inv(full2crop) @ Kmat.cpu().numpy()
-        w2w0 = self.gaussians.get_extrinsics(frameid_abs)
-        # NOTE: gradient from diffusion might make the camera optimization unstable
-        self.compute_reg_loss(loss_dict, ref_rgb, Kmat, w2w0, frameid, frameid_2)
+        Args:
+            batch (Dict): Batch of dataloader samples. Keys: "rgb" (M,2,N,3),
+                "mask" (M,2,N,1), "depth" (M,2,N,1), "feature" (M,2,N,16),
+                "flow" (M,2,N,2), "flow_uct" (M,2,N,1), "vis2d" (M,2,N,1),
+                "crop2raw" (M,2,4), "dataid" (M,2), "frameid_sub" (M,2),
+                "hxy" (M,2,N,3), and "is_detected" (M,2)
+        Returns:
+            loss_dict (Dict): Computed losses. Keys: "mask" (M,N,1),
+                "rgb" (M,N,3), "depth" (M,N,1), "flow" (M,N,1), "vis" (M,N,1),
+                "feature" (M,N,1), "feat_reproj" (M,N,1),
+                "reg_gauss_mask" (M,N,1), "reg_visibility" (0,),
+                "reg_eikonal" (0,), "reg_deform_cyc" (0,),
+                "reg_soft_deform" (0,), "reg_gauss_skin" (0,),
+                "reg_cam_prior" (0,), and "reg_skel_prior" (0,).
+        """
+        self.process_frameid(batch)
+        cam_dict, Kmat, w2c = self.compute_camera_samples(
+            batch, self.config["train_res"]
+        )
+        frameid = self.get_frameid(batch)
+
+        # render reference view
+        rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
+        self.reshape_batch(rendered)
+
+        # prepare reference view GT
+        self.reshape_batch(batch)
+        self.NHWC2NCHW(batch)
+
+        loss_dict = {}
+        self.compute_recon_losses(loss_dict, rendered, batch)
+        self.mask_losses(
+            loss_dict, batch["mask"], batch["vis2d"], rendered["alpha"], self.config
+        )
+
+        # compute regularization loss
+        self.compute_reg_loss(loss_dict, frameid)
+
+        if self.config["guidance_sd_wt"] > 0 or self.config["guidance_zero123_wt"] > 0:
+            self.compute_diffusion_loss(loss_dict, batch)
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
+
+        self.update_visibility_stats(rendered, batch)
         return loss_dict
 
     @staticmethod
     def construct_uncrop_mat(crop2raw, extend_factor=1.2):
+        """Restore aspect ratio and uncrop the image"""
         crop2raw = crop2raw.cpu().numpy()
         full2crop = np.zeros_like(crop2raw)
         full2crop[0] = 1
         full2crop[1] = crop2raw[0] / crop2raw[1]
         full2crop *= extend_factor
-        full2crop[2] = 256 * (1 - full2crop[0]) / 2
-        full2crop[3] = 256 * (1 - full2crop[1]) / 2
         return full2crop
 
     @staticmethod
-    def uncrop_img(ref_rgb, full2crop, mode=cv2.INTER_LINEAR, borderValue=(1, 1, 1)):
+    def uncrop_img(
+        ref_rgb, full2crop, crop_size, mode=cv2.INTER_LINEAR, borderValue=(1, 1, 1)
+    ):
         dev = ref_rgb.device
-        ref_rgb = ref_rgb.permute(0, 2, 3, 1).cpu().numpy()[0]
-        x0, y0 = np.meshgrid(range(256), range(256))
+        # unit to pixel space
+        full2crop = full2crop.copy()
+        full2crop[2] = crop_size * (1 - full2crop[0]) / 2
+        full2crop[3] = crop_size * (1 - full2crop[1]) / 2
+
+        ref_rgb = ref_rgb.permute(1, 2, 0).cpu().numpy()
+        x0, y0 = np.meshgrid(range(crop_size), range(crop_size))
         hp_full = np.stack([x0, y0, np.ones_like(x0)], -1)  # augmented coord
         hp_full = hp_full.astype(np.float32)
         hp_raw = hp_full @ K2mat(full2crop).T  # raw image coord
         x0 = hp_raw[..., 0].astype(np.float32)
         y0 = hp_raw[..., 1].astype(np.float32)
+        ref_rgb = cv2.resize(ref_rgb, (crop_size, crop_size))
         ref_rgb = cv2.remap(
             ref_rgb,
             x0,
@@ -545,10 +543,11 @@ class GSplatModel(nn.Module):
             borderValue=borderValue,
         ).reshape(ref_rgb.shape)
         # cv2.imwrite("tmp/ref_rgb.png", ref_rgb[..., ::-1] * 255)
-        ref_rgb = torch.tensor(ref_rgb, device=dev).permute(2, 0, 1)[None]
+        ref_rgb = torch.tensor(ref_rgb, device=dev).permute(2, 0, 1)
         return ref_rgb
 
-    def compute_reg_loss(self, loss_dict, ref_rgb, Kmat, w2w0, frameid, frameid_2):
+    @staticmethod
+    def sample_random_viewpoint(radius=2):
         # render a random novel view
         bs = 1
         elevation = 0
@@ -558,28 +557,66 @@ class GSplatModel(nn.Module):
         # sample camera
         polar = [np.random.randint(min_ver, max_ver)] * bs
         azimuth = [np.random.randint(-180, 180)] * bs
-        radius = [0] * bs
-        c2w = orbit_camera(elevation + polar[0], azimuth[0], self.radius + radius[0])
+        radius_offset = [0] * bs
+        c2w = orbit_camera(elevation + polar[0], azimuth[0], radius + radius_offset[0])
         w2c = np.linalg.inv(c2w)
         # GL to CV for both obj and cam space
         w2c[1:3] *= -1  # left size: flip cam
         w2c[:, 1:3] *= -1  # right side: flip obj
+        return w2c, polar, azimuth, radius_offset
 
-        # dataset extrinsics at frameid | if w2c=I, then w2w0 = w2c
+    def sample_rand_viewpoint_around(self, w2c0):
+        w2c, polar, azimuth, radius_offset = self.sample_random_viewpoint()
         w2c = torch.tensor(w2c, dtype=torch.float32, device=self.device)
         nv_angle = rot_angle(w2c[:3, :3])
         nv_factor = nv_angle / np.pi
-        w2w0[:3, :3] = w2c[:3, :3] @ w2w0[:3, :3]
-        w2c = w2w0
+        # dataset extrinsics at frameid | if w2c=I, then w2w0 = w2c
+        w2c0[:3, :3] = w2c[:3, :3] @ w2c0[:3, :3]
+        w2c = w2c0
+        return w2c, polar, azimuth, radius_offset, nv_factor
 
-        cam_dict = self.get_default_cam(Kmat=Kmat)
+    def sample_rand_Kmat_around(self, Kmat, crop2raw, crop_size, ref_rgb):
+        # warp ref_rgb to normal aspect ratio and make it smaller
+        extend_factor = np.random.uniform(1.1, 1.5)
+        # relative focal length
+        full2crop = self.construct_uncrop_mat(crop2raw, extend_factor=extend_factor)
+        # restore the image
+        ref_rgb = self.uncrop_img(ref_rgb, full2crop, crop_size)
+        # dataset intrinsics | if full2crop=I, then Kmat = Kmat
+        full2crop = torch.tensor(full2crop, dtype=torch.float32, device=self.device)
+        Kmat = K2inv(full2crop) @ Kmat
+        return Kmat, ref_rgb
 
-        if self.config["guidance_sd_wt"] > 0 or self.config["guidance_zero123_wt"] > 0:
-            # render
-            rendered = self.render(cam_dict, w2c=w2c, frameid=frameid)
-            rgb_nv = rendered["rgb"]
-            bg_color = self.gaussians.get_bg_color()
-            rgb_nv = rgb_nv * rendered["alpha"] + bg_color * (1 - rendered["alpha"])
+    def compute_diffusion_loss(self, loss_dict, batch):
+        crop_size = self.config["train_res"]
+        frameid = self.get_frameid(batch)
+        # NOTE: gradient from diffusion might make the camera optimization unstable
+        cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
+
+        # prepare for diffusion, only use one frame
+        frameid = frameid[0]
+        Kmat = Kmat[0]
+        w2c = w2c[0]
+        ref_rgb = torch.where(
+            batch["mask"] > 0, batch["rgb"], torch.ones_like(batch["rgb"])
+        )[0]
+        crop2raw = batch["crop2raw"][0]
+
+        # render novel view for diffusion guidance loss
+        (
+            w2c_nv,
+            polar,
+            azimuth,
+            radius_offset,
+            nv_factor,
+        ) = self.sample_rand_viewpoint_around(w2c)
+        Kmat_nv, ref_rgb_nv = self.sample_rand_Kmat_around(
+            Kmat, crop2raw, crop_size, ref_rgb
+        )
+        rendered = self.render(cam_dict, Kmat_nv, w2c=w2c_nv, frameid=frameid)
+        rgb_nv = rendered["rgb"]
+        bg_color = self.gaussians.get_bg_color()
+        rgb_nv = rgb_nv * rendered["alpha"] + bg_color * (1 - rendered["alpha"])
 
         # compute loss
         if self.config["guidance_sd_wt"] > 0:
@@ -589,31 +626,23 @@ class GSplatModel(nn.Module):
             loss_dict["guidance_sd"] = loss_guidance_sd
 
         if self.config["guidance_zero123_wt"] > 0:
-            # cv2.imwrite(
-            #     "tmp/0.jpg", ref_rgb[0].permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255
-            # )
-            # cv2.imwrite(
-            #     "tmp/1.jpg",
-            #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
-            # )
-            if not self.guidance_zero123.has_embeddings(frameid):
-                self.guidance_zero123.get_img_embeds(ref_rgb, frameid)
+            self.guidance_zero123.get_img_embeds(ref_rgb_nv[None], frameid)
             embeddings = self.guidance_zero123.get_embeddings(frameid)
             step_ratio = np.random.rand()
             step_ratio = np.clip(step_ratio, 0.02, 0.98)
 
             loss_guidance_zero123 = self.guidance_zero123.train_step(
-                rgb_nv, polar, azimuth, radius, embeddings, step_ratio=step_ratio
+                rgb_nv, polar, azimuth, radius_offset, embeddings, step_ratio=step_ratio
             )
             loss_guidance_zero123 = loss_guidance_zero123 * (0.5 * nv_factor + 0.5)
             loss_dict["guidance_zero123"] = loss_guidance_zero123
 
             # # DEBUG
             # outputs = self.guidance_zero123.refine(
-            #     ref_rgb,
+            #     ref_rgb_nv[None],
             #     elevation=polar,
             #     azimuth=azimuth,
-            #     radius=radius,
+            #     radius=radius_offset,
             #     embeddings=embeddings,
             #     strength=0,
             # )
@@ -631,18 +660,23 @@ class GSplatModel(nn.Module):
             #     "tmp/rgb_nv.png",
             #     rgb_nv[0].permute(1, 2, 0).detach().cpu().numpy()[..., ::-1] * 255,
             # )
+            # cv2.imwrite(
+            #     "tmp/rgb_ref.jpg",
+            #     ref_rgb_nv.permute(1, 2, 0).cpu().numpy()[..., ::-1] * 255,
+            # )
 
+    def compute_reg_loss(self, loss_dict, frameid):
         if self.config["reg_least_deform_wt"] > 0:
             loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss()
         if self.config["reg_least_action_wt"] > 0:
             loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
         if self.config["reg_arap_wt"] > 0:
             loss_dict["reg_arap"] = self.gaussians.get_arap_loss(
-                frameid=frameid, frameid_2=frameid_2
+                frameid=frameid[0, 0], frameid_2=frameid[0, 1]
             )
 
     @staticmethod
-    def mask_losses(loss_dict, maskfg, vis2d, config):
+    def mask_losses(loss_dict, maskfg, vis2d, mask_pred, config):
         """Apply segmentation mask on dense losses
 
         Args:
@@ -684,7 +718,7 @@ class GSplatModel(nn.Module):
 
         # apply mask weights
         for k in keys_mask_weighted:
-            loss_dict[k] *= loss_dict["mask"].detach()
+            loss_dict[k] *= mask_pred.detach()
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):
@@ -768,84 +802,68 @@ class GSplatModel(nn.Module):
             frameid = batch["frameid"]
         return frameid
 
+    @staticmethod
+    def reshape_batch_inv(batch):
+        """Reshape a batch to merge the pair dimension into the batch dimension
+
+        Args:
+            batch (Dict): Arbitrary dataloader outputs (M*2, ...). This is
+                modified in place to reshape each value to (M, 2, ...)
+        """
+        for k, v in batch.items():
+            batch[k] = v.reshape(-1, 2, *v.shape[1:])
+
+    @staticmethod
+    def reshape_batch(batch):
+        """Reshape a batch to merge the pair dimension into the batch dimension
+
+        Args:
+            batch (Dict): Arbitrary dataloader outputs (M, 2, ...). This is
+                modified in place to reshape each value to (M*2, ...)
+        """
+        for k, v in batch.items():
+            batch[k] = v.view(-1, *v.shape[2:])
+
+    @staticmethod
+    def NCHW2NHWC(batch):
+        """Convert batch from NCHW to NHWC
+
+        Args:
+            batch (Dict): Arbitrary dataloader outputs (M, ...). This is
+                modified in place to convert each value from NCHW to NHWC
+        """
+        for k, v in batch.items():
+            if v.ndim == 4:
+                batch[k] = v.permute(0, 2, 3, 1)
+
+    @staticmethod
+    def NHWC2NCHW(batch):
+        """
+        Args:
+            batch (Dict): Arbitrary dataloader outputs (M, ...). This is
+                modified in place to convert each value from NHWC to NCHW
+        """
+        for k, v in batch.items():
+            if v.ndim == 4:
+                batch[k] = v.permute(0, 3, 1, 2)
+
     @torch.no_grad()
-    def evaluate(self, batch, is_pair=True):
+    def evaluate(self, batch):
         """Evaluate model on a batch of data"""
-        crop_size = self.config["eval_res"]
         self.process_frameid(batch)
+        self.reshape_batch_inv(batch)
+        cam_dict, Kmat, w2c = self.compute_camera_samples(
+            batch, self.config["eval_res"]
+        )
+        frameid = self.get_frameid(batch)
+        rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
+        self.reshape_batch(rendered)
+
         scalars = {}
         out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": []}
-
-        nframes = len(batch["frameid"])
-        if is_pair:
-            nframes = nframes // 2
-
-        for idx in tqdm.tqdm(range(0, nframes)):
-            # get dataset camera intrinsics and extrinsics
-            if is_pair:
-                idx = idx * 2
-            frameid_abs = batch["frameid"][idx]
-            frameid = self.get_frameid(batch)[idx]
-            try:
-                frameid_2 = self.get_frameid(batch)[idx + 1]
-            except:
-                frameid_2 = frameid
-            if "crop2raw" in batch.keys():
-                crop2raw = batch["crop2raw"][idx]
-                crop2raw_2 = batch["crop2raw"][idx + 1]
-            else:
-                crop2raw = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
-                crop2raw_2 = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
-            if "Kinv" in batch.keys():
-                Kmat = batch["Kinv"][frameid].inverse()
-                Kmat_2 = batch["Kinv"][frameid_2].inverse()
-            else:
-                Kmat = K2mat(self.intrinsics.get_vals(frameid_abs))
-                Kmat_2 = K2mat(self.intrinsics.get_vals(frameid_abs + 1))
-            Kmat = self.compute_Kmat(crop_size, crop2raw, Kmat)
-            Kmat_2 = self.compute_Kmat(crop_size, crop2raw_2, Kmat_2)
-            if "field2cam" in batch.keys():
-                quat_trans = batch["field2cam"]["fg"][idx]
-                quat, trans = quat_trans[:4], quat_trans[4:]
-                w2c = quaternion_translation_to_se3(quat, trans)
-
-                quat_trans_2 = batch["field2cam"]["fg"][idx + 1]
-                quat_2, trans_2 = quat_trans_2[:4], quat_trans_2[4:]
-                w2c_2 = quaternion_translation_to_se3(quat_2, trans_2)
-            else:
-                w2c = self.gaussians.get_extrinsics(frameid_abs)
-                w2c_2 = self.gaussians.get_extrinsics(frameid_abs + 1)
-            cam_dict = self.get_default_cam(Kmat=Kmat, render_resolution=crop_size)
-
-            # # manually create cameras
-            # w2c = np.eye(4, dtype=np.float32)
-            # w2c[2, 3] = 3  # depth
-            # w2c[:3, :3] = cv2.Rodrigues(
-            #     np.asarray([0.0, 2 * idx * np.pi / nframes, 0.0])
-            # )[0]
-            # K = np.array([2, 2, 0, 0])
-            # Kmat = K2mat(K)
-            # cam_dict = self.get_default_cam(Kmat=Kmat)
-
-            rendered = self.render(
-                cam_dict,
-                w2c=w2c,
-                frameid=frameid,
-                w2c_2=w2c_2,
-                frameid_2=frameid_2,
-                Kmat_2=Kmat_2,
-            )
-
-            # img_numpy = rendered["rgb"][0].permute(1, 2, 0).detach().cpu().numpy()
-            # flow_numpy = rendered["flow"][0].permute(1, 2, 0).detach().cpu().numpy()
-            # flow_vis = point_vec(img_numpy * 255, flow_numpy, skip=10)
-            # cv2.imwrite("tmp/0.jpg", flow_vis)
-
-            for k, v in rendered.items():
-                if k in out_dict.keys():
-                    out_dict[k].append(v[0].permute(1, 2, 0).cpu().numpy())
-        for k, v in out_dict.items():
-            out_dict[k] = np.stack(v, 0)
+        for k, v in rendered.items():
+            if k in out_dict.keys():
+                out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()
         out_dict["bg_color"] = (
             self.gaussians.get_bg_color().permute(1, 2, 0).cpu().numpy()[None]
         )
