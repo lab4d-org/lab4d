@@ -8,6 +8,7 @@ import tqdm
 from collections import defaultdict
 import gc
 from bisect import bisect_right
+import open3d.core as o3c
 
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
@@ -405,6 +406,7 @@ class GSplatTrainer(Trainer):
         opts = self.opts
         gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
+        o3c.cuda.release_cache()
         self.model.train()
         self.optimizer.zero_grad()
 
@@ -512,10 +514,10 @@ class GSplatTrainer(Trainer):
             self.prune_parameters(~prune_mask, clone_mask)
             optimizer_state = list(self.optimizer.state.values())
 
-            self.model.update_geometry_aux()
-            self.model.export_geometry_aux(
-                "%s/%03d-post" % (self.save_dir, self.current_round)
-            )
+            # self.model.update_geometry_aux()
+            # self.model.export_geometry_aux(
+            #     "%s/%03d-post" % (self.save_dir, self.current_round)
+            # )
             print("cloned %d/%d" % (clone_mask.sum(), clone_mask.shape[0]))
             print("pruned %d/%d" % (prune_mask.sum(), prune_mask.shape[0]))
             # torch.cuda.empty_cache()

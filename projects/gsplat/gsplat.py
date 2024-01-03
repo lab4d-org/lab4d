@@ -457,9 +457,10 @@ class GSplatModel(nn.Module):
         # oom: pts not in ref_mask and pts inside of vis2d
         reproj_xy = rendered["reproj_xy"][:, :, None]
         # resample ref_mask based of reproj_xy
-        outside_mask = (
-            F.grid_sample(batch["mask"].float(), reproj_xy, align_corners=True) == 0
-        )
+        mask = batch["mask"].float()
+        # dilate the mask
+        mask = F.max_pool2d(mask, 3, stride=1, padding=1)
+        outside_mask = F.grid_sample(mask, reproj_xy, align_corners=True) == 0
         # inside_vis2d = F.grid_sample(ref_vis2d, reproj_xy, align_corners=True) > 0
         # is_oom = (outside_mask & inside_vis2d)[:, 0, :].float().mean(0)
         is_oom = outside_mask[:, 0, :].float().mean(0)

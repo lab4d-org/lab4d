@@ -303,7 +303,17 @@ class GaussianModel(nn.Module):
         sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
         centers = self.get_xyz(frameid).cpu()
         orientations = self.get_rotation(frameid).cpu()
-        for k, gauss in enumerate(self.get_scaling.cpu().numpy()):
+        scalings = self.get_scaling.cpu().numpy()
+
+        # subsample if too many gaussians
+        max_pts = 500
+        if len(scalings.shape) > max_pts:
+            rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
+            scalings = scalings[rand_idx]
+            centers = centers[rand_idx]
+            orientations = orientations[rand_idx]
+
+        for k, gauss in enumerate(scalings):
             ellips = sph.copy()
             ellips.vertices *= gauss[None]
             ellips.visual.vertex_colors = colormap[k % len(colormap)]
@@ -478,7 +488,7 @@ class GaussianModel(nn.Module):
         self.max_radii2D[:] = 0
 
     def densify_and_prune(
-        self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-6, min_vis=0.5
+        self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-8, min_vis=0.5
     ):
         grads = self.xyz_gradient_accum / (self.denom + 1e-6)
         grads = grads[..., 0]
@@ -569,26 +579,22 @@ class GaussianModel(nn.Module):
         num_pts = sq(10k / ratio_knn)
         """
         ratio_knn = self.ratio_knn
-        num_pts = int(min(self.get_num_pts, np.sqrt(4e6 / ratio_knn)))  # 2k pts
-        num_knn = min(self.get_num_pts, max(int(ratio_knn * num_pts), 2))  # get 1-nn
-
-        if frameid_2 is None:
-            detach_grad = True
+        num_pts = np.sqrt(4e6 / ratio_knn)
+        if np.isinf(num_pts):
+            num_pts = self.get_num_pts
         else:
-            detach_grad = False
-        frameid, frameid_2 = self.randomize_frameid(frameid, frameid_2)
+            num_pts = min(self.get_num_pts, int(num_pts))  # max all pts
+        num_knn = min(num_pts, max(int(ratio_knn * num_pts), 2))  # minimum 1-nn
 
-        rand_ptsid = np.random.permutation(num_pts)
+        rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+        frameid, frameid_2 = self.randomize_frameid(frameid, frameid_2)
         pts0 = self.get_xyz(frameid)[rand_ptsid]
         pts1 = self.get_xyz(frameid_2)[rand_ptsid]  # N,3
         rot0 = self.get_rotation(frameid)[rand_ptsid]
         rot1 = self.get_rotation(frameid_2)[rand_ptsid]
 
-        if detach_grad:
-            pts1 = pts1.detach()
-            rot1 = rot1.detach()
-
         # dist(t,t+1)
+        # print("pts: %d, knn: %d, ratio: %f" % (pts0.shape[0], num_knn, ratio_knn))
         sq_dist, neighbor_indices = knn_cuda(pts0, num_knn)
 
         # N, K, 3/4
