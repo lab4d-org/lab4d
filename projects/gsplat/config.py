@@ -11,7 +11,7 @@ class GSplatConfig:
     # flags.DEFINE_float("guidance_sd_wt", 1e-4, "weight for sd loss")
     # flags.DEFINE_float("guidance_zero123_wt", 0.0, "wegiht for zero123 loss")
     flags.DEFINE_float("guidance_sd_wt", 0.0, "weight for sd loss")
-    flags.DEFINE_float("guidance_zero123_wt", 1e-4, "wegiht for zero123 loss")
+    flags.DEFINE_float("guidance_zero123_wt", 0.0, "wegiht for zero123 loss")
     flags.DEFINE_float("reg_least_deform_wt", 0.0, "weight for least deform loss")
     flags.DEFINE_float("reg_least_action_wt", 0.0, "weight for least action loss")
     flags.DEFINE_float("reg_arap_wt", 0.0, "weight for as-rigid-as-possible loss")

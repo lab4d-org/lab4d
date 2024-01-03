@@ -84,7 +84,7 @@ class MeshViewer:
             # mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
             mesh.visual.vertex_colors = np.tile(color, [len(mesh.vertices), 1])
             self.meshes.append(mesh)
-            max_num_frames = max(max_num_frames, len(root_loader))
+            max_num_frames = max(max_num_frames, len(root_loader) // args.skip_frames)
             print("loaded %d frames from %s" % (len(root_loader), loader_path))
 
         # Add playback UI.
@@ -111,15 +111,11 @@ class MeshViewer:
         # Frame step buttons.
         @gui_next_frame.on_click
         def _(_) -> None:
-            gui_timestep.value = (
-                gui_timestep.value + 1 * self.skip_frames
-            ) % self.num_frames
+            gui_timestep.value = (gui_timestep.value + 1) % self.num_frames
 
         @gui_prev_frame.on_click
         def _(_) -> None:
-            gui_timestep.value = (
-                gui_timestep.value - 1 * self.skip_frames
-            ) % self.num_frames
+            gui_timestep.value = (gui_timestep.value - 1) % self.num_frames
 
         # Disable frame controls when we're playing.
         @gui_playing.on_update
@@ -188,10 +184,10 @@ class MeshViewer:
         self.server.add_spline_catmull_rom(
             f"/frames/seq_{it}/{prefix}-traj",
             positions,
-            tension=0.5,
-            line_width=3.0,
+            tension=1.0,
+            line_width=2.0,
             color=color,
-            segments=100,
+            segments=len(positions) - 1,
         )
         # create start point
         self.server.add_mesh_trimesh(
@@ -221,8 +217,7 @@ class MeshViewer:
             )
 
         for i in tqdm(range(self.num_frames)):
-            if i % self.skip_frames != 0:
-                continue
+            i = i * self.skip_frames
             # Add base frame.
             for it in range(len(self.root_trajs)):
                 self.frame_nodes_list[it].append(
@@ -265,9 +260,9 @@ class MeshViewer:
         self.prev_timestep = self.gui_timestep.value
         while True:
             if self.gui_playing.value:
-                self.gui_timestep.value = (self.gui_timestep.value + 1) % (
-                    self.num_frames // self.skip_frames
-                )
+                self.gui_timestep.value = (
+                    self.gui_timestep.value + 1
+                ) % self.num_frames
 
             time.sleep(1.0 / self.gui_framerate.value)
 

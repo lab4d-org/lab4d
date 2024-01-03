@@ -11,6 +11,7 @@ from bisect import bisect_right
 
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
+from lab4d.dataloader import data_utils
 from lab4d.utils.torch_utils import get_nested_attr, set_nested_attr
 
 from projects.gsplat.gsplat import GSplatModel
@@ -229,6 +230,16 @@ class GSplatTrainer(Trainer):
         Args:
             opts (Dict): Command-line args from absl (defined in lab4d/config.py)
         """
+        # if in incremental mode and num-rounds = 0, reset number of rounds
+        if opts["inc_warmup_ratio"] > 0 and opts["num_rounds"] == 0:
+            eval_dict = self.construct_dataset_opts(opts, is_eval=True)
+            evalloader = data_utils.eval_loader(eval_dict)
+            warmup_rounds = int(opts["first_fr_steps"] / opts["iters_per_round"])
+            inc_rounds = len(evalloader) + warmup_rounds
+            opts["num_rounds"] = int(inc_rounds / opts["inc_warmup_ratio"])
+            print("# warmup rounds = %d" % warmup_rounds)
+            print("# incremental rounds = %d" % inc_rounds)
+            print("# total rounds = %d" % opts["num_rounds"])
         super().__init__(opts)
 
     def move_to_ddp(self):
@@ -499,6 +510,7 @@ class GSplatTrainer(Trainer):
 
         if prune_mask.sum() or clone_mask.sum():
             self.prune_parameters(~prune_mask, clone_mask)
+            optimizer_state = list(self.optimizer.state.values())
 
             self.model.update_geometry_aux()
             self.model.export_geometry_aux(
@@ -511,6 +523,9 @@ class GSplatTrainer(Trainer):
 
         # update optimizer
         self.optimizer_init()
+        # restore optimizer stats
+        for i, (k, v) in enumerate(self.optimizer.state.items()):
+            self.optimizer.state[k] = optimizer_state[i]
         self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
         self.scheduler.step(self.current_steps)
 
