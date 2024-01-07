@@ -812,10 +812,14 @@ class Trainer:
                         torch.nn.utils.clip_grad_norm_(p, med_grad)
                         # if get_local_rank() == 0:
                         #     print("large grad: %.2f, clear %s" % (grad, name))
-                    else:
+                    elif grad > 0:
                         self.grad_queue[name].append(grad)
                         self.grad_queue[name].pop(0)
-                else:
+                    else:
+                        pass
+                elif grad > 0:
                     self.grad_queue[name].append(grad)
+                else:
+                    pass
 
         return grad_dict

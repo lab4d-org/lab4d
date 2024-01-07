@@ -29,6 +29,7 @@ from lab4d.utils.geom_utils import (
     pinhole_projection,
     rot_angle,
 )
+from lab4d.utils.camera_utils import get_rotating_cam
 from lab4d.utils.quat_transform import (
     quaternion_mul,
     matrix_to_quaternion,
@@ -599,9 +600,11 @@ class GSplatModel(nn.Module):
 
     def compute_diffusion_loss(self, loss_dict, batch):
         crop_size = self.config["train_res"]
+        render_size = crop_size
         frameid = self.get_frameid(batch)
         # NOTE: gradient from diffusion might make the camera optimization unstable
         cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
+        cam_dict["render_resolution"] = render_size
 
         # prepare for diffusion, only use one frame
         frameid = frameid[0]
@@ -625,7 +628,7 @@ class GSplatModel(nn.Module):
         )
         rendered = self.render(cam_dict, Kmat_nv, w2c=w2c_nv, frameid=frameid)
         rgb_nv = rendered["rgb"]
-        bg_color = self.gaussians.get_bg_color()
+        bg_color = F.interpolate(self.gaussians.get_bg_color()[None], render_size)
         rgb_nv = rgb_nv * rendered["alpha"] + bg_color * (1 - rendered["alpha"])
 
         # compute loss
@@ -639,6 +642,9 @@ class GSplatModel(nn.Module):
             self.guidance_zero123.get_img_embeds(ref_rgb_nv[None], frameid)
             embeddings = self.guidance_zero123.get_embeddings(frameid)
             step_ratio = np.random.rand()
+            # # map step_ratio to progress-1
+            # progress_ratio = min(0.2, self.current_steps / 4000)
+            # step_ratio = progress_ratio + (1 - progress_ratio) * step_ratio
             step_ratio = np.clip(step_ratio, 0.02, 0.98)
 
             loss_guidance_zero123 = self.guidance_zero123.train_step(
@@ -859,6 +865,21 @@ class GSplatModel(nn.Module):
             if v.ndim == 4:
                 batch[k] = v.permute(0, 3, 1, 2)
 
+    def augment_visualization_nv(self, rendered, cam_dict, Kmat, w2c, frameid):
+        # modify w2c to be a turn-table view
+        num_nv = 8
+        w2c_nv = get_rotating_cam(num_nv, max_angle=360)
+        w2c_nv = torch.tensor(w2c_nv, dtype=torch.float32, device=w2c.device)
+        w2c_nv[..., :3, 3] = w2c[0, 0, :3, 3]
+        w2c_nv = w2c_nv.reshape(-1, 2, 4, 4)
+        Kmat_nv = Kmat[:1, :1].repeat(num_nv // 2, 2, 1, 1)
+        frameid_nv = frameid[:1, :1].repeat(num_nv // 2, 2)
+        rendered_nv = self.render_pair(
+            cam_dict, Kmat_nv, w2c=w2c_nv, frameid=frameid_nv
+        )
+        for k, v in rendered_nv.items():
+            rendered[k] = torch.cat([rendered[k], v], 0)
+
     @torch.no_grad()
     def evaluate(self, batch, is_pair=True):
         """Evaluate model on a batch of data"""
@@ -874,6 +895,8 @@ class GSplatModel(nn.Module):
         )
         frameid = self.get_frameid(batch)
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
+        self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
+
         if is_pair:
             self.reshape_batch(rendered)
         else:
@@ -888,6 +911,11 @@ class GSplatModel(nn.Module):
         out_dict["bg_color"] = (
             self.gaussians.get_bg_color().permute(1, 2, 0).cpu().numpy()[None]
         )
+        bg_color = self.gaussians.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
+        out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
+            1 - out_dict["alpha"]
+        )
+
         return out_dict, scalars
 
     def process_frameid(self, batch):

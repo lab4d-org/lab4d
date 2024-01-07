@@ -266,7 +266,16 @@ class GSplatTrainer(Trainer):
         self.scheduler_cache = [None, None]
 
         self.grad_queue = {}
-        self.param_clip_startwith = {}
+        self.param_clip_startwith = {
+            # "module.gaussians._xyz": 5,
+            # "module.gaussians._features_dc": 5,
+            # "module.gaussians._features_rest": 5,
+            # "module.gaussians._scaling": 5,
+            # "module.gaussians._rotation": 5,
+            # "module.gaussians._opacity": 5,
+            # "module.gaussians._trajectory": 5,
+            # "module.gaussians.camera_mlp": 5,
+        }
 
     def load_checkpoint_train(self):
         if self.opts["load_path"] != "":
@@ -329,6 +338,44 @@ class GSplatTrainer(Trainer):
             div_factor=div_factor,
             final_div_factor=final_div_factor,
         )
+
+        # # cycle lr
+        # self.scheduler = torch.optim.lr_scheduler.CyclicLR(
+        #     self.optimizer,
+        #     [i * 0.01 for i in lr_list],
+        #     lr_list,
+        #     step_size_up=10,
+        #     step_size_down=1990,
+        #     mode="triangular",
+        #     gamma=1.0,
+        #     scale_mode="cycle",
+        #     cycle_momentum=False,
+        # )
+
+        # # less aggressive scheduler for diffusion guided optimization
+        # # as a way to set group lrs
+        # torch.optim.lr_scheduler.OneCycleLR(
+        #     self.optimizer,
+        #     lr_list,
+        #     int(self.total_steps),
+        #     pct_start=0.0,
+        #     div_factor=1,
+        #     final_div_factor=1,
+        # )
+        # exp_rate = 0.9995
+        # warmup_iters = 3000  # 1=>1/5
+        # scheduler_exp = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, exp_rate)
+        # scheduler_lin = torch.optim.lr_scheduler.LinearLR(
+        #     self.optimizer,
+        #     exp_rate**warmup_iters,
+        #     0.2,
+        #     total_iters=self.total_steps,
+        # )
+        # milestones = [warmup_iters]
+        # schedulers = [scheduler_exp, scheduler_lin]
+        # self.scheduler = CustomSequentialLR(
+        #     self.optimizer, schedulers=schedulers, milestones=milestones
+        # )
 
     def get_lr_dict(self, use_warmup_param=False):
         """Return the learning rate for each category of trainable parameters

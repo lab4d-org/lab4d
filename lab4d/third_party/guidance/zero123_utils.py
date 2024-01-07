@@ -235,9 +235,8 @@ class Zero123(nn.Module):
             ).sample
 
         noise_pred_cond, noise_pred_uncond = noise_pred.chunk(2)
-        noise_pred = noise_pred_uncond + guidance_scale * (
-            noise_pred_cond - noise_pred_uncond
-        )
+        mode_disengage = guidance_scale * (noise_pred_cond - noise_pred_uncond)
+        noise_pred = noise_pred_uncond + mode_disengage
 
         # import pdb
         # import cv2
@@ -262,7 +261,20 @@ class Zero123(nn.Module):
         #     .astype(np.float32)
         #     * 255,
         # )
-        grad = w * (noise_pred - noise)
+        # do noise correction as https://arxiv.org/pdf/2312.09305.pdf
+        multiplier = (noise_pred * noise).sum() / (noise**2).sum()
+        noise = noise * multiplier
+
+        grad = noise_pred - noise
+
+        # rescaled score estimator
+        rescale_multipler = (mode_disengage**2).sum() / (grad**2).sum()
+        grad = grad * rescale_multipler
+
+        if t > 200:
+            grad = mode_disengage
+
+        grad = w * grad
         grad = torch.nan_to_num(grad)
 
         target = (latents - grad).detach()

@@ -281,7 +281,7 @@ class GaussianModel(nn.Module):
         # self.proxy_geometry = trimesh.Trimesh(vertices=xyz)
 
         # add bone center / joints
-        self.proxy_geometry = self.create_mesh_visualization()
+        self.proxy_geometry = self.create_mesh_visualization(all_pts=False)
 
     @torch.no_grad()
     def export_geometry_aux(self, path):
@@ -298,7 +298,7 @@ class GaussianModel(nn.Module):
         mesh.export("%s-proxy.obj" % (path))
 
     @torch.no_grad()
-    def create_mesh_visualization(self, frameid=None):
+    def create_mesh_visualization(self, frameid=None, all_pts=True):
         meshes = []
         sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
         centers = self.get_xyz(frameid).cpu()
@@ -306,12 +306,13 @@ class GaussianModel(nn.Module):
         scalings = self.get_scaling.cpu().numpy()
 
         # subsample if too many gaussians
-        max_pts = 500
-        if len(scalings.shape) > max_pts:
-            rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
-            scalings = scalings[rand_idx]
-            centers = centers[rand_idx]
-            orientations = orientations[rand_idx]
+        if not all_pts:
+            max_pts = 500
+            if len(scalings.shape) > max_pts:
+                rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
+                scalings = scalings[rand_idx]
+                centers = centers[rand_idx]
+                orientations = orientations[rand_idx]
 
         for k, gauss in enumerate(scalings):
             ellips = sph.copy()
