@@ -908,10 +908,9 @@ class GSplatModel(nn.Module):
         for k, v in rendered.items():
             if k in out_dict.keys():
                 out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()
-        out_dict["bg_color"] = (
-            self.gaussians.get_bg_color().permute(1, 2, 0).cpu().numpy()[None]
-        )
         bg_color = self.gaussians.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
+        out_dict["bg_color"] = bg_color
+        bg_color = cv2.resize(bg_color[0], (self.config["eval_res"],) * 2)[None]
         out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
             1 - out_dict["alpha"]
         )
