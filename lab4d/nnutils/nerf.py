@@ -223,7 +223,15 @@ class NeRF(nn.Module):
         if inst_id is not None:
             assert inst_id.ndim == 1
 
-        sdf, xyz_feat = self.forward_sdf(xyz, inst_id=inst_id)
+        xyz_sdf = xyz.clone()
+        # symmetrize canonical shape
+        if self.symm_ratio > 0.0:    
+            xyz_x = xyz_sdf[..., :1].clone()
+            symm_mask = torch.rand_like(xyz_x) < self.symm_ratio
+            xyz_x[symm_mask] = -xyz_x[symm_mask]
+            xyz_sdf = torch.cat([xyz_x, xyz_sdf[..., 1:3]], -1)
+
+        sdf, xyz_feat = self.forward_sdf(xyz_sdf, inst_id=inst_id)
         # ideal space to metric space
         sdf = sdf / self.logscale.exp() * self.scale_const
 
@@ -1006,13 +1014,6 @@ class NeRF(nn.Module):
             dir = dir[valid_idx][:, None, None]
             frame_id = frame_id[:, None, None].expand(shape[:3])[valid_idx]
             inst_id = inst_id[:, None, None].expand(shape[:3])[valid_idx]
-
-        # symmetrize canonical shape
-        if self.symm_ratio > 0.0:
-            xyz_x = xyz[..., :1].clone()
-            symm_mask = torch.rand_like(xyz_x) < self.symm_ratio
-            xyz_x[symm_mask] = -xyz_x[symm_mask]
-            xyz = torch.cat([xyz_x, xyz[..., 1:3]], -1)
 
         rgb, sdf, density = self.forward(
             xyz,

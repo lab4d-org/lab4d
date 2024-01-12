@@ -174,11 +174,10 @@ class dvr_model(nn.Module):
         self.fields.set_importance_sampling(False)
 
         # positional encoding annealing
-        anchor_x = (0, 4000)
-        anchor_y = (1, 0)
+        anchor_x = (0, 1)
+        anchor_y = (config["symm_ratio"], config["symm_ratio"])
         type = "linear"
-        symm_ratio = interp_wt(anchor_x, anchor_y, current_steps, type=type)
-        print("symm_ratio", symm_ratio)
+        symm_ratio = interp_wt(anchor_x, anchor_y, progress, type=type)
         self.fields.set_symm_ratio(symm_ratio)
 
         # pose correction: steps(0->2k, 1->0)
