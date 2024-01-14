@@ -159,6 +159,14 @@ class PyRenderWrapper:
                 raise ValueError("shape type not compatible")
             self.mesh_pyrender = mesh_pyrender
 
+        # point trajectory
+        if "pts_traj" in input_dict:
+            # 2TxNx3
+            pts_traj = input_dict["pts_traj"].reshape(-1, 3)
+            pts_color = input_dict["pts_color"].reshape(-1, 4)
+            primitive = pyrender.Primitive(pts_traj, mode=1, color_0=pts_color)
+            scene.add_node(Node(mesh=Mesh([primitive])))
+
         # change material
         if self.material is not None:
             mesh_pyrender.primitives[0].material = self.material

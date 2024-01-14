@@ -162,7 +162,7 @@ def rescale_motion_tuples(motion_tuples, field_scale):
         if motion_tuple.bone_t is not None:
             motion_tuple.bone_t.apply_scale(1.0 / field_scale)
         if motion_tuple.t_articulation is not None:
-            motion_tuple.t_articulation[1][:] /= field_scale
+            motion_tuple.t_articulation[:, :3, 3] /= field_scale
     return
 
 

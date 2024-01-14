@@ -9,6 +9,7 @@ import argparse
 import trimesh
 import tqdm
 import configparser
+import matplotlib
 
 from lab4d.utils.vis_utils import draw_cams
 
@@ -47,6 +48,8 @@ class MeshLoader:
 
         # get cam dict
         field2cam_fg_dict = json.load(open("%s/motion.json" % (primary_dir), "r"))
+        if "t_articulation" in field2cam_fg_dict:
+            self.t_articulation = field2cam_fg_dict["t_articulation"]
         field2cam_fg_dict = field2cam_fg_dict["field2cam"]
         if compose_mode == "compose":
             field2cam_bg_dict = json.load(open("%s/motion.json" % (secondary_dir), "r"))
@@ -92,6 +95,8 @@ class MeshLoader:
         bone_dict = {}
         scene_dict = {}
         ghost_dict = {}
+        kps_dict = {}
+        pts_traj_dict = {}
         aabb_min = np.asarray([np.inf, np.inf])
         aabb_max = np.asarray([-np.inf, -np.inf])
         for counter in range(self.__len__()):
@@ -150,6 +155,15 @@ class MeshLoader:
                 if mode == "bone":
                     bone_dict[frame_idx].apply_transform(object_to_scene)
 
+                    # world space keypoints
+                    kps = np.asarray(self.t_articulation[fid_str])[:, :3, 3]
+                    kps = kps @ object_to_scene[:3, :3].T + object_to_scene[:3, 3]
+                    kps_dict[frame_idx] = kps
+
+                    # pts traj
+                    kps_all = np.asarray(list(kps_dict.values()))
+                    pts_traj_dict[frame_idx] = self.get_pts_traj(kps_all, frame_idx)
+
                 if ghosting:
                     total_ghost = 10
                     ghost_skip = len(path_list) // total_ghost
@@ -175,8 +189,32 @@ class MeshLoader:
         self.bone_dict = bone_dict
         self.scene_dict = scene_dict
         self.ghost_dict = ghost_dict
+        self.pts_traj_dict = pts_traj_dict
         self.aabb_min = aabb_min
         self.aabb_max = aabb_max
+
+    @staticmethod
+    def get_pts_traj(kps, frame_idx, traj_len=100, cmap=matplotlib.cm.get_cmap("cool")):
+        """
+        Args:
+            kps: (T, K, 3)
+
+        Returns:
+            pts_traj: (T', K, 2, 3)
+            pts_color: (T', K, 2, 4)
+        """
+        _, traj_num, _ = kps.shape
+        pts_traj = np.zeros((traj_len, traj_num, 2, 3))
+        pts_color = np.zeros((traj_len, traj_num, 2, 4))
+        i = frame_idx
+        for j in range(traj_len):
+            if i - j - 1 < 0:
+                continue
+            pts_traj[j, :, 0] = kps[i - j - 1]
+            pts_traj[j, :, 1] = kps[i - j]
+            pts_color[j, :, 0] = cmap(float(i - j - 1) / traj_len)
+            pts_color[j, :, 1] = cmap(float(i - j) / traj_len)
+        return (pts_traj, pts_color)
 
     def query_frame(self, frame_idx):
         input_dict = {}
@@ -188,11 +226,16 @@ class MeshLoader:
             input_dict["shape"].visual.vertex_colors[3:] = 192
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
-            scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
+            # scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
             input_dict["scene"] = scene_mesh
         if len(self.ghost_dict) > 0:
             ghost_mesh = trimesh.util.concatenate(self.ghost_dict[frame_idx])
             input_dict["ghost"] = ghost_mesh
+
+        # pts trajectory: TxNx2x3
+        if hasattr(self, "pts_traj_dict"):
+            pts_traj, pts_color = self.pts_traj_dict[frame_idx]
+            input_dict["pts_traj"], input_dict["pts_color"] = pts_traj, pts_color
         return input_dict
 
     def print_info(self):
