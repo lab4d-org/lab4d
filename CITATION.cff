@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: Lab4d: A framework for in-the-wild 4D reconstruction from monocular videos
+title: Lab4d - A framework for in-the-wild 4D reconstruction from monocular videos
 message: 'If you use this software, please cite it as below.'
 type: software
 authors:
