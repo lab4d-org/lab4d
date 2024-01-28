@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: Lab4d - A framework for in-the-wild 4D reconstruction from monocular videos
+message: 'If you use this software, please cite it as below.'
+type: software
+authors:
+  - family-names: Yang
+    given-names: Gengshan
+  - family-names: Tan
+    given-names: Jeff
+  - family-names: Lyons
+    given-names: Alex
+  - family-names: Peri
+    given-names: Neehar
+  - family-names: Ramanan
+    given-names: Deva
+url: 'https://github.com/lab4d-org/lab4d'
+license: MIT
+version: 0.0.0
+date-released: '2023-06-30'
