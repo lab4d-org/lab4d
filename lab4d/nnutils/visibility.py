@@ -31,6 +31,7 @@ class VisField(nn.Module):
         inst_channels=32,
         skips=[4],
         activation=nn.ReLU(True),
+        field_arch=CondMLP,
     ):
         super().__init__()
 
@@ -38,7 +39,7 @@ class VisField(nn.Module):
         self.pos_embedding = PosEmbedding(3, num_freq_xyz)
 
         # xyz encoding layers
-        self.basefield = CondMLP(
+        self.basefield = field_arch(
             num_inst=num_inst,
             D=D,
             W=W,

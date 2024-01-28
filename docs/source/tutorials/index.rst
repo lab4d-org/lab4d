@@ -16,7 +16,7 @@ The tutorials introduce a complete workflow of Lab4D. We'll use the method and d
 
 - `BANMo: Building Animatable 3D Neural Models from Many Casual Videos <https://banmo-www.github.io/>`_, CVPR 2022.
 - `RAC: Reconstructing Animatable Categories from Videos <https://gengshan-y.github.io/rac-www/>`_, CVPR 2023.
-- `Total-Recon: Deformable Scene Reconstruction for Embodied View Synthesis <https://andrewsonga.github.io/totalrecon/>`_, Arxiv 2023.
+- `Total-Recon: Deformable Scene Reconstruction for Embodied View Synthesis <https://andrewsonga.github.io/totalrecon/>`_, ICCV 2023.
 
 `The tutorials assumes a basic familiarity with Python and Differentiable Rendering concepts.`
 

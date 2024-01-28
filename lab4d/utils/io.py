@@ -25,6 +25,13 @@ def make_save_dir(opts, sub_dir="renderings"):
     return save_dir
 
 
+def resize_to_nearest_multiple(image, multiple=16):
+    height, width = image.shape[:2]
+    new_height = int(np.ceil(height / multiple) * multiple)
+    new_width = int(np.ceil(width / multiple) * multiple)
+    return cv2.resize(image, (new_width, new_height))
+
+
 def save_vid(
     outpath,
     frames,
@@ -67,7 +74,10 @@ def save_vid(
         frame = cv2.resize(frame, (w, h))
 
         frame_150.append(frame)
-    imageio.mimsave("%s%s" % (outpath, suffix), frame_150, fps=fps)
+
+    # to make divisible by 16
+    frame_150_resized = [resize_to_nearest_multiple(frame) for frame in frame_150]
+    imageio.mimsave("%s%s" % (outpath, suffix), frame_150_resized, fps=fps)
 
 
 def save_rendered(rendered, save_dir, raw_size, pca_fn):

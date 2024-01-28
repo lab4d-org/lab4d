@@ -6,10 +6,19 @@ import imageio
 import numpy as np
 
 
-def extract_frames(in_path, out_path):
+def extract_frames(in_path, out_path, desired_fps=30):
     print("extracting frames: ", in_path)
     # Open the video file
     reader = imageio.get_reader(in_path)
+    original_fps = reader.get_meta_data()["fps"]
+    # If a desired frame rate is higher than original
+    if original_fps < desired_fps:
+        desired_fps = original_fps
+
+    # If a desired frame rate is given, calculate the frame skip rate
+    skip_rate = 1
+    if desired_fps:
+        skip_rate = int(original_fps / desired_fps)
 
     # Find the first non-black frame
     for i, im in enumerate(reader):
@@ -17,10 +26,10 @@ def extract_frames(in_path, out_path):
             start_frame = i
             break
 
-    # Write the video starting from the first non-black frame
+    # Write the video starting from the first non-black frame, considering the desired frame rate
     count = 0
     for i, im in enumerate(reader):
-        if i >= start_frame:
+        if i >= start_frame and i % skip_rate == 0:
             imageio.imsave("%s/%05d.jpg" % (out_path, count), im)
             count += 1
 

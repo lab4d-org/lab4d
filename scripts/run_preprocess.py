@@ -21,6 +21,7 @@ from preprocess.scripts.tsdf_fusion import tsdf_fusion
 from preprocess.scripts.write_config import write_config
 from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
+from preprocess.third_party.omnivision.normal import extract_normal
 
 track_anything_module = importlib.import_module(
     "preprocess.third_party.Track-Anything.app"
@@ -75,6 +76,7 @@ def run_extract_priors(seqname, outdir, obj_class_cam):
 
     # depth
     extract_depth(seqname)
+    extract_normal(seqname)
 
     # crop around object and process flow
     extract_crop(seqname, 256, 0)
@@ -107,7 +109,7 @@ if __name__ == "__main__":
     # True: manually annotate camera for key frames
     use_manual_cameras = True if obj_class_cam == "other" else False
     # True: filter frame based on motion magnitude | False: use all frames
-    use_filter_frames = True
+    use_filter_frames = False
 
     outdir = "database/processed/"
     viddir = "database/raw/%s" % vidname

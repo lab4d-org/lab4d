@@ -70,7 +70,8 @@ To use custom videos, see the `preprocessing tutorial </lab4d/tutorials/preproce
 
       - z: forward
 
-  The metadata file is stored at `database/configs/...`, which is used to load the dataset.
+  The metadata file at `database/configs/$seqname.config` is used to load the dataset. 
+  It also stores the initial camera intrinsics (obtained by heuristics `focal length = max(h,w)`).
 
 
 Visualize preprocessed data
@@ -248,7 +249,7 @@ To render novel views, run::
 
 To render a video of the proxy geometry and cameras over training iterations, run::
 
-  python scripts/render_intermediate.py --testdir logdir/$logname/
+  python lab4d/render_intermediate.py --testdir logdir/$logname/
 
 .. raw:: html
 
