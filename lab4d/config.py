@@ -15,13 +15,13 @@ class TrainModelConfig:
     flags.DEFINE_float("flow_wt", 0.5, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
     flags.DEFINE_float("feature_wt", 1e-2, "weight for feature reconstruction loss")
-    flags.DEFINE_float("feat_reproj_wt", 0.1, "weight for feature reprojection loss")
+    flags.DEFINE_float("feat_reproj_wt", 0.05, "weight for feature reprojection loss")
 
     # weights of regularization terms
     flags.DEFINE_float(
         "reg_visibility_wt", 1e-4, "weight for visibility regularization"
     )
-    flags.DEFINE_float("reg_eikonal_wt", 0.1, "weight for eikonal regularization")
+    flags.DEFINE_float("reg_eikonal_wt", 0.01, "weight for eikonal regularization")
     flags.DEFINE_float("reg_density_masked_wt", 0.0, "l1 reg on density w/ dropout 0.2")
     flags.DEFINE_float("reg_eikonal_scale_max", 1, "max scaling for eikonal reg")
     flags.DEFINE_float(

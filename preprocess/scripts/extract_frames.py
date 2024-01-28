@@ -11,6 +11,9 @@ def extract_frames(in_path, out_path, desired_fps=30):
     # Open the video file
     reader = imageio.get_reader(in_path)
     original_fps = reader.get_meta_data()["fps"]
+    # If a desired frame rate is higher than original
+    if original_fps < desired_fps:
+        desired_fps = original_fps
 
     # If a desired frame rate is given, calculate the frame skip rate
     skip_rate = 1
