@@ -60,7 +60,7 @@ class Encoder(nn.Module):
         feat = self.resnet_conv.forward(img)  # 512,4,4
         feat = self.conv1(feat)  # 128,4,4
         feat = F.max_pool2d(feat, 4, 4)
-        feat = feat.view(img.size(0), -1)
+        feat = feat.reshape(img.size(0), -1)
         return feat
 
 

@@ -1,4 +1,4 @@
-# python projects/behavior/vis.py --testdir logdir//ama-bouncing-4v-ppr/export_0000/ --view bev --ghosting
+# python projects/behavior/vis.py --gendir ../guided-motion-diffusion/save/unet_adazero_xl_x0_abs_proj10_fp16_clipwd_224_custom_ego/samples_000115000_seed10/ --logdir logdir-12-05/home-2023-11-11--11-51-53-compose/ --fps 3
 import sys, os
 import pdb
 import json
@@ -19,6 +19,7 @@ from lab4d.utils.pyrender_wrapper import PyRenderWrapper
 from lab4d.utils.mesh_loader import MeshLoader
 from lab4d.utils.vis_utils import draw_cams
 from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation
+from lab4d.config import load_flags_from_file
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--logdir", default="", help="path to the directory with logs")
@@ -122,6 +123,17 @@ class ArticulationLoader(MeshLoader):
 
             # save fg/bg meshes
             self.mesh_dict[frame_idx] = mesh
+            # TODO assign color based on segment id
+            # 0-64, 64-64+160*1, 64+160*1-64+160*2
+            bucket = np.asarray([i * 160 for i in range(10)])
+            bucket_id = np.digitize(frame_idx, bucket)
+            from lab4d.utils.vis_utils import get_colormap
+
+            colormap = get_colormap()[bucket_id]
+            color = mesh.visual.vertex_colors
+            color[:, :3] = colormap
+            mesh.visual.vertex_colors = color
+
             if self.compose_mode == "compose":
                 mesh_bg = trimesh.util.concatenate([meshes_rest["bg"], mesh_roottraj])
                 self.scene_dict[frame_idx] = mesh_bg
@@ -158,34 +170,6 @@ class ArticulationLoader(MeshLoader):
 
     def __len__(self):
         return len(self.extr_dict)
-
-
-def load_flags_from_file(filename):
-    """Load flags from file and convert to json"""
-    opts = {}
-    with open(filename, "r") as file:
-        lines = file.readlines()
-        for line in lines:
-            if "=" in line:
-                flag = line.strip().split("=")
-                if len(flag) == 2:
-                    flag_name, flag_value = flag
-                else:
-                    flag_name = flag
-                    flag_value = ""
-                flag_name = flag_name.lstrip("--")
-                if "." in flag_value and flag_value.replace(".", "").isdigit():
-                    flag_value = float(flag_value)
-                elif flag_value.isdigit():
-                    flag_value = int(flag_value)
-            elif line.startswith("--no"):
-                flag_name = line.strip().lstrip("--no")
-                flag_value = False
-            else:
-                flag_name = line.strip().lstrip("--")
-                flag_value = True
-            opts[flag_name] = flag_value
-    return opts
 
 
 def main():

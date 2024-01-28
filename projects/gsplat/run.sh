@@ -1,28 +1,34 @@
-# # dynamic singlecam
-# dev=1
-# seqname=cat-pikachu-0
-# logname=gsplat-ref
-# rm -rf logdir/$seqname-$logname
-# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
-#   --pixels_per_image -1 --imgs_per_gpu 1 --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-#   --use_timesync --intrinsics_type const --extrinsics_type explicit \
-#   --field_type fg --fg_motion dynamic --feature_type cse \
-#   --reg_arap_wt 1.0 --flow_wt 0.1 --use_init_cam
-
-# dynamic singlecam incremental
+# dynamic singlecam
 dev=2
-seqname=cat-pikachu-0
-# seqname=eagle-s-0001
-# seqname=2023-11-03--20-53-19
-logname=gsplat-ref-z123
+# seqname=cat-pikachu-0
+seqname=2023-11-03--20-53-19
+logname=gsplat-ref-exp-update-arap-img-fix2
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
-  --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
-  --num_rounds 0 --iters_per_round 200 --learning_rate 5e-3 \
-  --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
-  --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
-  --reg_arap_wt 1.0 --inc_warmup_ratio 1.0 --flow_wt 0.1 --num_pts 500 --delta_list ","\
-  --guidance_zero123_wt 2e-4 --save_freq 10
+  --pixels_per_image -1 --imgs_per_gpu 8 --field_type fg --eval_res 256 \
+  --num_rounds 120 --iters_per_round 200 --learning_rate 5e-4 \
+  --feature_type cse --use_timesync --intrinsics_type const --extrinsics_type image --fg_motion image \
+  --use_init_cam \
+  --flow_wt 0.1 --lab4d_path logdir/home-2023-11-03--20-53-19-compose-fs-new2/opts.log --reg_lab4d_wt 1.0 --reg_arap_wt 1.0
+  # --extrinsics_type explicit --fg_motion dynamic
+  # --extrinsics_type image --fg_motion image
+# python projects/gsplat/render.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
+# python projects/gsplat/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
+
+# # dynamic singlecam incremental
+# dev=2
+# seqname=cat-pikachu-0
+# # seqname=eagle-s-0001
+# # seqname=2023-11-03--20-53-19
+# logname=gsplat-ref-z123
+# rm -rf logdir/$seqname-$logname
+# bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
+#   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg \
+#   --num_rounds 0 --iters_per_round 200 --learning_rate 5e-3 \
+#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --use_timesync \
+#   --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
+#   --reg_arap_wt 1.0 --inc_warmup_ratio 1.0 --flow_wt 0.1 --num_pts 500 --delta_list ","\
+#   --guidance_zero123_wt 2e-4 --save_freq 10
 
 # # rigid singlecam incremental
 # dev=1

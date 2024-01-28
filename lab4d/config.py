@@ -123,3 +123,31 @@ def save_config():
     if os.path.exists(opts_path):
         os.remove(opts_path)
     opts.append_flags_into_file(opts_path)
+
+
+def load_flags_from_file(filename):
+    """Load flags from file and convert to json"""
+    opts = {}
+    with open(filename, "r") as file:
+        lines = file.readlines()
+        for line in lines:
+            if "=" in line:
+                flag = line.strip().split("=")
+                if len(flag) == 2:
+                    flag_name, flag_value = flag
+                else:
+                    flag_name = flag
+                    flag_value = ""
+                flag_name = flag_name.lstrip("--")
+                if "." in flag_value and flag_value.replace(".", "").isdigit():
+                    flag_value = float(flag_value)
+                elif flag_value.isdigit():
+                    flag_value = int(flag_value)
+            elif line.startswith("--no"):
+                flag_name = line.strip().lstrip("--no")
+                flag_value = False
+            else:
+                flag_name = line.strip().lstrip("--")
+                flag_value = True
+            opts[flag_name] = flag_value
+    return opts

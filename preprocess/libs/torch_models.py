@@ -26,12 +26,20 @@ class CanonicalRegistration(nn.Module):
         self.cams_canonical = nn.Parameter(
             torch.tensor(cams_canonical), requires_grad=False
         )
-        cams_rel_gt = cams_view1[1:, :3, :3] @ np.transpose(
-            cams_view1[:-1, :3, :3], (0, 2, 1)
+        # adjacent
+        # cams_rel_gt = cams_view1[1:, :3, :3] @ np.transpose(
+        #     cams_view1[:-1, :3, :3], (0, 2, 1)
+        # )
+
+        # exhaustive
+        # say we have K frames, this will be KxKx3x3 => K=1200 => 400M.
+        cams_rel_gt = (
+            cams_view1[:, :3, :3][None]
+            @ np.transpose(cams_view1[:, :3, :3], (0, 2, 1))[:, None]
         )
         self.cams_rel_gt = nn.Parameter(torch.tensor(cams_rel_gt), requires_grad=False)
 
-    def forward(self, unary_wt=1.0, pairwise_wt=1.0):
+    def forward(self, unary_wt=1.0, pairwise_wt=10.0):
         # (1) rotation should be close to canonical cameras
         quat, trans = self.cam_net.get_vals()
         cams_pred = quaternion_translation_to_se3(quat, trans)
@@ -50,11 +58,25 @@ class CanonicalRegistration(nn.Module):
         loss_unary = loss_unary + loss_unary_translation
 
         # (2) relative translation should be close to procrustes
-        cams_rel = cams_pred[1:, :3, :3] @ cams_pred[:-1, :3, :3].permute(0, 2, 1)
+        # adjacent
+        # cams_rel = cams_pred[1:, :3, :3] @ cams_pred[:-1, :3, :3].permute(0, 2, 1)
 
-        loss_pairwise = rot_angle(
-            cams_rel[:, :3, :3] @ self.cams_rel_gt[:, :3, :3].permute(0, 2, 1)
+        # loss_pairwise = rot_angle(
+        #     cams_rel[:, :3, :3] @ self.cams_rel_gt[:, :3, :3].permute(0, 2, 1)
+        # )
+
+        # exhaustive
+        cams_rel = (
+            cams_pred[:, :3, :3][None] @ cams_pred[:, :3, :3].permute(0, 2, 1)[:, None]
         )
+        # KxK
+        loss_pairwise = rot_angle(
+            cams_rel[..., :3, :3] @ self.cams_rel_gt[..., :3, :3].permute(0, 1, 3, 2)
+        )
+        # weight by distance of indices
+        dist_mat = np.abs(self.annotated_idx[:, None] - self.annotated_idx[None, :])
+        dist_mat = torch.tensor(dist_mat, dtype=torch.float32, device=cams_rel.device)
+        loss_pairwise = loss_pairwise * (-dist_mat * 0.05).exp()  # 0.05: 50f => 0.08
 
         loss = unary_wt * loss_unary.mean() + pairwise_wt * loss_pairwise.mean()
         return loss

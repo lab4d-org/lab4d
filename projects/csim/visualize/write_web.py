@@ -55,14 +55,14 @@ def home():
             # write a clickable link
             for logdir, port in all_logdirs:
                 logname = logdir.strip("/").split("/")[-1]
-                a("logname name: " + logname + " ")
+                a("log name: " + logname + " ")
                 br()
                 with video(id="%s1" % logname, height="240", controls=True):
                     video_url = url_for(
                         # "custom_video", filename="%s/export_0001/ref_rgb.mp4" % logdir
                         "custom_video",
                         filename="database/processed/Annotations/Full-Resolution/%s-0000/vis.mp4"
-                        % logname[5:-8],
+                        % logname[5:25],
                     )
                     source(src=video_url, type="video/mp4")
                 with video(id="%s2" % logname, height="240", controls=True):
@@ -107,4 +107,7 @@ def home():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0")
+    port = sys.argv[1]
+    if port == "":
+        port = 5000
+    app.run(host="0.0.0.0", port=port)

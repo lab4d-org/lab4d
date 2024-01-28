@@ -741,16 +741,19 @@ class Trainer:
         model.cuda()
         model.eval()
 
-        # get reference images
-        inst_id = opts["inst_id"]
-        offset = data_info["frame_info"]["frame_offset"]
-        frame_id = np.asarray(
-            range(offset[inst_id] - inst_id, offset[inst_id + 1] - inst_id - 1)
-        )  # to account for pairs
-        # only load a single frame
-        if "freeze_id" in opts and opts["freeze_id"] > -1:
-            frame_id = frame_id[opts["freeze_id"] : opts["freeze_id"] + 1]
-        ref_dict, _ = Trainer.load_batch(evalloader.dataset, frame_id)
+        if "inst_id" in opts:
+            # get reference images
+            inst_id = opts["inst_id"]
+            offset = data_info["frame_info"]["frame_offset"]
+            frame_id = np.asarray(
+                range(offset[inst_id] - inst_id, offset[inst_id + 1] - inst_id - 1)
+            )  # to account for pairs
+            # only load a single frame
+            if "freeze_id" in opts and opts["freeze_id"] > -1:
+                frame_id = frame_id[opts["freeze_id"] : opts["freeze_id"] + 1]
+            ref_dict, _ = Trainer.load_batch(evalloader.dataset, frame_id)
+        else:
+            ref_dict = None
 
         return model, data_info, ref_dict
 

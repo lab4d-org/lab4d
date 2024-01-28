@@ -11,11 +11,13 @@ import pdb
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from simple_knn._C import distCUDA2
 
 sys.path.insert(0, os.getcwd())
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
+from projects.predictor.predictor import CameraPredictor, TrajPredictor
 from lab4d.nnutils.pose import CameraConst, CameraExplicit
 from lab4d.utils.quat_transform import (
     quaternion_translation_to_se3,
@@ -210,7 +212,7 @@ class GaussianModel(nn.Module):
         self.ratio_knn = 1.0
         self.setup_functions()
 
-    def get_extrinsics(self, frameid):
+    def get_extrinsics(self, frameid=None):
         quat, trans = self.camera_mlp.get_vals(frameid)
         w2c = quaternion_translation_to_se3(quat, trans)
         return w2c
@@ -229,12 +231,31 @@ class GaussianModel(nn.Module):
             return quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
         return rot
 
+    def update_trajectory(self, frameid):
+        if isinstance(self.camera_mlp, TrajPredictor):
+            _, _, motion = self.camera_mlp.get_vals(frameid, xyz=self._xyz)  # N, bs, 3
+            self._trajectory.data[:, frameid, 4:] = motion
+            # to prop grad to motion
+            self._trajectory_pred = torch.zeros_like(self._trajectory)
+            self._trajectory_pred = self._trajectory_pred + self._trajectory
+            self._trajectory_pred[:, frameid, 4:] = motion
+
     def get_xyz(self, frameid=None):
         if hasattr(self, "_trajectory"):
             if frameid is None:
                 return self._xyz + self._trajectory[:, 0, 4:]
             else:
-                return self._xyz + self._trajectory[:, frameid, 4:]
+                shape = frameid.shape
+                frameid = frameid.reshape(-1)
+                # to prop grad to motion
+                if hasattr(self, "_trajectory_pred"):
+                    traj_pred = self._trajectory_pred[:, frameid, 4:]
+                    assert (traj_pred.abs().sum(0).sum(-1) == 0).sum() == 0
+                else:
+                    traj_pred = self._trajectory[:, frameid, 4:]
+                # N,xyz,3
+                xyz_t = self._xyz[:, None] + traj_pred
+                return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
         return self._xyz
 
     @property
@@ -286,8 +307,7 @@ class GaussianModel(nn.Module):
     @torch.no_grad()
     def export_geometry_aux(self, path):
         mesh_geo = self.proxy_geometry
-        quat, trans = self.camera_mlp.get_vals()
-        rtmat = quaternion_translation_to_se3(quat, trans).cpu().numpy()
+        rtmat = self.get_extrinsics().cpu().numpy()
         # evenly pick max 200 cameras
         if rtmat.shape[0] > 200:
             idx = np.linspace(0, rtmat.shape[0] - 1, 200).astype(np.int32)
@@ -399,12 +419,32 @@ class GaussianModel(nn.Module):
     def init_trajectory(self, total_frames):
         trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
         trajectory[:, :, 0] = 1.0
+
+        # update init traj if lab4d ckpt exists
+        if self.lab4d_model is not None:
+            dev = "cuda"
+            inst_id = 1
+            inst_id = torch.tensor([inst_id], device=dev)
+            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
+            frameid = torch.arange(total_frames, device=dev)
+            frameid = frameid + frame_offsets[inst_id]
+            xyz_t = self.get_lab4d_xyz_t(inst_id, frameid).cpu()  # N, T, 3
+            trajectory[:, :, 4:] = xyz_t - self._xyz[:, None]
+
         self._trajectory = nn.Parameter(trajectory)
 
     def construct_extrinsics(self, config, data_info):
         """Construct camera extrinsics module"""
         tracklet_id = 1
         rtmat = data_info["rtmat"][tracklet_id]
+
+        # update init camera if lab4d ckpt exists
+        if self.lab4d_model is not None:
+            inst_id = 1
+            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
+            rtmat = self.lab4d_model.get_cameras()["fg"]
+            rtmat = rtmat[frame_offsets[inst_id] : frame_offsets[inst_id + 1]]
+
         frame_info = data_info["frame_info"]
         if config["extrinsics_type"] == "const":
             self.camera_mlp = CameraConst(rtmat, frame_info)
@@ -412,6 +452,16 @@ class GaussianModel(nn.Module):
             if not config["use_init_cam"]:
                 rtmat[:, :3, :3] = np.eye(3)
             self.camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
+        elif config["extrinsics_type"] == "image":
+            if config["fg_motion"] == "image":
+                self.camera_mlp = TrajPredictor(
+                    rtmat,
+                    self._xyz.clone(),
+                    self._trajectory[..., 4:].clone(),
+                    data_info,
+                )
+            else:
+                self.camera_mlp = CameraPredictor(rtmat, data_info)
         else:
             raise NotImplementedError
 
@@ -694,6 +744,92 @@ class GaussianModel(nn.Module):
                 self.camera_mlp.trans.data[
                     last_opt_frameid_abs + 1 : end_frame
                 ] = last_trans.data
+
+    def load_lab4d(self, flags_path):
+        from lab4d.config import load_flags_from_file
+        from lab4d.engine.trainer import Trainer
+
+        # load lab4d model
+        if flags_path == "":
+            return None
+
+        opts = load_flags_from_file(flags_path)
+        opts["load_suffix"] = "latest"
+        model, data_info, _ = Trainer.construct_test_model(opts)
+        self.lab4d_model = model
+
+    def get_lab4d_loss(self, frameid):
+        dev = self._xyz.device
+        frameid = frameid.view(-1)
+        inst_id = 1
+        inst_id = torch.tensor([inst_id], device=dev)
+
+        # predicted pose
+        w2c = self.get_extrinsics(frameid)
+        xyz_t = self.get_xyz(frameid)  # N, bs, 3
+        xyz = self._xyz
+        # motion = self._trajectory[:, frameid, 4:]
+
+        # pseudo ground-truth
+        with torch.no_grad():
+            # motion_gt = self.camera_mlp.init_vals[2].to(dev)
+            # motion_gt = motion_gt[:, frameid]
+            xyz_gt = self.camera_mlp.init_vals[1].to(dev).detach()
+
+            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
+            frameid = frameid + frame_offsets[inst_id]
+            w2c_gt = self.lab4d_model.get_cameras(frameid)["fg"]
+            w2c_gt = w2c_gt.view(*frameid.shape, 4, 4)
+
+            xyz_t_gt = self.get_lab4d_xyz_t(inst_id, frameid)
+
+        # loss for explicit params
+        loss_rot = rot_angle(w2c_gt[..., :3, :3] @ w2c[..., :3, :3].permute(0, 2, 1))
+        loss_trans = torch.norm(w2c_gt[..., :3, 3] - w2c[..., :3, 3], 2, -1)
+        loss_xyz = torch.norm(xyz_t_gt - xyz_t, 2, -1)
+        loss = loss_rot.mean() * 0.1 + loss_trans.mean() + loss_xyz.mean()
+
+        # # loss for image basis
+        # loss_root = F.mse_loss(w2c, w2c_gt)
+        # loss_traj = F.mse_loss(motion, motion_gt)
+        # loss = (loss_root + loss_traj) / 2
+
+        # from geomloss import SamplesLoss
+
+        # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002)
+        # loss = loss + samploss(xyz, xyz_gt).mean()
+
+        sys.path.insert(
+            0,
+            "%s/../ppr/eval/third_party/ChamferDistancePytorch/"
+            % os.path.join(os.path.dirname(__file__)),
+        )
+        from chamfer3D.dist_chamfer_3D import chamfer_3DDist
+
+        chamLoss = chamfer_3DDist()
+        loss_xyz_fw, loss_xyz_bw, _, _ = chamLoss(xyz_gt[None], xyz[None])
+        loss_xyz = (loss_xyz_fw.mean() + loss_xyz_bw.mean()) / 2 * 1000
+        print("loss_xyz: ", loss_xyz)
+        loss = loss + loss_xyz
+
+        return loss
+
+    def get_lab4d_xyz_t(self, inst_id, frameid=None):
+        dev_xyz = self._xyz.device
+        dev_lab4d = self.lab4d_model.device
+        field = self.lab4d_model.fields.field_params["fg"]
+        samples_dict = {}
+        (
+            samples_dict["t_articulation"],
+            samples_dict["rest_articulation"],
+        ) = field.warp.articulation.get_vals_and_mean(frame_id=frameid)
+        xyz = self._xyz.to(dev_lab4d)
+        xyz = xyz[None, None].repeat(len(frameid), 1, 1, 1) * self.scale_fg
+        xyz_t_gt = field.warp(xyz, None, inst_id, samples_dict=samples_dict)
+        xyz_t_gt = xyz_t_gt[:, 0] / self.scale_fg  # bs, N, 3
+        xyz_t_gt = xyz_t_gt.permute(1, 0, 2)  # N, bs, 3
+        xyz_t_gt = xyz_t_gt.to(dev_xyz)
+        return xyz_t_gt
 
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):

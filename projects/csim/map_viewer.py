@@ -32,7 +32,7 @@ def count_points_in_voxels(pts, grid_size, voxel_size):
 
 bg_path = "logdir-12-05/home-2023-11-08--20-29-39-compose/export_0000/bg-mesh.obj"
 testdirs = glob.glob("logdir-12-05/*-compose/export_0001/")
-res = 0.5  # 10cm
+res = 0.5  # 50cm
 
 
 mesh = trimesh.load(bg_path)
@@ -123,6 +123,12 @@ from mdp import (
 )
 
 # sample trajectory from preference function
+# save preference root
+value_map = {"map": preference_root.tolist(), "res": res, "aabb": aabb.tolist()}
+np.save("tmp/value_map.npy", value_map)
+print("saved to tmp/value_map.npy")
+
+# reward
 reward_grid = preference_root.sum(1).tolist()  # xz is left
 mdp_env = GridMDP(reward_grid, terminals=[])
 pi = best_policy(

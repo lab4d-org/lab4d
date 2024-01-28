@@ -44,8 +44,28 @@ from projects.gsplat.gs_renderer import (
 )
 from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.gsplat.cam_utils import orbit_camera
+from projects.predictor.predictor import CameraPredictor, TrajPredictor
 
 from flowutils.flowlib import point_vec, warp_flow
+
+
+def fake_a_pair(tensor):
+    """Fake a pair of tensors by repeating the first dimension
+
+    Args:
+        tensor (torch.Tensor): Tensor with shape (M, ...)
+
+    Returns:
+        tensor (torch.Tensor): Tensor with shape (M*2, ...)
+    """
+    if torch.is_tensor(tensor):
+        return tensor[:, None].repeat((1, 2) + tuple([1] * (tensor.ndim - 1)))
+    elif isinstance(tensor, dict):
+        for k, v in tensor.items():
+            tensor[k] = fake_a_pair(v)
+        return tensor
+    else:
+        raise NotImplementedError
 
 
 class GSplatModel(nn.Module):
@@ -83,8 +103,22 @@ class GSplatModel(nn.Module):
             device="cuda",
         )
 
-        mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
-        self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
+        # load lab4d model
+        self.gaussians.load_lab4d(config["lab4d_path"])
+        if self.gaussians.lab4d_model is None:
+            mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
+            self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
+        else:
+            mesh = self.gaussians.lab4d_model.fields.extract_canonical_meshes()["fg"]
+            scale_fg = self.gaussians.lab4d_model.fields.field_params["fg"]
+            self.gaussians.scale_fg = scale_fg.logscale.exp()
+            pcd = BasicPointCloud(
+                mesh.vertices / self.gaussians.scale_fg.detach().cpu().numpy(),
+                mesh.visual.vertex_colors[:, :3] / 255,
+                np.zeros((mesh.vertices.shape[0], 3)),
+            )
+            self.initialize(input=pcd)
+
         # # DEBUG
         # mesh = trimesh.load("tmp/0.obj")
         # pcd = BasicPointCloud(
@@ -424,7 +458,11 @@ class GSplatModel(nn.Module):
             Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs))
         Kmat_unit = self.compute_render_Kmat(crop_size, crop2raw, Kmat_raw)
         cam_dict = self.get_default_cam(crop_size)
-        w2c = self.gaussians.get_extrinsics(frameid_abs)
+        if "field2cam" in batch:
+            w2c = batch["field2cam"]["fg"]
+            w2c = quaternion_translation_to_se3(w2c[..., :4], w2c[..., 4:])
+        else:
+            w2c = self.gaussians.get_extrinsics(frameid_abs)
         return cam_dict, Kmat_unit, w2c
 
     def compute_recon_losses(self, loss_dict, rendered, batch):
@@ -490,6 +528,9 @@ class GSplatModel(nn.Module):
             batch, self.config["train_res"]
         )
         frameid = self.get_frameid(batch)
+
+        # TODO: get deformation before rendering
+        self.gaussians.update_trajectory(frameid)
 
         # render reference view
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
@@ -692,6 +733,8 @@ class GSplatModel(nn.Module):
             loss_dict["reg_arap"] = self.gaussians.get_arap_loss(
                 frameid=frameid[0, 0], frameid_2=frameid[0, 1]
             )
+        if self.config["reg_lab4d_wt"] > 0:
+            loss_dict["reg_lab4d"] = self.gaussians.get_lab4d_loss(frameid)
 
     @staticmethod
     def mask_losses(loss_dict, maskfg, vis2d, mask_pred, config):
@@ -887,13 +930,20 @@ class GSplatModel(nn.Module):
         if not is_pair:
             # fake a pair
             for k, v in batch.items():
-                batch[k] = v[:, None].repeat((1, 2) + tuple([1] * (v.ndim - 1)))
+                batch[k] = fake_a_pair(v)
         else:
             self.reshape_batch_inv(batch)
-        cam_dict, Kmat, w2c = self.compute_camera_samples(
-            batch, self.config["eval_res"]
-        )
+        # render mode or eval mode during training
+        if "render_res" in self.config.keys():
+            crop_size = self.config["render_res"]
+        else:
+            crop_size = self.config["eval_res"]
+        cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
         frameid = self.get_frameid(batch)
+
+        # TODO: get deformation before rendering
+        self.gaussians.update_trajectory(frameid)
+
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
         self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
 
@@ -910,7 +960,7 @@ class GSplatModel(nn.Module):
                 out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()
         bg_color = self.gaussians.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
         out_dict["bg_color"] = bg_color
-        bg_color = cv2.resize(bg_color[0], (self.config["eval_res"],) * 2)[None]
+        bg_color = cv2.resize(bg_color[0], (crop_size,) * 2)[None]
         out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
             1 - out_dict["alpha"]
         )
@@ -1001,6 +1051,13 @@ class GSplatModel(nn.Module):
         # anchor_y = (1.0, 0.0)
         # type = "linear"
         # self.set_loss_weight(loss_name, anchor_x, anchor_y, progress, type=type)
+
+        # reg_lab4d_wt
+        loss_name = "reg_lab4d_wt"
+        anchor_x = (0, 2000.0)
+        anchor_y = (1.0, 0.0)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
     def set_loss_weight(
         self, loss_name, anchor_x, anchor_y, progress_ratio, type="linear"
@@ -1108,6 +1165,13 @@ class GSplatModel(nn.Module):
             self.gaussians.add_xyz_grad_stats(grad * len_grads, vis_mask)
         # delete after update
         del self.rendered_aux
+
+    def mlp_init(self):
+        """Initialize camera transforms, geometry, articulations, and camera
+        intrinsics for all neural fields from external priors
+        """
+        if isinstance(self.gaussians.camera_mlp, CameraPredictor):
+            self.gaussians.camera_mlp.init_weights()
 
 
 if __name__ == "__main__":

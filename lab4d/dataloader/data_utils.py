@@ -231,6 +231,7 @@ def get_data_info(loader):
     raw_size = []
     feature_pxs = []
     motion_scales = []
+    rgb_imgs = []
 
     for dataset in dataset_list:
         frame_info = FrameInfo(dataset.dict_list["ref"])
@@ -267,6 +268,9 @@ def get_data_info(loader):
         motion_scale = np.linalg.norm(flow, 2, -1).mean()
         motion_scales.append(motion_scale)
 
+        mask = dataset.mmap_list["mask"][..., :1].astype(np.float16)
+        rgb_imgs.append(dataset.mmap_list["rgb"] * mask)
+
     # compute PCA on non-zero features
     if len(feature_pxs) > 0:
         feature_pxs = np.concatenate(feature_pxs, 0)
@@ -289,6 +293,8 @@ def get_data_info(loader):
     data_info["total_frames"] = frame_info["frame_offset"][-1]
     data_info["intrinsics"] = np.asarray(intrinsics)  # N,4
     data_info["raw_size"] = np.asarray(raw_size)  # M,2
+
+    data_info["rgb_imgs"] = np.concatenate(rgb_imgs, 0)  # N, H, W, 3
 
     data_path_dict = merge_dict_list(loader)
     data_info.update(load_small_files(data_path_dict))

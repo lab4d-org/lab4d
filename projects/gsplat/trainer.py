@@ -260,6 +260,8 @@ class GSplatTrainer(Trainer):
         self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
         self.model = self.model.to(self.device)
 
+        self.init_model()
+
         # cache queue of length 2
         self.model_cache = [None, None]
         self.optimizer_cache = [None, None]
@@ -397,8 +399,14 @@ class GSplatTrainer(Trainer):
                 "module.gaussians.camera_mlp": lr_base * 2,
             }
         else:
+            if opts["extrinsics_type"] == "image":
+                camera_lr = lr_base * 0.1
+                xyz_lr = lr_base * 0.2
+            else:
+                camera_lr = lr_base * 2
+                xyz_lr = lr_base
             param_lr_startwith = {
-                "module.gaussians._xyz": lr_base,
+                "module.gaussians._xyz": xyz_lr,
                 "module.gaussians._features_dc": lr_base,
                 "module.gaussians._features_rest": lr_base * 0.05,
                 "module.gaussians._scaling": lr_base * 0.5,
@@ -406,7 +414,7 @@ class GSplatTrainer(Trainer):
                 "module.gaussians._opacity": lr_base * 5,
                 "module.gaussians._trajectory": lr_base * 0.5,
                 "module.gaussians.bg_color": lr_base * 5,
-                "module.gaussians.camera_mlp": lr_base * 2,
+                "module.gaussians.camera_mlp": camera_lr,
                 "module.guidance_sd": 0.0,
             }
 

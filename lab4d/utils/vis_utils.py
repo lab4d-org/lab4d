@@ -335,7 +335,7 @@ def get_colormap(num_colors=-1, repeat=1):
     return colors
 
 
-def image_to_mesh(image_path, z_displacement=0.04, mesh_scale=0.005, mesh_res=5e3):
+def image_to_mesh(image_path, z_displacement=0.04, mesh_scale=0.0005, mesh_res=5e3):
     """Convert image to mesh
 
     Args:

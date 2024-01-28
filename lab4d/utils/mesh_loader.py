@@ -233,7 +233,7 @@ class MeshLoader:
             input_dict["ghost"] = ghost_mesh
 
         # pts trajectory: TxNx2x3
-        if hasattr(self, "pts_traj_dict"):
+        if len(self.pts_traj_dict.keys()) > 0:
             pts_traj, pts_color = self.pts_traj_dict[frame_idx]
             input_dict["pts_traj"], input_dict["pts_color"] = pts_traj, pts_color
         return input_dict

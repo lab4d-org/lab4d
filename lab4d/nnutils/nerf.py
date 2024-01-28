@@ -225,7 +225,7 @@ class NeRF(nn.Module):
 
         xyz_sdf = xyz.clone()
         # symmetrize canonical shape
-        if self.symm_ratio > 0.0:    
+        if self.symm_ratio > 0.0 and self.category == "fg":
             xyz_x = xyz_sdf[..., :1].clone()
             symm_mask = torch.rand_like(xyz_x) < self.symm_ratio
             xyz_x[symm_mask] = -xyz_x[symm_mask]
