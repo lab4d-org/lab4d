@@ -186,34 +186,56 @@ class Trainer:
         """
         opts = self.opts
         self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list()
+
+        # # one cycle lr
+        # self.optimizer = torch.optim.AdamW(
+        #     params_list,
+        #     lr=opts["learning_rate"],
+        #     betas=(0.9, 0.999),
+        #     weight_decay=1e-4,
+        # )
+        # # initial_lr = lr/div_factor
+        # # min_lr = initial_lr/final_div_factor
+        # # if is_resumed:
+        # if False:
+        #     div_factor = 1.0
+        #     final_div_factor = 25.0
+        #     pct_start = 0.0  # cannot be 0
+        # else:
+        #     div_factor = 25.0
+        #     final_div_factor = 1.0
+        #     pct_start = min(
+        #         1 - 1e-5, 2.0 / opts["num_rounds"]
+        #     )  # use 2 epochs to warm up
+        # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        #     self.optimizer,
+        #     lr_list,
+        #     int(self.total_steps),
+        #     pct_start=pct_start,
+        #     cycle_momentum=False,
+        #     anneal_strategy="linear",
+        #     div_factor=div_factor,
+        #     final_div_factor=final_div_factor,
+        # )
+
+        # cyclic lr
+        assert self.total_steps // 2000 * 2000 == self.total_steps # dividible by 2k
         self.optimizer = torch.optim.AdamW(
             params_list,
             lr=opts["learning_rate"],
-            betas=(0.9, 0.999),
+            betas=(0.9, 0.99),
             weight_decay=1e-4,
         )
-        # initial_lr = lr/div_factor
-        # min_lr = initial_lr/final_div_factor
-        # if is_resumed:
-        if False:
-            div_factor = 1.0
-            final_div_factor = 25.0
-            pct_start = 0.0  # cannot be 0
-        else:
-            div_factor = 25.0
-            final_div_factor = 1.0
-            pct_start = min(
-                1 - 1e-5, 2.0 / opts["num_rounds"]
-            )  # use 2 epochs to warm up
-        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        self.scheduler = torch.optim.lr_scheduler.CyclicLR(
             self.optimizer,
+            [i * 0.01 for i in lr_list],
             lr_list,
-            int(self.total_steps),
-            pct_start=pct_start,
+            step_size_up=10,
+            step_size_down=1990,
+            mode="triangular",
+            gamma=1.0,
+            scale_mode="cycle",
             cycle_momentum=False,
-            anneal_strategy="linear",
-            div_factor=div_factor,
-            final_div_factor=final_div_factor,
         )
 
     def get_optimizable_param_list(self):

@@ -254,7 +254,7 @@ class FeatureNeRF(NeRF):
         feat_px,
         feat_canonical,
         xyz_canonical,
-        num_grad=128,
+        num_grad=0,
     ):
         """Match pixel features to canonical features, which combats local
         minima in differentiable rendering optimization
