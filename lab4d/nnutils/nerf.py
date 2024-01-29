@@ -487,7 +487,8 @@ class NeRF(nn.Module):
             quat, trans = self.camera_mlp.get_vals()  # (B, 4, 4)
             rtmat = quaternion_translation_to_se3(quat, trans)
 
-        verts = self.proxy_geometry.vertices
+        # verts = self.proxy_geometry.vertices
+        verts = trimesh.bounds.corners(self.proxy_geometry.bounds)
         if verts is not None:
             proxy_pts = torch.tensor(verts, dtype=torch.float32, device=device)
             near_far = get_near_far(proxy_pts, rtmat).to(device)
