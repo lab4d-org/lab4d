@@ -326,3 +326,17 @@ class FeatureNeRF(NeRF):
         Kmat = Kmatinv(Kinv)
         xy_reproj = pinhole_projection(Kmat, xyz_cam)[..., :2]
         return xy_reproj, xyz_cam
+
+    @torch.no_grad()
+    def extract_canonical_feature(self, mesh):
+        """Extract color on canonical mesh vertices
+
+        Args:
+            mesh (Trimesh): Canonical mesh
+        Returns:
+            feature (np.ndarray): Feature on vertices
+        """
+        device = next(self.parameters()).device
+        verts = torch.tensor(mesh.vertices, dtype=torch.float32, device=device)
+        feature = self.compute_feat(verts)["feature"]
+        return feature.cpu().numpy()

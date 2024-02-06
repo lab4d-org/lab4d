@@ -230,7 +230,7 @@ def get_data_info(loader):
     intrinsics = []
     raw_size = []
     feature_pxs = []
-    motion_scales = []
+    # motion_scales = []
     rgb_imgs = []
 
     for dataset in dataset_list:
@@ -254,19 +254,19 @@ def get_data_info(loader):
             num_skip = max(1, len(feature_array) // 1000)
             feature_pxs.append(feature_array[::num_skip])
 
-        # compute motion magnitude
-        mask = dataset.mmap_list["mask"][:-1, ..., 0].copy()
-        if dataset.field_type == "bg":
-            mask = np.logical_not(mask)
-        elif dataset.field_type == "fg":
-            pass
-        elif dataset.field_type == "comp":
-            mask[:] = True
-        else:
-            raise ValueError("Unknown field type: %s" % dataset.field_type)
-        flow = dataset.mmap_list["flowfw"][1][mask, :2]
-        motion_scale = np.linalg.norm(flow, 2, -1).mean()
-        motion_scales.append(motion_scale)
+        # # compute motion magnitude
+        # mask = dataset.mmap_list["mask"][:-1, ..., 0].copy()
+        # if dataset.field_type == "bg":
+        #     mask = np.logical_not(mask)
+        # elif dataset.field_type == "fg":
+        #     pass
+        # elif dataset.field_type == "comp":
+        #     mask[:] = True
+        # else:
+        #     raise ValueError("Unknown field type: %s" % dataset.field_type)
+        # flow = dataset.mmap_list["flowfw"][1][mask, :2]
+        # motion_scale = np.linalg.norm(flow, 2, -1).mean()
+        # motion_scales.append(motion_scale)
 
         mask = dataset.mmap_list["mask"][..., :1].astype(np.float16)
         rgb_imgs.append(dataset.mmap_list["rgb"] * mask)
@@ -281,7 +281,7 @@ def get_data_info(loader):
     data_info["apply_pca_fn"] = pca_numpy(feature_pxs, n_components=3)
 
     # store motion magnitude
-    data_info["motion_scales"] = motion_scales
+    # data_info["motion_scales"] = motion_scales
     # print("motion scales: ", motion_scales)
 
     frame_info = {}

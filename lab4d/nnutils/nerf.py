@@ -443,6 +443,21 @@ class NeRF(nn.Module):
         )
         return mesh
 
+    @torch.no_grad()
+    def extract_canonical_color(self, mesh):
+        """Extract color on canonical mesh vertices
+
+        Args:
+            mesh (Trimesh): Canonical mesh
+        Returns:
+            color (np.ndarray): Color on vertices
+        """
+        device = next(self.parameters()).device
+        verts = torch.tensor(mesh.vertices, dtype=torch.float32, device=device)
+        dir = torch.zeros_like(verts)
+        color = self.forward(verts, dir=dir)[0]
+        return color.cpu().numpy()
+
     def get_aabb(self, inst_id=None):
         """Get axis-aligned bounding box
         Args:

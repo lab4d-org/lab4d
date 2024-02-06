@@ -52,6 +52,7 @@ def home():
             attr(cls="header")
             h1("Results visualizer of vid2sim")
 
+            count = 1
             # write a clickable link
             for logdir, port in all_logdirs:
                 logname = logdir.strip("/").split("/")[-1]
@@ -71,6 +72,14 @@ def home():
                         filename="%s/export_0001/render-bone-compose-ref.mp4" % logdir,
                     )
                     source(src=video_url, type="video/mp4")
+                # with video(id="%s3" % logname, height="240", controls=True):
+                #     video_url = url_for(
+                #         "custom_video",
+                #         filename="logdir/home-2023-11-compose-ft/export_%04d/render-bone-compose-ref.mp4"
+                #         % count,
+                #     )
+                #     source(src=video_url, type="video/mp4")
+                #     count += 1
                 br()
                 with strong():
                     a("[Mesh Visualizer]", href="http://128.2.218.31:" + str(port))
