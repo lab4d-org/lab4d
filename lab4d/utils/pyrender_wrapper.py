@@ -24,7 +24,7 @@ class PyRenderWrapper:
     def __init__(self, image_size=(1024, 1024)) -> None:
         # renderer
         render_size = max(image_size)
-        self.r = OffscreenRenderer(render_size, render_size)
+        self.r = OffscreenRenderer(render_size, render_size, point_size=3.0)
         self.intrinsics = IntrinsicsCamera(
             render_size, render_size, render_size / 2, render_size / 2
         )
@@ -73,6 +73,9 @@ class PyRenderWrapper:
         scene_to_cam[:3, :3] = rot
         scene_to_cam[2, 3] = depth
         self.scene_to_cam = self.flip_pose @ scene_to_cam
+
+    def get_camera(self):
+        return np.linalg.inv(self.flip_pose) @ self.scene_to_cam
 
     def set_camera(self, scene_to_cam):
         # object to camera transforms
@@ -152,7 +155,10 @@ class PyRenderWrapper:
         else:
             # use new shape
             if isinstance(input_dict["shape"], trimesh.points.PointCloud):
-                mesh_pyrender = Mesh.from_points(input_dict["shape"].vertices)
+                colors = input_dict["shape"].colors
+                mesh_pyrender = Mesh.from_points(
+                    input_dict["shape"].vertices, colors=colors
+                )
             elif isinstance(input_dict["shape"], trimesh.base.Trimesh):
                 mesh_pyrender = Mesh.from_trimesh(input_dict["shape"], smooth=False)
             else:

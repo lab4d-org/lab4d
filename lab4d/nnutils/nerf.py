@@ -1196,7 +1196,7 @@ class NeRF(nn.Module):
         }
         return cyc_dict
 
-    @train_only_fields
+    # @train_only_fields
     def compute_flow(
         self,
         hxy,

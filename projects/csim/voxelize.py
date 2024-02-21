@@ -8,6 +8,8 @@
 # pdb.set_trace()
 # voxel_holder(torch.rand(1000, 3) * 20 - 10)
 
+import torch
+from torch.functional import F
 import trimesh
 import open3d as o3d
 import numpy as np
@@ -71,6 +73,9 @@ class VoxelGrid:
         elif mode == "cam_visitation":
             data = self.cam_visitation
             color = np.array([0.0, 0.0, 1.0, 1.0])
+        elif mode == "root_visitation_gradient":
+            data = np.linalg.norm(self.root_visitation_gradient, 2, axis=-1)
+            color = np.array([1.0, 1.0, 0.0, 1.0])
         else:
             raise ValueError("mode not recognized")
         if data.sum() == 0:
@@ -143,13 +148,39 @@ class VoxelGrid:
                 opacity=0.8,
             )
 
+        if hasattr(self, "root_visitation_gradient"):
+            boxes = self.to_boxes(mode="root_visitation_gradient")
+            server.add_mesh_simple(
+                name="/frames/root_visitation_gradient",
+                vertices=boxes.vertices,
+                vertex_colors=boxes.visual.vertex_colors[:, :3],
+                faces=boxes.faces,
+                color=None,
+                opacity=0.8,
+            )
+
         while True:
             time.sleep(10.0)
+
+    @staticmethod
+    def spatial_gradient(volume, eps=1):
+        """
+        x: H,W,D
+        gradient: H,W,D,3
+        """
+        gradient_x = np.gradient(volume, axis=0)  # Gradient along width (x-axis)
+        gradient_y = np.gradient(volume, axis=1)  # Gradient along height (y-axis)
+        gradient_z = np.gradient(volume, axis=2)  # Gradient along depth (z-axis)
+        gradient = np.stack([gradient_x, gradient_y, gradient_z], axis=-1)
+        return gradient
 
     def count_root_visitation(self, trajectory, splat_radius=0.2):
         trajectory[..., 1] += 0.2  # center to foot
         self.root_visitation = self.splat_trajectory_counts(trajectory, splat_radius)
         self.root_visitation = self.root_visitation / self.root_visitation.max()
+        self.root_visitation_gradient = self.spatial_gradient(
+            (self.root_visitation > 0).astype(float)
+        )
 
     def count_cam_visitation(self, trajectory, splat_radius=0.2):
         self.cam_visitation = self.splat_trajectory_counts(trajectory, splat_radius)
@@ -227,30 +258,72 @@ class VoxelGrid:
             data = self.root_visitation
         elif mode == "cam_visitation":
             data = self.cam_visitation
+        elif mode == "root_visitation_gradient":
+            data = self.root_visitation_gradient
 
-        # TODO: bilinear interpolation
-        res = self.res
-        grid_size = self.data.shape
-        index = ((pts - self.origin) / res).astype(int)
-        for dim in range(3):
-            index[..., dim] = np.clip(index[..., dim], 0, grid_size[dim] - 1)
-        # index: ...,3
-        # data: H,W,D
-        value = data[index[..., 0], index[..., 1], index[..., 2]]
-        import cv2
-
-        cv2.imwrite(
-            "tmp/nn_mat.png",
-            self.data[index[..., 0], index[..., 1], index[..., 2]] * 255,
-        )
+        data = data[None]  # 1,H,W,D
+        value = readout_voxel_fn(data, pts, self.res, self.origin)
+        value = value[0]  # N
         return value
 
 
-def __main__():
+def readout_voxel_fn(data, pts, res, origin):
+    """
+    data: C,H,W,D
+    pts: N,3
+    """
+    if not torch.is_tensor(data):
+        data = torch.tensor(data, dtype=torch.float32)
+        coord = torch.tensor(coord, dtype=torch.float32)
+        is_numpy = True
+    else:
+        is_numpy = False
+
+    device = data.device
+    origin = torch.tensor(origin, dtype=torch.float32, device=device)
+
+    grid_size = data.shape[1:]
+    coord = (pts - origin) / res
+
+    # coord ...,3
+    # data: H,W,D
+
+    # # NN interp
+    # index = coord.astype(int)
+    # for dim in range(3):
+    #     index[..., dim] = np.clip(index[..., dim], 0, grid_size[dim] - 1)
+    # value = data[index[..., 0], index[..., 1], index[..., 2]]
+
+    # bilinear interpolation
+    # data: N,C,D,H,W, N=1
+    # coord: N,D,H,W,3, N=1, D=1, H=1
+    # normalize to -1,1
+    coord = coord / torch.tensor(grid_size, device=device) * 2 - 1
+    value = F.grid_sample(data[None], coord[None, None, None], mode="bilinear")
+    # value NCDHW
+    value = value[0, :, 0, 0]
+
+    if is_numpy:
+        value = value.cpu().numpy()
+
+    # import cv2
+
+    # cv2.imwrite(
+    #     "tmp/nn_mat.png",
+    #     self.data[index[..., 0], index[..., 1], index[..., 2]] * 255,
+    # )
+    return value
+
+
+if __name__ == "__main__":
     mesh_path = "../vid2sim/logdir/home-2023-11-bg-adapt3/export_0001/bg-mesh.obj"
     mesh = trimesh.load(mesh_path)
 
     # get a coordinate frame
 
     voxel_grid = VoxelGrid(mesh)
+
+    pts_score = voxel_grid.readout_voxel(mesh.vertices)
+    trimesh.Trimesh(mesh.vertices[pts_score > 0]).export("tmp/pts_score.obj")
+
     voxel_grid.run_viser()

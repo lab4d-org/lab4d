@@ -947,11 +947,11 @@ class GSplatModel(nn.Module):
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
         self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
 
-        if is_pair:
-            self.reshape_batch(rendered)
-        else:
-            for k, v in rendered.items():
-                rendered[k] = v[:, 0]
+        # if is_pair:
+        #     self.reshape_batch(rendered)
+        # else:
+        for k, v in rendered.items():
+            rendered[k] = v[:, 0]
 
         scalars = {}
         out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": []}

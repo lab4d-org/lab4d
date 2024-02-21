@@ -10,12 +10,17 @@ class SinusoidalEmbedding(nn.Module):
         super().__init__()
         self.size = size
         self.scale = scale
+        const = torch.log(torch.Tensor([10000.0]))
+        self.register_buffer("const", const)
+        half_size = self.size // 2
+        self.half_size = half_size
+        half_size_array = torch.arange(half_size)
+        self.register_buffer("half_size_array", half_size_array)
 
     def forward(self, x: torch.Tensor):
         x = x * self.scale
-        half_size = self.size // 2
-        emb = torch.log(torch.Tensor([10000.0])) / (half_size - 1)
-        emb = torch.exp(-emb * torch.arange(half_size))
+        emb = self.const / (self.half_size - 1)
+        emb = torch.exp(-emb * self.half_size_array)
         emb = x.unsqueeze(-1) * emb.unsqueeze(0)
         emb = torch.cat((torch.sin(emb), torch.cos(emb)), dim=-1)
         return emb

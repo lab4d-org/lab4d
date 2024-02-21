@@ -64,67 +64,72 @@ class SceneLoader:
         return nn_match
 
 
-parser = argparse.ArgumentParser(description="script to render extraced meshes")
-parser.add_argument("--logdir", default="logdir/home-2023-11-bg-adapt1/", help="logdir")
-parser.add_argument("--inst_id", default=0, type=int, help="inst_id")
-args = parser.parse_args()
+if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(description="script to render extraced meshes")
+    parser.add_argument(
+        "--logdir", default="logdir/home-2023-11-bg-adapt1/", help="logdir"
+    )
+    parser.add_argument("--inst_id", default=0, type=int, help="inst_id")
+    args = parser.parse_args()
 
-# load flags from file with absl
-opts = load_flags_from_file("%s/opts.log" % args.logdir)
-opts["load_suffix"] = "latest"
-opts["logroot"] = "logdir"
-opts["grid_size"] = 128
-opts["level"] = 0
-opts["vis_thresh"] = -10
-opts["extend_aabb"] = False
+    # load flags from file with absl
+    opts = load_flags_from_file("%s/opts.log" % args.logdir)
+    opts["load_suffix"] = "latest"
+    opts["logroot"] = "logdir"
+    opts["grid_size"] = 128
+    opts["level"] = 0
+    opts["vis_thresh"] = -10
+    opts["extend_aabb"] = False
 
-loader = SceneLoader(opts, inst_id=args.inst_id)
-mesh = loader.meshes_rest["bg"]
-bg_feature = loader.bg_feature
+    loader = SceneLoader(opts, inst_id=args.inst_id)
+    mesh = loader.meshes_rest["bg"]
+    bg_feature = loader.bg_feature
 
-# get root trajectory
-root_trajs = []
-cam_trajs = []
-# testdirs = sorted(glob.glob("%s/export_*" % args.logdir))
-testdirs = sorted(glob.glob("logdir/home-2023-11-compose-ft/export_*"))
-for it, loader_path in enumerate(testdirs):
-    if "export_0000" in loader_path:
-        continue
-    root_loader = MeshLoader(loader_path)
-    # load root poses
-    root_traj = root_loader.query_camtraj(data_class="fg")
-    root_trajs.append(root_traj)
+    # get root trajectory
+    root_trajs = []
+    cam_trajs = []
+    # testdirs = sorted(glob.glob("%s/export_*" % args.logdir))
+    testdirs = sorted(glob.glob("logdir/home-2023-11-compose-ft/export_*"))
+    for it, loader_path in enumerate(testdirs):
+        if "export_0000" in loader_path:
+            continue
+        root_loader = MeshLoader(loader_path)
+        # load root poses
+        root_traj = root_loader.query_camtraj(data_class="fg")
+        root_trajs.append(root_traj)
 
-    # load cam poses
-    cam_traj = root_loader.query_camtraj(data_class="bg")
-    cam_trajs.append(cam_traj)
-    print("loaded %d frames from %s" % (len(root_loader), loader_path))
-root_trajs = np.linalg.inv(np.concatenate(root_trajs))
-cam_trajs = np.linalg.inv(np.concatenate(cam_trajs))  # T1+...+TN,4,4
+        # load cam poses
+        cam_traj = root_loader.query_camtraj(data_class="bg")
+        cam_trajs.append(cam_traj)
+        print("loaded %d frames from %s" % (len(root_loader), loader_path))
+    root_trajs = np.linalg.inv(np.concatenate(root_trajs))
+    cam_trajs = np.linalg.inv(np.concatenate(cam_trajs))  # T1+...+TN,4,4
 
-voxel_grid = VoxelGrid(mesh, res=0.1)
+    voxel_grid = VoxelGrid(mesh, res=0.1)
 
-voxel_grid.count_root_visitation(root_trajs[..., :3, 3])
-voxel_grid.count_cam_visitation(cam_trajs[..., :3, 3])
+    voxel_grid.count_root_visitation(root_trajs[..., :3, 3])
+    voxel_grid.count_cam_visitation(cam_trajs[..., :3, 3])
 
-# step 3: learn the mapping
-# find bg feature for each voxel
+    # step 3: learn the mapping
+    # find bg feature for each voxel
 
-# pdb.set_trace()
-# nn_match = loader.find_NN_point(loader.ref_feature[0], loader.bg_feature)
-# nn_pts = loader.meshes_rest["bg"].vertices[nn_match]
-# pixel_visitations = voxel_grid.readout_voxel(nn_pts, mode="root_visitation")
-# import cv2
+    # pdb.set_trace()
+    # nn_match = loader.find_NN_point(loader.ref_feature[0], loader.bg_feature)
+    # nn_pts = loader.meshes_rest["bg"].vertices[nn_match]
+    # pixel_visitations = voxel_grid.readout_voxel(nn_pts, mode="root_visitation")
+    # import cv2
 
-# cv2.imwrite("tmp/nn_mat.png", pixel_visitations * 255)
+    # cv2.imwrite("tmp/nn_mat.png", pixel_visitations * 255)
 
-pdb.set_trace()
-x = loader.bg_feature
-y = voxel_grid.readout_voxel(loader.meshes_rest["bg"].vertices, mode="root_visitation")
-np.save("tmp/x.npy", {"x": x, "y": y})
-np.save("tmp/x_test.npy", {"x": loader.ref_feature})
-# save data to tmp folder
-# train a NN model
+    pdb.set_trace()
+    x = loader.bg_feature
+    y = voxel_grid.readout_voxel(
+        loader.meshes_rest["bg"].vertices, mode="root_visitation"
+    )
+    np.save("tmp/x.npy", {"x": x, "y": y})
+    np.save("tmp/x_test.npy", {"x": loader.ref_feature})
+    # save data to tmp folder
+    # train a NN model
 
-voxel_grid.run_viser()
+    voxel_grid.run_viser()

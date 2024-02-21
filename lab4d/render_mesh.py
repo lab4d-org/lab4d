@@ -42,33 +42,25 @@ def main():
         # input dict
         input_dict = loader.query_frame(frame_idx)
 
-        if loader.compose_mode == "primary":
+        if args.view == "ref":
             # set camera extrinsics
             renderer.set_camera(loader.extr_dict[frame_idx])
             # set camera intrinsics
             renderer.set_intrinsics(loader.intrinsics[frame_idx])
-        else:
-            if args.view == "ref":
-                # set camera extrinsics
-                renderer.set_camera(loader.extr_dict[frame_idx])
-                # set camera intrinsics
-                renderer.set_intrinsics(loader.intrinsics[frame_idx])
-            elif args.view == "bev":
-                # bev
-                renderer.set_camera_bev(depth=max(loader.aabb_max - loader.aabb_min))
-                # set camera intrinsics
-                fl = max(raw_size)
-                intr = np.asarray([fl * 2, fl * 2, raw_size[1] / 2, raw_size[0] / 2])
-                renderer.set_intrinsics(intr)
-            elif args.view == "front":
-                # frontal view
-                renderer.set_camera_frontal(25, delta=0.0)
-                # set camera intrinsics
-                fl = max(raw_size)
-                intr = np.asarray(
-                    [fl * 4, fl * 4, raw_size[1] / 2, raw_size[0] / 4 * 3]
-                )
-                renderer.set_intrinsics(intr)
+        elif args.view == "bev":
+            # bev
+            renderer.set_camera_bev(depth=2 * max(loader.aabb_max - loader.aabb_min))
+            # set camera intrinsics
+            fl = max(raw_size)
+            intr = np.asarray([fl * 2, fl * 2, raw_size[1] / 2, raw_size[0] / 2])
+            renderer.set_intrinsics(intr)
+        elif args.view == "front":
+            # frontal view
+            renderer.set_camera_frontal(25, delta=0.0)
+            # set camera intrinsics
+            fl = max(raw_size)
+            intr = np.asarray([fl * 4, fl * 4, raw_size[1] / 2, raw_size[0] / 4 * 3])
+            renderer.set_intrinsics(intr)
         renderer.align_light_to_camera()
 
         color = renderer.render(input_dict)[0]

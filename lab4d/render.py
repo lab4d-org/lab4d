@@ -183,11 +183,19 @@ def construct_batch_from_opts(opts, model, data_info):
     return batch, raw_size
 
 
+def batch_to_flow_batch(batch):
+    for k, v in batch.items():
+        batch[k] = torch.stack([v[:-1], v[1:]], dim=1).reshape(-1, *v.shape[1:])
+    return batch
+
+
 @torch.no_grad()
 def render_batch(model, batch):
     # render batch
     start_time = time.time()
-    rendered, _ = model.evaluate(batch, is_pair=False)
+    batch = batch_to_flow_batch(batch)
+    # rendered, _ = model.evaluate(batch, is_pair=False)
+    rendered, _ = model.evaluate(batch, is_pair=True)
     print("rendering time: %.3f" % (time.time() - start_time))
 
     return rendered

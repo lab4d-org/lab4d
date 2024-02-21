@@ -13,7 +13,7 @@ sys.path.insert(
     "%s/../../preprocess/third_party/vcnplus" % os.path.join(os.path.dirname(__file__)),
 )
 
-from flowutils.flowlib import flow_to_image
+from flowutils.flowlib import flow_to_image, point_vec
 
 
 def img2color(tag, img, pca_fn=None):
@@ -26,14 +26,23 @@ def img2color(tag, img, pca_fn=None):
     Returns:
         img: (H,W,3) Image converted to RGB
     """
-    img = img.cpu().numpy()
+    if type(img) is tuple:
+        img = (img[0].cpu().numpy(), img[1].cpu().numpy())
+    else:
+        img = img.cpu().numpy()
 
     if "depth" in tag:
         img = minmax_normalize(img)
         img = cm.plasma(img[..., 0])
 
     if "flow" in tag:
-        img = flow_to_image(img)
+        if type(img) is tuple:
+            rgb, flow = img
+            rgb = (rgb * 255).astype(np.uint8)
+            flow = np.concatenate([flow, np.zeros_like(flow[..., 0:1])], -1)
+            img = point_vec(rgb, flow, skip=10)[..., ::-1] / 255.0
+        else:
+            img = flow_to_image(img)
 
     if "normal" in tag:
         img = (img + 1) / 2

@@ -655,9 +655,7 @@ class dvr_model(nn.Module):
         self.compute_recon_loss(loss_dict, results, batch, config, self.current_steps)
         self.mask_losses(loss_dict, batch, config)
         self.compute_reg_loss(loss_dict, batch, results)
-        motion_scale = torch.tensor(self.data_info["motion_scales"], device=self.device)
-        motion_scale = motion_scale[batch["dataid"]]
-        self.apply_loss_weights(loss_dict, config, motion_scale)
+        self.apply_loss_weights(loss_dict, config, None)
         return loss_dict
 
     @staticmethod

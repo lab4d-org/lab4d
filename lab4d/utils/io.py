@@ -97,6 +97,13 @@ def save_rendered(rendered, save_dir, raw_size, pca_fn):
     for k, v in rendered.items():
         n, h, w = v.shape[:3]
         img_grid = make_image_grid(v)
+
+        if "flow" in k:
+            img_grid = (
+                make_image_grid(rendered[k.replace("flow", "rgb")]),
+                img_grid,
+            )
+
         img_grid = img2color(k, img_grid, pca_fn=pca_fn)
         img_grid = (img_grid * 255).astype(np.uint8)
         # cv2.imwrite("%s/%s.jpg" % (save_dir, k), img_grid[:, :, ::-1])

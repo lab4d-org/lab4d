@@ -738,20 +738,21 @@ class GaussianModel(nn.Module):
                 last_opt_frameid_abs = last_opt_frameid + start_frame
                 last_quat = self.camera_mlp.quat[last_opt_frameid_abs]
                 last_trans = self.camera_mlp.trans[last_opt_frameid_abs]
-                self.camera_mlp.quat.data[
-                    last_opt_frameid_abs + 1 : end_frame
-                ] = last_quat.data
-                self.camera_mlp.trans.data[
-                    last_opt_frameid_abs + 1 : end_frame
-                ] = last_trans.data
+                self.camera_mlp.quat.data[last_opt_frameid_abs + 1 : end_frame] = (
+                    last_quat.data
+                )
+                self.camera_mlp.trans.data[last_opt_frameid_abs + 1 : end_frame] = (
+                    last_trans.data
+                )
 
     def load_lab4d(self, flags_path):
         from lab4d.config import load_flags_from_file
         from lab4d.engine.trainer import Trainer
 
         # load lab4d model
-        if flags_path == "":
-            return None
+        if len(flags_path) == 0:
+            self.lab4d_model = None
+            return
 
         opts = load_flags_from_file(flags_path)
         opts["load_suffix"] = "latest"
