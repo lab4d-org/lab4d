@@ -11,7 +11,7 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.engine.trainer import Trainer
 from lab4d.utils.mesh_loader import MeshLoader
-from lab4d.utils.vis_utils import draw_cams
+from lab4d.utils.vis_utils import draw_cams, get_pts_traj
 from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation
 
 
@@ -130,7 +130,7 @@ class ArticulationLoader(MeshLoader):
 
             # pts traj
             kps_all = np.asarray(list(self.kps_dict.values()))
-            self.pts_traj_dict[frame_idx] = self.get_pts_traj(kps_all, frame_idx)
+            self.pts_traj_dict[frame_idx] = get_pts_traj(kps_all, frame_idx)
 
             # extrinsics
             self.extr_dict[frame_idx] = np.eye(4)

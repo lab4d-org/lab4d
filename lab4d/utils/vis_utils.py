@@ -461,3 +461,26 @@ def append_xz_plane(mesh, world_to_cam, scale=5, gl=True):
     plane = create_floor_mesh(scale=scale, gl=gl)
     plane.apply_transform(world_to_cam)
     return trimesh.util.concatenate([mesh, plane])
+
+
+def get_pts_traj(kps, frame_idx, traj_len=100, cmap=cm.get_cmap("cool")):
+    """
+    Args:
+        kps: (T, K, 3)
+
+    Returns:
+        pts_traj: (T', K, 2, 3)
+        pts_color: (T', K, 2, 4)
+    """
+    _, traj_num, _ = kps.shape
+    pts_traj = np.zeros((traj_len, traj_num, 2, 3))
+    pts_color = np.zeros((traj_len, traj_num, 2, 4))
+    i = frame_idx
+    for j in range(traj_len):
+        if i - j - 1 < 0:
+            continue
+        pts_traj[j, :, 0] = kps[i - j - 1]
+        pts_traj[j, :, 1] = kps[i - j]
+        pts_color[j, :, 0] = cmap(float(i - j - 1) / traj_len)
+        pts_color[j, :, 1] = cmap(float(i - j) / traj_len)
+    return (pts_traj, pts_color)

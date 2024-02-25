@@ -11,7 +11,7 @@ import tqdm
 import configparser
 import matplotlib
 
-from lab4d.utils.vis_utils import draw_cams
+from lab4d.utils.vis_utils import draw_cams, get_pts_traj
 
 
 class MeshLoader:
@@ -162,7 +162,7 @@ class MeshLoader:
 
                     # pts traj
                     kps_all = np.asarray(list(kps_dict.values()))
-                    pts_traj_dict[frame_idx] = self.get_pts_traj(kps_all, frame_idx)
+                    pts_traj_dict[frame_idx] = get_pts_traj(kps_all, frame_idx)
 
                 if ghosting:
                     total_ghost = 10
@@ -192,29 +192,6 @@ class MeshLoader:
         self.pts_traj_dict = pts_traj_dict
         self.aabb_min = aabb_min
         self.aabb_max = aabb_max
-
-    @staticmethod
-    def get_pts_traj(kps, frame_idx, traj_len=100, cmap=matplotlib.cm.get_cmap("cool")):
-        """
-        Args:
-            kps: (T, K, 3)
-
-        Returns:
-            pts_traj: (T', K, 2, 3)
-            pts_color: (T', K, 2, 4)
-        """
-        _, traj_num, _ = kps.shape
-        pts_traj = np.zeros((traj_len, traj_num, 2, 3))
-        pts_color = np.zeros((traj_len, traj_num, 2, 4))
-        i = frame_idx
-        for j in range(traj_len):
-            if i - j - 1 < 0:
-                continue
-            pts_traj[j, :, 0] = kps[i - j - 1]
-            pts_traj[j, :, 1] = kps[i - j]
-            pts_color[j, :, 0] = cmap(float(i - j - 1) / traj_len)
-            pts_color[j, :, 1] = cmap(float(i - j) / traj_len)
-        return (pts_traj, pts_color)
 
     def query_frame(self, frame_idx):
         input_dict = {}
