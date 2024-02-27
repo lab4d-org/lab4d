@@ -274,7 +274,7 @@ def readout_voxel_fn(data, pts, res, origin):
     """
     if not torch.is_tensor(data):
         data = torch.tensor(data, dtype=torch.float32)
-        coord = torch.tensor(coord, dtype=torch.float32)
+        pts = torch.tensor(pts, dtype=torch.float32, device=data.device)
         is_numpy = True
     else:
         is_numpy = False
@@ -299,6 +299,8 @@ def readout_voxel_fn(data, pts, res, origin):
     # coord: N,D,H,W,3, N=1, D=1, H=1
     # normalize to -1,1
     coord = coord / torch.tensor(grid_size, device=device) * 2 - 1
+    # xyz to zyx
+    coord = coord[..., [2, 1, 0]]
     value = F.grid_sample(data[None], coord[None, None, None], mode="bilinear")
     # value NCDHW
     value = value[0, :, 0, 0]

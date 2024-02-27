@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 from celluloid import Camera
 import torch
 from torchcubicspline import natural_cubic_spline_coeffs, NaturalCubicSpline
+import viser
+import viser.transforms as tf
+from matplotlib import cm
+import time
 
 
 sys.path.insert(0, os.getcwd())
@@ -16,7 +20,7 @@ from lab4d.utils.pyrender_wrapper import PyRenderWrapper
 from lab4d.utils.io import save_vid
 
 
-def spline_interp(sample_wp, forecast_size=4, num_kps=1, state_size=3, interp_size=100):
+def spline_interp(sample_wp, forecast_size, num_kps=1, state_size=3, interp_size=56):
     if not torch.is_tensor(sample_wp):
         device = "cpu"
         sample_wp = torch.tensor(sample_wp, device=device)
@@ -63,15 +67,15 @@ class DiffusionVisualizer:
         xzmin,
         state_size=3,
         num_timesteps=50,
+        bg_field=None,
         logdir="base",
-        prefix="base",
     ):
         self.state_size = state_size
         self.xzmax = xzmax
         self.xzmin = xzmin
         self.num_timesteps = num_timesteps
+        self.bg_field = bg_field
         self.logdir = logdir
-        self.prefix = prefix
 
         # mesh rendering
         raw_size = [512, 512]
@@ -111,35 +115,41 @@ class DiffusionVisualizer:
         forward_samples,
         reverse_samples,
         past,
-        bg_field,
         x0_to_world,
+        rotate=True,
+        prefix="base",
     ):
-        num_wps = int(len(forward_samples[0][0]) / self.state_size)
         num_timesteps = self.num_timesteps
-        past = past.reshape(past.shape[0], -1, 3)
-        # forward
         frames = []
-        colors = np.ones((len(forward_samples[0]), num_wps, 4))  # N, K, 4
-        colors[..., 1:3] = 0
-        if num_wps > 1:
-            colors = colors * np.linspace(0, 1, num_wps)[None, :, None]
-        colors = colors.reshape(-1, 4)
+        if len(forward_samples) > 0:
+            # forward
+            num_wps = int(len(forward_samples[0][0]) / self.state_size)
+            colors = np.ones((len(forward_samples[0]), num_wps, 4))  # N, K, 4
+            colors[..., 1:3] = 0
+            if num_wps > 1:
+                colors = colors * np.linspace(0, 1, num_wps)[None, :, None]
+            colors = colors.reshape(-1, 4)
 
-        shape_clean = trimesh.PointCloud(
-            forward_samples[0].reshape(-1, 3), colors=colors
-        )
-        frames += self.render_rotate_sample(shape_clean)
+            shape_clean = trimesh.PointCloud(
+                forward_samples[0].reshape(-1, 3), colors=colors
+            )
+            if rotate:
+                frames += self.render_rotate_sample(shape_clean)
 
-        for i, sample in enumerate(forward_samples):
-            shape = trimesh.PointCloud(sample.reshape(-1, 3), colors=colors)
-            input_dict = {"shape": shape}
-            color = self.renderer.render(input_dict)[0]
-            color = put_text(color, f"step {i: 4} / {num_timesteps}", (10, 30))
-            color = put_text(color, "Forward process", (10, 60))
-            frames.append(color)
+            for i, sample in enumerate(forward_samples):
+                shape = trimesh.PointCloud(sample.reshape(-1, 3), colors=colors)
+                input_dict = {"shape": shape}
+                color = self.renderer.render(input_dict)[0]
+                color = put_text(color, f"step {i: 4} / {num_timesteps}", (10, 30))
+                color = put_text(color, "Forward process", (10, 60))
+                frames.append(color)
+        else:
+            shape_clean = None
 
         # reverse
+        reverse_samples = reverse_samples.cpu().numpy()
         num_wps = int(len(reverse_samples[0][0]) / self.state_size)
+        past = past.reshape(past.shape[0], -1, 3)
         colors = np.ones((len(reverse_samples[0]), num_wps, 4))
         colors[..., 0:2] = 0
         if num_wps > 1:
@@ -149,14 +159,14 @@ class DiffusionVisualizer:
         # get past location as a sphere
         past_shape = []
         for past_idx in range(len(past[0])):
-            shape_sub = trimesh.creation.uv_sphere(radius=0.03)
+            shape_sub = trimesh.creation.uv_sphere(radius=0.03, count=[4, 4])
             shape_sub = shape_sub.apply_translation(past[0][past_idx].cpu().numpy())
             past_shape.append(shape_sub)
         past_shape = trimesh.util.concatenate(past_shape)
         past_colors = np.array([[0, 1, 0, 1]]).repeat(len(past_shape.vertices), axis=0)
 
         # get bg mesh
-        bg_pts = bg_field.bg_mesh.vertices - x0_to_world[0].cpu().numpy()
+        bg_pts = self.bg_field.bg_mesh.vertices - x0_to_world[0].cpu().numpy()
         # bg_pts = (
         #     voxel_grid.to_boxes(mode="root_visitation").vertices - x0_to_world[0].cpu().numpy()
         # )
@@ -185,14 +195,16 @@ class DiffusionVisualizer:
             frames.append(color)
 
         # concat two shapes
-        # shape = concatenate_points(shape_clean, shape)
-        frames += self.render_rotate_sample(
-            shape, pts_traj=pts_traj, pts_color=pts_color
-        )
+        if rotate:
+            # shape = concatenate_points(shape_clean, shape)
+            frames += self.render_rotate_sample(
+                shape, pts_traj=pts_traj, pts_color=pts_color
+            )
 
-        filename = "%s/%s-rendering" % (self.logdir, self.prefix)
+        filename = "%s/%s-rendering" % (self.logdir, prefix)
         shape.export("%s.obj" % filename)
-        shape_clean.export("%s-clean.obj" % filename)
+        if shape_clean is not None:
+            shape_clean.export("%s-clean.obj" % filename)
         shape_noise.export("%s-noise.obj" % filename)
         save_vid(filename, frames)
         print("Animation saved to %s.mp4" % filename)
@@ -206,9 +218,10 @@ class DiffusionVisualizer:
         gt_goal,
         sample_idx,
         xyz,
-        y,
+        yshape,
         past,
         cam,
+        prefix="base",
     ):
         num_wps = int(len(forward_samples[0][0]) / self.state_size)
         num_timesteps = self.num_timesteps
@@ -216,6 +229,13 @@ class DiffusionVisualizer:
         xzmax = self.xzmax
         past = past.reshape(past.shape[0], -1, 3)
         cam = cam.reshape(cam.shape[0], -1, 3)
+
+        if torch.is_tensor(gt_goal):
+            gt_goal = gt_goal.cpu().numpy()
+        if torch.is_tensor(past):
+            past = past.cpu().numpy()
+        if torch.is_tensor(cam):
+            cam = cam.cpu().numpy()
 
         # 2D plot
         fig, ax = plt.subplots()
@@ -246,6 +266,8 @@ class DiffusionVisualizer:
             camera.snap()
 
         # reverse
+        reverse_samples = reverse_samples.cpu().numpy()
+        reverse_grad = reverse_grad.cpu().numpy()
         num_wps = int(len(reverse_samples[0][0]) / self.state_size)
         for i, sample_goal in enumerate(reverse_samples):
             sample_goal = sample_goal.reshape(-1, num_wps, 3)
@@ -274,23 +296,19 @@ class DiffusionVisualizer:
             )
 
             plt.scatter(
-                past[0, :, 0].cpu(),
-                past[0, :, 2].cpu(),
+                past[0, :, 0],
+                past[0, :, 2],
                 s=100,
                 color="green",
                 marker="x",
             )
-            plt.scatter(
-                cam[0, :, 0].cpu(), cam[0, :, 2].cpu(), s=100, color="blue", marker="x"
-            )
-            plt.scatter(
-                gt_goal[0].cpu(), gt_goal[2].cpu(), s=100, color="black", marker="o"
-            )
+            plt.scatter(cam[0, :, 0], cam[0, :, 2], s=100, color="blue", marker="x")
+            plt.scatter(gt_goal[0], gt_goal[2], s=100, color="black", marker="o")
             if i < len(reverse_samples) - 1:
                 grad = reverse_grad[i]
                 # aver over height
-                grad = grad.reshape(y.shape + (-1, num_wps, 3)).mean(0)
-                xyz_sliced = xyz.reshape(y.shape + (-1, 3))[0]
+                grad = grad.reshape((yshape, -1, num_wps, 3)).mean(0)
+                xyz_sliced = xyz.reshape((yshape, -1, 3))[0]
                 plt.quiver(
                     xyz_sliced[:, 0],
                     xyz_sliced[:, 2],
@@ -309,6 +327,60 @@ class DiffusionVisualizer:
             camera.snap()
 
         animation = camera.animate(blit=True, interval=35)
-        filename = "%s/%s-animation" % (self.logdir, self.prefix)
+        filename = "%s/%s-animation" % (self.logdir, prefix)
         animation.save("%s.mp4" % filename)
         print("Animation saved to %s.mp4" % filename)
+
+    def run_viser(self):
+        # visualizations
+        server = viser.ViserServer()
+        # Setup root frame
+        server.add_frame(
+            "/frames",
+            wxyz=tf.SO3.exp(np.array([-np.pi / 2, 0.0, 0.0])).wxyz,
+            position=(0, 0, 0),
+            show_axes=False,
+        )
+
+        server.add_mesh_trimesh(
+            name="/frames/environment",
+            mesh=self.bg_field.bg_mesh,
+        )
+        self.server = server
+
+    def render_trajectory_viser(self, future, past, x0_to_world):
+        if torch.is_tensor(past):
+            past = past.cpu().numpy()
+        if torch.is_tensor(future):
+            future = future.cpu().numpy()
+        if torch.is_tensor(x0_to_world):
+            x0_to_world = x0_to_world.cpu().numpy()
+        x0_to_world = x0_to_world.reshape(3)
+
+        # add past
+        self.server.add_point_cloud(
+            f"/frames/pts",
+            past + x0_to_world,
+            colors=(0.5, 0.5, 0.5),
+            point_size=0.02,
+        )
+
+        # add future
+        cmap = cm.get_cmap("cool")
+        bs = len(future)
+        future = future.reshape(bs, -1, 3) + x0_to_world
+        colors = cmap(np.linspace(0, 1, future.shape[1]))[:, :3]
+        for t in range(len(future[0])):
+            self.server.add_point_cloud(
+                f"/frames/future_{t}",
+                future[:, t],
+                point_size=0.02,
+                colors=colors[t].reshape(1, 3).repeat(bs, axis=0),
+            )
+            time.sleep(0.05)
+            # self.server.add_point_cloud(
+            #     f"/frames/future_{i}",
+            #     future_sub,
+            #     colors=colors[:, :3],
+            #     point_size=0.02,
+            # )
