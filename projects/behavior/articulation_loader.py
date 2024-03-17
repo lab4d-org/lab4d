@@ -48,6 +48,10 @@ class ArticulationLoader(MeshLoader):
 
     @torch.no_grad()
     def load_files(self, sample):
+        """
+        Args:
+            sample: np.array, shape (n_frames, 6 + N_JOINTS)
+        """
         fake_frameid = torch.tensor([0], dtype=torch.long, device="cuda")
         inst_id = torch.tensor([self.opts["inst_id"]], dtype=torch.long, device="cuda")
         xyz = torch.tensor(

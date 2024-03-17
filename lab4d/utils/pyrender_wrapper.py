@@ -34,6 +34,7 @@ class PyRenderWrapper:
         self.light_pose = np.eye(4)
         self.set_light_topdown()
         self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
+        self.point_l = pyrender.SpotLight(color=np.ones(3), intensity=5.0)
         self.ambient_light = 0.1 * np.asarray([1.0, 1.0, 1.0, 1.0])
         self.material = MetallicRoughnessMaterial(
             roughnessFactor=0.75, metallicFactor=0.75, alphaMode="BLEND"
@@ -49,6 +50,7 @@ class PyRenderWrapper:
 
     def set_ambient_light(self):
         self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=0.0)
+        self.point_l = pyrender.SpotLight(color=np.ones(3), intensity=0.0)
         self.ambient_light = 1.0 * np.asarray([1.0, 1.0, 1.0, 1.0])
         self.material = None
 
@@ -173,6 +175,11 @@ class PyRenderWrapper:
             primitive = pyrender.Primitive(pts_traj, mode=1, color_0=pts_color)
             scene.add_node(Node(mesh=Mesh([primitive])))
 
+        # add camera
+        if "camera" in input_dict:
+            cam_mesh_pyrender = Mesh.from_trimesh(input_dict["camera"], smooth=False)
+            scene.add_node(Node(mesh=cam_mesh_pyrender))
+
         # change material
         if self.material is not None:
             mesh_pyrender.primitives[0].material = self.material
@@ -187,6 +194,7 @@ class PyRenderWrapper:
 
         # light
         scene.add(self.direc_l, pose=self.light_pose)
+        scene.add(self.point_l, pose=self.light_pose)
 
         # render
         if "ghost" in input_dict:

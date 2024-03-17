@@ -28,12 +28,13 @@ def get_config():
         choices=["sinusoidal", "learnable", "linear", "identity"],
     )
     parser.add_argument("--save_images_step", type=int, default=1)
-    parser.add_argument("--save_model_epoch", type=int, default=50)
+    parser.add_argument("--save_model_epoch", type=int, default=100)
 
     # test
     parser.add_argument("--sample_idx", type=int, default=0)
     parser.add_argument("--drop_cam", action="store_true")
     parser.add_argument("--drop_past", action="store_true")
+    parser.add_argument("--drop_goal", action="store_true")
     parser.add_argument("--eval_batch_size", type=int, default=64)
     parser.add_argument("--suffix", type=str, default="latest")
     config = parser.parse_args()

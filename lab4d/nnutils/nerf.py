@@ -308,8 +308,14 @@ class NeRF(nn.Module):
             geom_path (List(str)): paths to initial shape mesh
             init_scale (float): Geometry scale factor
         """
-        mesh = trimesh.load(geom_path[0])
-        mesh.vertices = mesh.vertices * init_scale
+        import os
+
+        if os.path.isfile(geom_path[0]):
+            mesh = trimesh.load(geom_path[0])
+            mesh.vertices = mesh.vertices * init_scale
+        else:
+            mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
+
         self.proxy_geometry = mesh
 
     def get_proxy_geometry(self):
@@ -788,6 +794,8 @@ class NeRF(nn.Module):
         hxy = samples_dict["hxy"]  # (M,N,2)
 
         # sample camera space rays
+        # n_depth = 256
+        n_depth = 64
         if self.use_importance_sampling:
             # importance sampling
             xyz_cam, dir_cam, deltas, depth = self.importance_sampling(
@@ -798,14 +806,14 @@ class NeRF(nn.Module):
                 frame_id,
                 inst_id,
                 samples_dict,
-                n_depth=64,
+                n_depth=n_depth,
             )
         else:
             xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
                 hxy,
                 Kinv,
                 near_far,
-                n_depth=64,
+                n_depth=n_depth,
                 perturb=False,
             )  # (M, N, D, x)
 

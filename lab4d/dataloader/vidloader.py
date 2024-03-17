@@ -94,9 +94,13 @@ class VidDataset(Dataset):
         self.load_pair = opts["load_pair"]
         self.ks = ks
         self.raw_size = raw_size
-        self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
+        if os.path.exists(self.dict_list["rgb"]):
+            self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
+            self.load_data_list(self.dict_list)
+        else:
+            res = int(opts["data_prefix"].split("-")[1])
+            self.img_size = (res, res)
         self.res = (opts["res"], opts["res"])
-        self.load_data_list(self.dict_list)
 
         # self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
         self.idx_sampler = RangeSampler2D(num_elems_1d=self.img_size[0])

@@ -7,7 +7,7 @@ import trimesh
 import argparse
 
 import ddpm
-from utils import get_lab4d_data, load_models, get_grid_xyz
+from utils import get_lab4d_data, load_models_regress, get_grid_xyz
 from denoiser import reverse_diffusion, simulate_forward_diffusion
 from eval import eval_ADE, eval_all
 from visualizer import DiffusionVisualizer, spline_interp
@@ -42,8 +42,8 @@ if __name__ == "__main__":
         x0_angles_to_world_all,
         # ) = get_lab4d_data("database/motion/S26-test-L80-S10.pkl")
         # ) = get_lab4d_data("database/motion/S26-train-L80-S1.pkl")
-        # ) = get_lab4d_data("database/motion/S26-test-L64-S10.pkl")
-    ) = get_lab4d_data("database/motion/S26-train-L64-S1.pkl")
+        # ) = get_lab4d_data("database/motion/S26-train-L64-S1.pkl")
+    ) = get_lab4d_data("database/motion/S26-test-L64-S10.pkl")
     x0_goal_all = x0_wp_all[:, -1:]
 
     x0_goal = x0_goal_all
@@ -59,32 +59,34 @@ if __name__ == "__main__":
     cam = cam_all
     # bs, T, K, 3
 
-    # old
-    x0_goal = x0_goal_all[sample_idx : sample_idx + 1]
-    x0_wp = x0_wp_all[sample_idx : sample_idx + 1]
-    x0_joints = x0_joints_all[sample_idx : sample_idx + 1]
-    x0_angles = x0_angles_all[sample_idx : sample_idx + 1]
-    x0_to_world = x0_to_world_all[sample_idx : sample_idx + 1]
-    x0_angles_to_world = x0_angles_to_world_all[sample_idx : sample_idx + 1]
+    # # old
+    # x0_goal = x0_goal_all[sample_idx : sample_idx + 1]
+    # x0_wp = x0_wp_all[sample_idx : sample_idx + 1]
+    # x0_joints = x0_joints_all[sample_idx : sample_idx + 1]
+    # x0_angles = x0_angles_all[sample_idx : sample_idx + 1]
+    # x0_to_world = x0_to_world_all[sample_idx : sample_idx + 1]
+    # x0_angles_to_world = x0_angles_to_world_all[sample_idx : sample_idx + 1]
 
-    past_wp = past_wp_all[sample_idx : sample_idx + 1]
-    past_joints = past_joints_all[sample_idx : sample_idx + 1]
-    past_angles = past_angles_all[sample_idx : sample_idx + 1]
-    cam = cam_all[sample_idx : sample_idx + 1]
-    # # bs, T, K, 3
+    # past_wp = past_wp_all[sample_idx : sample_idx + 1]
+    # past_joints = past_joints_all[sample_idx : sample_idx + 1]
+    # past_angles = past_angles_all[sample_idx : sample_idx + 1]
+    # cam = cam_all[sample_idx : sample_idx + 1]
+    # # # bs, T, K, 3
 
     # model
     bs = x0_wp.shape[0]
     forecast_size = x0_wp.shape[1]
     num_kps = x0_joints.shape[2]
     memory_size = past_wp.shape[1]
-    env_model, goal_model, waypoint_model, fullbody_model, angle_model = load_models(
-        config,
-        state_size,
-        forecast_size,
-        memory_size,
-        num_kps,
-        # use_env=False,
+    env_model, goal_model, waypoint_model, fullbody_model, angle_model = (
+        load_models_regress(
+            config,
+            state_size,
+            forecast_size,
+            memory_size,
+            num_kps,
+            # use_env=False,
+        )
     )
 
     # scene data
@@ -116,99 +118,54 @@ if __name__ == "__main__":
     # goal
     goal = None
     xyz_grid = xyz_cuda_goal
-    reverse_goal, reverse_grad_grid_goal = goal_model.reverse_diffusion(
-        nsamp,
-        num_timesteps,
-        noise_scheduler,
+    goal_pred = goal_model.predict(
         past_wp,
         cam,
         x0_to_world,
         feat_volume,
         bg_field.voxel_grid,
-        drop_cam,
-        drop_past,
         goal,
-        xyz_grid=xyz_grid[None],
     )
-    reverse_grad_grid_goal = reverse_grad_grid_goal[:, 0]
     # waypoint | goal conditioning
     # goal = torch.tensor(reverse_samples_goal[-1][:1], device="cuda")
     goal = x0_goal  # gt
     # goal = None
     xyz_grid = xyz_cuda_wp
-    reverse_wp, reverse_grad_grid_wp = waypoint_model.reverse_diffusion(
-        nsamp,
-        num_timesteps,
-        noise_scheduler,
+    wp_pred = waypoint_model.predict(
         past_wp,
         cam,
         x0_to_world,
         feat_volume,
         bg_field.voxel_grid,
-        drop_cam,
-        drop_past,
         goal,
-        xyz_grid=xyz_grid[None],
     )
-    reverse_grad_grid_wp = reverse_grad_grid_wp[:, 0]
     # full body | wp conditioning
     # goal = torch.tensor(reverse_samples_wp[-1][:1], device="cuda")
     goal = x0_wp  # GT
     goal_ego = (x0_angles_to_world.transpose(3, 4) @ goal[..., None])[..., 0]
     xyz_grid = xyz_cuda_joints
-    reverse_joints, reverse_grad_grid_joints = fullbody_model.reverse_diffusion(
-        nsamp,
-        num_timesteps,
-        noise_scheduler,
+    joints_pred = fullbody_model.predict(
         past_joints,
         cam * 0,
         None,
         None,
         None,
-        drop_cam,
-        drop_past,
         goal_ego,
-        xyz_grid=xyz_grid[None],
     )
-    reverse_grad_grid_joints = reverse_grad_grid_joints[:, 0]
     # angle | wp conditioning
-    reverse_angles, _ = angle_model.reverse_diffusion(
-        nsamp,
-        num_timesteps,
-        noise_scheduler,
+    angles_pred = angle_model.predict(
         past_angles,
         cam * 0,
         None,
         None,
         None,
-        drop_cam,
-        drop_past,
         goal_ego,
-        None,
     )
-    # _, _, t_frac = noise_scheduler.sample_noise(x0_angles_sampled, 0.1)
-    # pdb.set_trace()
-    # angles_pred = angle_model(
-    #     torch.zeros_like(x0_angles_sampled),
-    #     torch.zeros_like(t_frac),
-    #     past_angles_sampled,
-    #     cam_sampled,
-    #     [],
-    #     goal=goal,
-    # )
 
-    reverse_goal_all = reverse_goal.view(-1, bs, nsamp, 1, 1, 3)
-    reverse_wp_all = reverse_wp.view(-1, bs, nsamp, forecast_size, 1, 3)
-    reverse_angles_all = reverse_angles.view(-1, bs, nsamp, forecast_size, 1, 3)
-    reverse_joints_all = reverse_joints.view(-1, bs, nsamp, forecast_size, num_kps, 3)
-    # # TODO create axis
-    # axis = trimesh.creation.axis(axis_length=0.1).vertices
-    # axis = torch.tensor(axis, dtype=torch.float32, device="cuda").view(
-    #     1, 1, 1, 1, -1, 3
-    # )
-    # reverse_joints_all = axis.repeat(
-    #     reverse_joints_all.shape[0], bs, nsamp, forecast_size, 1, 1
-    # )
+    reverse_goal_all = goal_pred.view(-1, bs, 1, 1, 1, 3)
+    reverse_wp_all = wp_pred.view(-1, bs, 1, forecast_size, 1, 3)
+    reverse_angles_all = angles_pred.view(-1, bs, 1, forecast_size, 1, 3)
+    reverse_joints_all = joints_pred.view(-1, bs, 1, forecast_size, num_kps, 3)
 
     reverse_joints_abs_all = (
         x0_angles_to_world[None, :, None]
@@ -231,9 +188,6 @@ if __name__ == "__main__":
         # goal visualization
         save_prefix = "goal-%d" % i
         # forward process
-        # forward_samples_goal = goal_model.simulate_forward_diffusion(
-        #     x0_goal_all, noise_scheduler
-        # )
         forward_samples_goal = []
         visualizer = DiffusionVisualizer(
             xzmax=xzmax,
@@ -252,7 +206,7 @@ if __name__ == "__main__":
         visualizer.plot_trajectory_2d(
             forward_samples_goal,
             reverse_goal,
-            reverse_grad_grid_goal,
+            [],
             x0_goal[i],
             xyz,
             ysize,
@@ -265,9 +219,6 @@ if __name__ == "__main__":
         # waypoint visualization
         save_prefix = "wp-%d" % i
         # forward process
-        # forward_samples_waypoint = waypoint_model.simulate_forward_diffusion(
-        #     x0_wp_all, noise_scheduler
-        # )
         forward_samples_waypoint = []
         visualizer = DiffusionVisualizer(
             xzmax=xzmax,
@@ -286,7 +237,7 @@ if __name__ == "__main__":
         visualizer.plot_trajectory_2d(
             forward_samples_waypoint,
             reverse_wp,
-            reverse_grad_grid_wp,
+            [],
             x0_wp[i],
             xyz,
             ysize,
@@ -322,7 +273,7 @@ if __name__ == "__main__":
         visualizer.plot_trajectory_2d(
             forward_samples_joints,
             reverse_joints_abs,
-            reverse_grad_grid_joints,
+            [],
             x0_joints[0],
             xyz_joints,
             ysize_joints,

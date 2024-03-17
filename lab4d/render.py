@@ -186,6 +186,11 @@ def construct_batch_from_opts(opts, model, data_info):
 def batch_to_flow_batch(batch):
     for k, v in batch.items():
         batch[k] = torch.stack([v[:-1], v[1:]], dim=1).reshape(-1, *v.shape[1:])
+        # render a specific frame
+        # frame = 1170
+        # batch[k] = torch.stack(
+        #     [v[frame : frame + 1], v[frame + 1 : frame + 2]], dim=1
+        # ).reshape(-1, *v.shape[1:])
     return batch
 
 
@@ -226,7 +231,8 @@ def render(opts, construct_batch_func, Trainer=Trainer):
     with torch_profile(save_dir, "profile", enabled=opts["profile"]):
         rendered = render_batch(model, batch)
 
-    rendered.update(ref_dict)
+    if ref_dict is not None:
+        rendered.update(ref_dict)
     # # unproject depth
     # import trimesh
     # import pdb

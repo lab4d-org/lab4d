@@ -20,7 +20,7 @@ class MeshLoader:
         camera_info = json.load(open("%s/camera.json" % (testdir), "r"))
         intrinsics = np.asarray(camera_info["intrinsics"], dtype=np.float32)
         raw_size = camera_info["raw_size"]  # h,w
-        if len(glob.glob("%s/fg/mesh/*.obj" % (testdir))) > 0:
+        if os.path.exists("%s/fg/motion.json" % (testdir)):
             primary_dir = "%s/fg" % testdir
             secondary_dir = "%s/bg" % testdir
         else:
@@ -28,8 +28,8 @@ class MeshLoader:
             secondary_dir = "%s/fg" % testdir  # never use fg for secondary
         path_list = sorted([i for i in glob.glob("%s/mesh/*.obj" % (primary_dir))])
         if len(path_list) == 0:
-            print("no mesh found that matches %s*" % (primary_dir))
-            raise ValueError
+            print("Warning: no mesh found that matches %s*" % (primary_dir))
+            # raise ValueError
 
         # check render mode
         if mode != "":
@@ -204,6 +204,10 @@ class MeshLoader:
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
             # scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
+            # XYZ color
+            xyz = scene_mesh.vertices
+            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
             input_dict["scene"] = scene_mesh
         if len(self.ghost_dict) > 0:
             ghost_mesh = trimesh.util.concatenate(self.ghost_dict[frame_idx])
@@ -213,6 +217,11 @@ class MeshLoader:
         if len(self.pts_traj_dict.keys()) > 0:
             pts_traj, pts_color = self.pts_traj_dict[frame_idx]
             input_dict["pts_traj"], input_dict["pts_color"] = pts_traj, pts_color
+
+        # add camera
+        cam_mesh = trimesh.creation.axis(axis_length=0.2)
+        cam_mesh.apply_transform(np.linalg.inv(self.extr_dict[frame_idx]))
+        input_dict["camera"] = cam_mesh
         return input_dict
 
     def print_info(self):

@@ -243,33 +243,22 @@ def get_data_info(loader):
         intrinsics += [dataset.ks] * frame_info.num_frames
         raw_size += [dataset.raw_size]
 
-        # only use valid features for PCA
-        feature_channels = dataset.mmap_list["feature"].shape[-1]
-        if np.abs(dataset.mmap_list["feature"][0]).sum() != 0:
-            feature_array = dataset.mmap_list["feature"].reshape(-1, feature_channels)
-            # # randomly sample 1k pixels for PCA per-video:
-            # rand_idx = np.random.permutation(len(feature_array))[:1000]
-            # feature_pxs.append(feature_array[rand_idx])
-            # sampling a fixed set of pixels for PCA:
-            num_skip = max(1, len(feature_array) // 1000)
-            feature_pxs.append(feature_array[::num_skip])
+        if hasattr(dataset, "mmap_list"):
+            # only use valid features for PCA
+            feature_channels = dataset.mmap_list["feature"].shape[-1]
+            if np.abs(dataset.mmap_list["feature"][0]).sum() != 0:
+                feature_array = dataset.mmap_list["feature"].reshape(
+                    -1, feature_channels
+                )
+                # # randomly sample 1k pixels for PCA per-video:
+                # rand_idx = np.random.permutation(len(feature_array))[:1000]
+                # feature_pxs.append(feature_array[rand_idx])
+                # sampling a fixed set of pixels for PCA:
+                num_skip = max(1, len(feature_array) // 1000)
+                feature_pxs.append(feature_array[::num_skip])
 
-        # # compute motion magnitude
-        # mask = dataset.mmap_list["mask"][:-1, ..., 0].copy()
-        # if dataset.field_type == "bg":
-        #     mask = np.logical_not(mask)
-        # elif dataset.field_type == "fg":
-        #     pass
-        # elif dataset.field_type == "comp":
-        #     mask[:] = True
-        # else:
-        #     raise ValueError("Unknown field type: %s" % dataset.field_type)
-        # flow = dataset.mmap_list["flowfw"][1][mask, :2]
-        # motion_scale = np.linalg.norm(flow, 2, -1).mean()
-        # motion_scales.append(motion_scale)
-
-        mask = dataset.mmap_list["mask"][..., :1].astype(np.float16)
-        rgb_imgs.append(dataset.mmap_list["rgb"] * mask)
+            mask = dataset.mmap_list["mask"][..., :1].astype(np.float16)
+            rgb_imgs.append(dataset.mmap_list["rgb"] * mask)
 
     # compute PCA on non-zero features
     if len(feature_pxs) > 0:
@@ -342,7 +331,8 @@ def load_small_files(data_path_dict):
     rtmat_bg = []
     for vid, path in enumerate(data_path_dict["cambg"]):
         # get N
-        num_frames = np.load(data_path_dict["is_detected"][vid]).shape[0]
+        img_folder = path.replace("Cameras", "JPEGImages").rsplit("/", 1)[0] + "/*.jpg"
+        num_frames = len(glob.glob(img_folder))
         if os.path.exists(path):
             rtmat_bg.append(np.load(path).astype(np.float32))
         else:
@@ -353,7 +343,8 @@ def load_small_files(data_path_dict):
     rtmat_fg = []
     for vid, path in enumerate(data_path_dict["camfg"]):
         # get N
-        num_frames = np.load(data_path_dict["is_detected"][vid]).shape[0]
+        img_folder = path.replace("Cameras", "JPEGImages").rsplit("/", 1)[0] + "/*.jpg"
+        num_frames = len(glob.glob(img_folder))
         if os.path.exists(path):
             rtmat_fg.append(np.load(path).astype(np.float32))
         else:

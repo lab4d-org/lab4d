@@ -737,7 +737,7 @@ class Trainer:
             log.add_scalar(k, v, step)
 
     @staticmethod
-    def construct_test_model(opts, model_class=dvr_model):
+    def construct_test_model(opts, model_class=dvr_model, return_refs=True):
         """Load a model at test time
 
         Args:
@@ -762,7 +762,7 @@ class Trainer:
         model.cuda()
         model.eval()
 
-        if "inst_id" in opts:
+        if "inst_id" in opts and return_refs:
             # get reference images
             inst_id = opts["inst_id"]
             offset = data_info["frame_info"]["frame_offset"]

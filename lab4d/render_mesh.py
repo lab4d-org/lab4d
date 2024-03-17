@@ -25,6 +25,9 @@ parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
 parser.add_argument("--ghosting", action="store_true", help="ghosting")
 parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
+parser.add_argument(
+    "--scale_multiplier", default=1.0, type=float, help="scale multiplier"
+)
 args = parser.parse_args()
 
 
@@ -35,6 +38,8 @@ def main():
 
     # render
     raw_size = loader.raw_size
+    raw_size = [int(i * args.scale_multiplier) for i in raw_size]
+    loader.intrinsics = loader.intrinsics * args.scale_multiplier
     renderer = PyRenderWrapper(raw_size)
     print("Rendering [%s]:" % args.view)
     frames = []
@@ -89,6 +94,7 @@ def main():
         suffix=".mp4",
         upsample_frame=-1,
         fps=args.fps,
+        max_pixels=4e8,
     )
     print("saved to %s.mp4" % save_path)
 

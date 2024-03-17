@@ -10,6 +10,7 @@ run-long.sh
 /database/polycam
 /database/record3d
 /database/synthetic
+/database/motion
 /logdir*
 /tmp
 

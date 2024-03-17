@@ -254,7 +254,7 @@ def extract_motion_params(model, opts, data_info):
 
 @torch.no_grad()
 def export(opts, Trainer=Trainer):
-    model, data_info, ref_dict = Trainer.construct_test_model(opts)
+    model, data_info, ref_dict = Trainer.construct_test_model(opts, return_refs=False)
     save_dir = make_save_dir(opts, sub_dir="export_%04d" % (opts["inst_id"]))
 
     # save motion paramters
@@ -282,13 +282,17 @@ def export(opts, Trainer=Trainer):
             camera_info["bg_scale"] = bg_scale
         json.dump(camera_info, open("%s/camera.json" % (save_dir), "w"))
 
-    # save reference images
-    raw_size = data_info["raw_size"][opts["inst_id"]]  # full range of pixels
-    save_rendered(ref_dict, save_dir, raw_size, data_info["apply_pca_fn"])
-    print("Saved to %s" % save_dir)
+    if ref_dict is not None:
+        # save reference images
+        raw_size = data_info["raw_size"][opts["inst_id"]]  # full range of pixels
+        save_rendered(ref_dict, save_dir, raw_size, data_info["apply_pca_fn"])
+        print("Saved to %s" % save_dir)
 
-    # mesh rendering
-    cmd = "python lab4d/render_mesh.py --testdir %s" % (save_dir)
+    # mesh rendering: ref | bev
+    cmd = "python lab4d/render_mesh.py --mode shape --testdir %s" % (save_dir)
+    print("Running: %s" % cmd)
+    os.system(cmd)
+    cmd = "python lab4d/render_mesh.py --view bev --testdir %s" % (save_dir)
     print("Running: %s" % cmd)
     os.system(cmd)
 

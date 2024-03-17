@@ -22,6 +22,7 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.utils.mesh_loader import MeshLoader
 from lab4d.utils.vis_utils import draw_cams, get_colormap
+from projects.csim.voxelize import VoxelGrid, BGField
 
 colormap = get_colormap()
 
@@ -44,11 +45,11 @@ class MeshViewer:
         server = viser.ViserServer(share=share, port=args.port)
 
         # load canonical data
-        canonical_dir = "logdir-12-05/home-2023-11-08--20-29-39-compose/export_0001/"
-        testdirs = glob.glob("logdir-12-05/*-compose/export_0001/")
-        loader = MeshLoader(canonical_dir, args.mode, args.compose_mode)
-        loader.print_info()
-        loader.load_files(ghosting=args.ghosting)
+        testdirs = [
+            i
+            for i in glob.glob("logdir/home-2023-curated3-compose-ft/export_*/")
+            if "0000" not in i
+        ]
 
         # add fg root poses
         self.root_trajs = []
@@ -80,8 +81,8 @@ class MeshViewer:
 
             # setup mesh
             # mesh = trimesh.load("tmp/cat_face.obj")
-            mesh = trimesh.load("tmp/spot_remeshed.ply")
-            # mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
+            # mesh = trimesh.load("tmp/spot_remeshed.ply")
+            mesh = trimesh.creation.uv_sphere(radius=0.05, count=[4, 4])
             mesh.visual.vertex_colors = np.tile(color, [len(mesh.vertices), 1])
             self.meshes.append(mesh)
             max_num_frames = max(max_num_frames, len(root_loader) // args.skip_frames)
@@ -153,17 +154,53 @@ class MeshViewer:
         )
 
         # Add canonical geometry for background
-        mesh_canonical = loader.query_canonical_mesh(inst_id=0)
+        # mesh_canonical = loader.query_canonical_mesh(inst_id=1)
         # change the color
-        mesh_canonical.visual.vertex_colors = np.tile(
-            [207, 207, 207, 128], [len(mesh_canonical.vertices), 1]
+        # mesh_canonical.visual.vertex_colors = np.tile(
+        #     [207, 207, 207, 128], [len(mesh_canonical.vertices), 1]
+        # )
+        # xyz = mesh_canonical.vertices
+        # mesh_canonical.visual.vertex_colors = (xyz - xyz.min(0)) / (
+        #     xyz.max(0) - xyz.min(0)
+        # )
+        # voxel_grid = VoxelGrid(mesh_canonical, res=0.1)
+
+        bg_field = BGField()
+
+        for inst_id, bg_mesh in bg_field.bg_meshes.items():
+            server.add_mesh_trimesh(name=f"/frames/bg/{inst_id}", mesh=bg_mesh)
+            if inst_id > 3:  # only show the first 4
+                break
+
+        # voxel grids
+        voxel_grid = bg_field.voxel_grid
+        root_visitation_boxes = voxel_grid.to_boxes(mode="root_visitation")
+        cam_visitation = voxel_grid.to_boxes(mode="cam_visitation")
+        # Tune the color
+        root_colors = (
+            np.asarray(root_visitation_boxes.visual.vertex_colors).astype(np.float32)
+            / 255
         )
-        server.add_mesh_trimesh(name=f"/frames/canonical", mesh=mesh_canonical)
+        cam_colors = (
+            np.asarray(cam_visitation.visual.vertex_colors).astype(np.float32) / 255
+        )
+        from matplotlib import cm
+
+        cm.get_cmap("cool")
+        root_colors = cm.cool(root_colors[:, 0] * 10)[:, :3]
+        cam_colors = cm.cool(cam_colors[:, 2] * 10)[:, :3]
+
+        root_visitation_boxes.visual.vertex_colors = root_colors
+        cam_visitation.visual.vertex_colors = cam_colors
+
+        server.add_mesh_trimesh(
+            name="/frames/root_visitation", mesh=root_visitation_boxes
+        )
+        server.add_mesh_trimesh(name="/frames/cam_visitation", mesh=cam_visitation)
 
         self.num_frames = max_num_frames
         self.skip_frames = args.skip_frames
         self.server = server
-        self.loader = loader
         self.gui_timestep = gui_timestep
         self.gui_playing = gui_playing
         self.gui_framerate = gui_framerate
@@ -182,7 +219,7 @@ class MeshViewer:
         end_mesh.visual.vertex_colors = np.tile(color, [len(end_mesh.vertices), 1])
 
         self.server.add_spline_catmull_rom(
-            f"/frames/seq_{it}/{prefix}-traj",
+            f"/frames/seq/{prefix}/{it}/traj",
             positions,
             tension=1.0,
             line_width=2.0,
@@ -191,14 +228,14 @@ class MeshViewer:
         )
         # create start point
         self.server.add_mesh_trimesh(
-            name=f"/frames/seq_{it}/{prefix}-start",
+            name=f"/frames/seq/{prefix}/{it}/start",
             mesh=start_mesh,
             scale=1.0,
             position=positions[0],
         )
         # create end point
         self.server.add_mesh_trimesh(
-            name=f"/frames/seq_{it}/{prefix}-end",
+            name=f"/frames/seq/{prefix}/{it}/end",
             mesh=end_mesh,
             scale=1.0,
             position=positions[-1],
@@ -218,38 +255,38 @@ class MeshViewer:
 
         for i in tqdm(range(self.num_frames)):
             i = i * self.skip_frames
-            # Add base frame.
-            for it in range(len(self.root_trajs)):
-                self.frame_nodes_list[it].append(
-                    self.server.add_frame(f"/frames/seq_{it}/t{i}", show_axes=False)
-                )
+            # # Add base frame.
+            # for it in range(len(self.root_trajs)):
+            #     self.frame_nodes_list[it].append(
+            #         self.server.add_frame(f"/frames/seq/{it}/t{i}", show_axes=False)
+            #     )
 
-            for it, root_traj in enumerate(self.root_trajs):
-                if i >= len(root_traj):
-                    continue
-                extrinsics = np.linalg.inv(root_traj[i])
-                cam_extrinsics = np.linalg.inv(self.cam_trajs[it][i])
-                # Show camera frustum.
-                self.server.add_camera_frustum(
-                    f"/frames/seq_{it}/t{i}/cam",
-                    fov=np.pi / 2,
-                    aspect=1.0,
-                    scale=0.05,
-                    color=colormap[it + len(self.root_trajs)],
-                    wxyz=tf.SO3.from_matrix(cam_extrinsics[:3, :3]).wxyz,
-                    position=cam_extrinsics[:3, 3],
-                )
+            # for it, root_traj in enumerate(self.root_trajs):
+            #     if i >= len(root_traj):
+            #         continue
+            #     extrinsics = np.linalg.inv(root_traj[i])
+            #     cam_extrinsics = np.linalg.inv(self.cam_trajs[it][i])
+            #     # Show camera frustum.
+            #     self.server.add_camera_frustum(
+            #         f"/frames/seq/{it}/t{i}/cam",
+            #         fov=np.pi / 2,
+            #         aspect=1.0,
+            #         scale=0.05,
+            #         color=colormap[it + len(self.root_trajs)],
+            #         wxyz=tf.SO3.from_matrix(cam_extrinsics[:3, :3]).wxyz,
+            #         position=cam_extrinsics[:3, 3],
+            #     )
 
-                # mesh = self.skeleton_trajs[it][i]
-                mesh = self.meshes[it]
-                # Show mesh
-                self.server.add_mesh_trimesh(
-                    name=f"/frames/seq_{it}/t{i}/root",
-                    mesh=mesh,
-                    scale=1.0,
-                    wxyz=tf.SO3.from_matrix(extrinsics[:3, :3]).wxyz,
-                    position=extrinsics[:3, 3],
-                )
+            #     # mesh = self.skeleton_trajs[it][i]
+            #     mesh = self.meshes[it]
+            #     # Show mesh
+            #     self.server.add_mesh_trimesh(
+            #         name=f"/frames/seq/{it}/t{i}/root",
+            #         mesh=mesh,
+            #         scale=1.0,
+            #         wxyz=tf.SO3.from_matrix(extrinsics[:3, :3]).wxyz,
+            #         position=extrinsics[:3, 3],
+            #     )
 
         # Hide all but the current frame.
         for frame_nodes in self.frame_nodes_list:

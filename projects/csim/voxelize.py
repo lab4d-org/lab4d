@@ -9,6 +9,7 @@
 # voxel_holder(torch.rand(1000, 3) * 20 - 10)
 
 import torch
+import sys, os
 from torch.functional import F
 import trimesh
 import open3d as o3d
@@ -16,7 +17,161 @@ import numpy as np
 import pdb
 import time
 import viser
+import glob
 import viser.transforms as tf
+import pickle as pkl
+
+sys.path.insert(0, os.getcwd())
+from lab4d.utils.mesh_loader import MeshLoader
+from lab4d.config import load_flags_from_file
+from lab4d.engine.trainer import Trainer
+
+
+class BGField:
+    def __init__(self):
+        # TODO delete this hack
+        # load the model with good pca
+        logdir = "logdir/home-2023-11-bg-adapt1/"
+        opts = load_flags_from_file("%s/opts.log" % logdir)
+        opts["load_suffix"] = "latest"
+        opts["logroot"] = "logdir"
+        _, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+        pca_fn = data_info["apply_pca_fn"]
+
+        # load flags from file with absl
+        logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
+        # logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but too similar
+        # logdir = "logdir/home-2023-curated3-compose-ft-old/"  # cse feature
+        opts = load_flags_from_file("%s/opts.log" % logdir)
+        opts["load_suffix"] = "latest"
+        opts["logroot"] = "logdir"
+        # opts["grid_size"] = 256
+        opts["grid_size"] = 128
+        opts["level"] = 0
+        opts["vis_thresh"] = -20
+        # opts["vis_thresh"] = -10
+        opts["extend_aabb"] = False
+
+        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+        bg_field = model.fields.field_params["bg"]
+        self.bg_field = bg_field
+
+        self.bg_meshes = {}
+        self.voxel_grids = {}
+        for dirpath in sorted(glob.glob("%s/export_*" % logdir)):
+            inst_id = int(dirpath.split("_")[-1].split("export_")[-1])
+            bgmesh_path = "%s/bg-mesh.obj" % dirpath
+            # try to load mesh from dir
+            if False:
+                # if os.path.exists(bgmesh_path):
+                print("loading mesh from %s" % bgmesh_path)
+                bg_mesh = trimesh.load_mesh(bgmesh_path)
+            else:
+                print("extracting mesh from %s" % dirpath)
+                opts["inst_id"] = inst_id
+                bg_mesh = self.extract_bg_mesh(model, opts, pca_fn)
+                bg_mesh.export(bgmesh_path)
+
+            # try to load voxel from dir
+            bgvoxel_path = "%s/bg-voxel.pkl" % dirpath
+            if False:
+                # if os.path.exists(bgvoxel_path):
+                print("loading voxel from %s" % bgvoxel_path)
+                bg_voxel = pkl.load(open(bgvoxel_path, "rb"))
+            else:
+                print("extracting voxel from %s" % dirpath)
+                bg_voxel = VoxelGrid(bg_mesh, res=0.1)
+                pkl.dump(bg_voxel, open(bgvoxel_path, "wb"))
+
+            # save to dict
+            self.bg_meshes[inst_id] = bg_mesh
+            self.voxel_grids[inst_id] = bg_voxel
+
+            # TODO remove this once we have different meshes for bg
+            break
+
+        self.voxel_grid = self.voxel_grids[0]
+        self.bg_mesh = self.bg_meshes[0]
+
+        # # TODO add obstacle
+        # box = trimesh.creation.box((1, 1, 1))
+        # box.apply_translation([0.3, 1, -3])
+        # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
+
+        # self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*" % logdir)
+        self.root_trajs, self.cam_trajs = get_trajs_from_log(
+            "logdir/home-2023-curated3-compose-ft/export_*"
+        )
+        # voxel_grid.run_viser()
+        self.voxel_grid.count_root_visitation(self.root_trajs[:, :3, 3])
+        self.voxel_grid.count_cam_visitation(self.cam_trajs[:, :3, 3])
+
+    def compute_feat(self, x):
+        return self.bg_field.compute_feat(x)["feature"]
+
+    def get_bg_mesh(self):
+        return self.bg_mesh
+
+    @torch.no_grad()
+    def extract_bg_mesh(self, model, opts, pca_fn):
+        bg_field = model.fields.field_params["bg"]
+        meshes_rest = model.fields.extract_canonical_meshes(
+            grid_size=opts["grid_size"],
+            level=opts["level"],
+            inst_id=opts["inst_id"],
+            vis_thresh=opts["vis_thresh"],
+            use_extend_aabb=opts["extend_aabb"],
+        )
+
+        # dino
+        # color = bg_field.extract_canonical_color(meshes_rest["bg"])
+        # meshes_rest["bg"].visual.vertex_colors = color * 255
+        # get dino feature
+        bg_feature = bg_field.extract_canonical_feature(meshes_rest["bg"])
+        # visualize the feature
+        # pca_fn = data_info["apply_pca_fn"]
+        # from lab4d.utils.numpy_utils import pca_numpy
+
+        # pdb.set_trace()
+        # pca_fn = pca_numpy(bg_feature, n_components=3)
+        bg_feature_vis = pca_fn(bg_feature, normalize=True)
+        meshes_rest["bg"].visual.vertex_colors = bg_feature_vis * 255
+        # self.bg_feature = bg_feature
+
+        scale_bg = bg_field.logscale.exp().cpu().numpy()
+        meshes_rest["bg"].apply_scale(1.0 / scale_bg)
+        return meshes_rest["bg"]
+        # # TODO add obstacle
+        # box = trimesh.creation.box((1, 1, 1))
+        # box.apply_translation([0.3, 1, -3])
+        # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
+
+
+def get_trajs_from_log(dirpath):
+    # camera trajs
+    # get root trajectory
+    root_trajs = []
+    cam_trajs = []
+    # testdirs = sorted(glob.glob("%s/export_*" % args.logdir))
+    # testdirs = sorted(glob.glob("logdir/home-2023-11-compose-ft/export_*"))
+    testdirs = sorted(glob.glob(dirpath))
+    # testdirs = sorted(glob.glob("%s/export_*" % logdir))
+    for it, loader_path in enumerate(testdirs):
+        if "export_0000" in loader_path:
+            continue
+        root_loader = MeshLoader(loader_path, compose_mode="compose")
+        # load root poses
+        root_traj = root_loader.query_camtraj(data_class="fg")
+        root_trajs.append(root_traj)
+
+        # load cam poses
+        cam_traj = root_loader.query_camtraj(data_class="bg")
+        cam_trajs.append(cam_traj)
+        print("loaded %d frames from %s" % (len(root_loader), loader_path))
+    root_trajs = np.linalg.inv(np.concatenate(root_trajs))
+    cam_trajs = np.linalg.inv(np.concatenate(cam_trajs))  # T1+...+TN,4,4
+
+    return root_trajs, cam_trajs
 
 
 class VoxelGrid:
@@ -175,7 +330,7 @@ class VoxelGrid:
         return gradient
 
     def count_root_visitation(self, trajectory, splat_radius=0.2):
-        trajectory[..., 1] += 0.2  # center to foot
+        # trajectory[..., 1] += 0.2  # center to foot
         self.root_visitation = self.splat_trajectory_counts(trajectory, splat_radius)
         self.root_visitation = self.root_visitation / self.root_visitation.max()
         self.root_visitation_gradient = self.spatial_gradient(
@@ -227,24 +382,34 @@ class VoxelGrid:
         for i in range(trajectory.shape[0]):
             # find voxel indices within splat_radius to trajectory[i]
             idx, idy, idz = np.floor((trajectory[i] - self.origin) / res).astype(int)
-            # splat
-            idx_range = int(splat_radius / res)
-            for dx in range(-idx_range, idx_range + 1):
-                for dy in range(-idx_range, idx_range + 1):
-                    for dz in range(-idx_range, idx_range + 1):
-                        dis = np.sqrt(dx**2 + dy**2 + dz**2) * res
-                        if dis > splat_radius:
-                            continue
-                        if (
-                            idx + dx < 0
-                            or idx + dx >= grid_size[0]
-                            or idy + dy < 0
-                            or idy + dy >= grid_size[1]
-                            or idz + dz < 0
-                            or idz + dz >= grid_size[2]
-                        ):
-                            continue
-                        counts[idx + dx, idy + dy, idz + dz] += 1
+            # # splat
+            # idx_range = int(splat_radius / res)
+            # for dx in range(-idx_range, idx_range + 1):
+            #     for dy in range(-idx_range, idx_range + 1):
+            #         for dz in range(-idx_range, idx_range + 1):
+            #             dis = np.sqrt(dx**2 + dy**2 + dz**2) * res
+            #             if dis > splat_radius:
+            #                 continue
+            #             if (
+            #                 idx + dx < 0
+            #                 or idx + dx >= grid_size[0]
+            #                 or idy + dy < 0
+            #                 or idy + dy >= grid_size[1]
+            #                 or idz + dz < 0
+            #                 or idz + dz >= grid_size[2]
+            #             ):
+            #                 continue
+            #             counts[idx + dx, idy + dy, idz + dz] += 1
+            if (
+                idx < 0
+                or idx >= grid_size[0]
+                or idy < 0
+                or idy >= grid_size[1]
+                or idz < 0
+                or idz >= grid_size[2]
+            ):
+                continue
+            counts[idx, idy, idz] += 1
         return counts
 
     def readout_voxel(self, pts, mode="occupancy"):
@@ -265,6 +430,57 @@ class VoxelGrid:
         value = readout_voxel_fn(data, pts, self.res, self.origin)
         value = value[0]  # N
         return value
+
+    def readout_in_world(self, feature_vol, x_ego, ego_to_world):
+        """
+        x_ego: ...,KL
+        ego_to_world: ...,L
+        feat: ..., K, F
+        """
+        res = self.res
+        origin = self.origin
+        Ldim = ego_to_world.shape[-1]
+        x_world = x_ego.view(x_ego.shape[:-1] + (-1, Ldim)) + ego_to_world[..., None, :]
+        feat = readout_features(feature_vol, x_world, res, origin)
+        feat = feat.reshape(x_ego.shape[:-1] + (-1,))
+        return feat
+
+    def sample_from_voxel(self, num_samples, mode="occupancy"):
+        """
+        sample points from the voxel grid
+        """
+        if mode == "occupancy":
+            data = self.data
+        elif mode == "root_visitation":
+            data = self.root_visitation
+        elif mode == "cam_visitation":
+            data = self.cam_visitation
+        elif mode == "root_visitation_gradient":
+            data = self.root_visitation_gradient
+        else:
+            raise ValueError("mode not recognized")
+        # data: H,W,D
+        # reshape data to 1d, normalize and sample
+        grid_size = data.shape
+        data = data.reshape(-1)
+        data = data / data.sum()
+        indices = np.random.choice(len(data), num_samples, p=data)
+        indices = np.unravel_index(indices, grid_size)
+        pts = np.stack([indices[0], indices[1], indices[2]], axis=-1)
+        pts = pts * self.res + self.origin
+        return pts
+
+
+def readout_features(feature_vol, x_world, res, origin):
+    """
+    x_world: ...,3
+    """
+    # 3D convs then query B1HWD => B3HWD
+    queried_feature = readout_voxel_fn(feature_vol, x_world.view(-1, 3), res, origin)
+    queried_feature = queried_feature.T
+
+    queried_feature = queried_feature.reshape(x_world.shape[:-1] + (-1,))
+    return queried_feature
 
 
 def readout_voxel_fn(data, pts, res, origin):

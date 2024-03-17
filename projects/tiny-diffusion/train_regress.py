@@ -17,9 +17,10 @@ import numpy as np
 sys.path.insert(0, os.getcwd())
 from projects.csim.voxelize import BGField
 
-from utils import get_lab4d_data, TrajDataset, define_models
+from utils import get_lab4d_data, TrajDataset, define_models_regress
 from ddpm import NoiseScheduler
 from config import get_config
+from denoiser import TrajPredictor
 
 
 if __name__ == "__main__":
@@ -84,30 +85,29 @@ if __name__ == "__main__":
     # num_kps = x0_joints.shape[2]
     mean = x0.mean(0)
     std = x0.std(0) * 3
-    # mean_joints = x0_joints.mean(0)
-    # std_joints = x0_joints.std(0)
-    # mean_angles = x0_angles.mean(0)
-    # std_angles = x0_angles.std(0)
-    mean_joints = torch.zeros_like(x0_joints.mean(0))
-    std_joints = torch.ones_like(x0_joints.std(0))
-    mean_angles = torch.zeros_like(x0_angles.mean(0))
-    std_angles = torch.ones_like(x0_angles.std(0))
+    mean_joints = x0_joints.mean(0)
+    std_joints = x0_joints.std(0)
+    mean_angles = x0_angles.mean(0)
+    std_angles = x0_angles.std(0)
 
-    env_model, goal_model, waypoint_model, fullbody_model, angle_model = define_models(
-        config,
-        state_size,
-        forecast_size,
-        memory_size,
-        num_kps,
-        mean_goal=mean[-state_size:],
-        std_goal=std[-state_size:],
-        mean_wp=mean,
-        std_wp=std,
-        mean_joints=mean_joints,
-        std_joints=std_joints,
-        mean_angles=mean_angles,
-        std_angles=std_angles,
-        # use_env=False,
+    env_model, goal_model, waypoint_model, fullbody_model, angle_model = (
+        define_models_regress(
+            config,
+            state_size,
+            forecast_size,
+            memory_size,
+            num_kps,
+            mean_goal=mean[-state_size:],
+            std_goal=std[-state_size:],
+            mean_wp=mean,
+            std_wp=std,
+            mean_joints=mean_joints,
+            std_joints=std_joints,
+            mean_angles=mean_angles,
+            std_angles=std_angles,
+            model=TrajPredictor,
+            # use_env=False,
+        )
     )
     env_model.cuda()
     goal_model = goal_model.cuda()
@@ -183,40 +183,33 @@ if __name__ == "__main__":
 
             ############ goal prediction
             clean_goal = clean[:, -state_size:]
-            noise_goal, noisy_goal, t_frac = noise_scheduler.sample_noise(
-                clean_goal, std=goal_model.std
-            )
             # get features
             if env_model.feat_dim > 0:
-                feat = voxel_grid.readout_in_world(feat_volume, noisy_goal, x0_to_world)
+                feat = voxel_grid.readout_in_world(
+                    feat_volume, torch.zeros_like(x0_to_world), x0_to_world
+                )
                 feat = [feat]
             else:
                 feat = []
             # predict noise
-            goal_delta = goal_model(noisy_goal, t_frac, past, cam, feat)
-            loss_goal = F.mse_loss(goal_delta, noise_goal) / goal_model.std.mean()
+            goal_pred = goal_model(past, cam, feat)
+            loss_goal = F.mse_loss(goal_pred, clean_goal)
             ############################
 
             ############ waypoint prediction
-            noise_wp, noisy_wp, t_frac = noise_scheduler.sample_noise(
-                clean, std=waypoint_model.std
-            )
             # get features
             if env_model.feat_dim > 0:
-                feat = voxel_grid.readout_in_world(feat_volume, noisy_wp, x0_to_world)
+                feat = voxel_grid.readout_in_world(
+                    feat_volume, torch.zeros_like(x0_to_world), x0_to_world
+                )
                 feat = [feat]
             else:
                 feat = []
-            wp_delta = waypoint_model(
-                noisy_wp, t_frac, past, cam, feat, goal=clean_goal
-            )
-            loss_wp = F.mse_loss(wp_delta, noise_wp) / waypoint_model.std.mean()
+            wp_pred = waypoint_model(past, cam, feat, goal=clean_goal)
+            loss_wp = F.mse_loss(wp_pred, clean)
             ############################
 
             ############ fullbody prediction
-            noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
-                x0_joints, std=fullbody_model.std
-            )
             # get features
             clean_ego = (
                 x0_angles_to_world.view(-1, 1, 3, 3).transpose(2, 3)
@@ -230,26 +223,15 @@ if __name__ == "__main__":
             #     x0_to_world[:, None] + follow_wp.view(follow_wp.shape[0], -1, 3),
             # )
             # feat = feat.reshape(feat.shape[0], -1)
-            joints_delta = fullbody_model(
-                noisy_joints, t_frac, past_joints, cam * 0, [], goal=follow_wp
-            )
-            loss_joints = (
-                F.mse_loss(joints_delta, noise_joints) / fullbody_model.std.mean()
-            )
+            joints_pred = fullbody_model(past_joints, cam * 0, [], goal=follow_wp)
+            loss_joints = F.mse_loss(joints_pred, x0_joints)
             ############################
 
             ############ angle prediction
-            noise_angles, noisy_angles, t_frac = noise_scheduler.sample_noise(
-                x0_angles, std=angle_model.std
-            )
             # get features
             follow_wp = clean_ego
-            angles_delta = angle_model(
-                noisy_angles, t_frac, past_angles, cam * 0, [], goal=follow_wp
-            )
-            loss_angles = (
-                F.mse_loss(angles_delta, noise_angles) / angle_model.std.mean()
-            )
+            angles_pred = angle_model(past_angles, cam * 0, [], goal=follow_wp)
+            loss_angles = F.mse_loss(angles_pred, x0_angles)
             ############################
             # ############ angle prediction
             # follow_wp = clean
