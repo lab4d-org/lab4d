@@ -701,16 +701,18 @@ def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter
         if len(pcd.points) < 3:
             break
         best_eq, index = pcd.segment_plane(threshold, init_n, iter)
-        # visibile plane given z direction
+        # visibile plane given z direction in the first frame
         if best_eq[2] > 0:
             best_eq = -1 * best_eq
 
         segmented_pts = pcd.select_by_index(index)
         pts_left = np.asarray(pcd.points)[~np.isin(np.arange(len(pcd.points)), index)]
         pcd.points = o3d.utility.Vector3dVector(pts_left)
-        # print("segmented plane pts: ", len(segmented_pts.points) / len(mesh.vertices))
+        ratio = len(segmented_pts.points) / len(mesh.vertices)
         score = np.asarray(up_direction).dot(best_eq[:3])
-        hypos.append((best_eq, segmented_pts, score))
+        hypos.append((best_eq, segmented_pts, ratio))
+        # print("segmented plane pts: ", ratio)
+        # print("score: ", score)
         # trimesh.Trimesh(segmented_pts.points).export("tmp/segmented_{}.obj".format(_))
     # find the one with best score
     best_eq, segmented_pts, score = sorted(hypos, key=lambda x: x[-1])[-1]

@@ -1312,6 +1312,7 @@ class NeRF(nn.Module):
         field2cam = quaternion_translation_to_se3(quat, trans)
         return field2cam
 
+    @torch.no_grad()
     def compute_field2world(self, up_direction=[0, -1, 0]):
         """Compute SE(3) to transform points in the scene space to world space
         For background, this is computed by detecting planes with ransac.
@@ -1322,9 +1323,20 @@ class NeRF(nn.Module):
         for inst_id in range(self.num_inst):
             # TODO: move this to background nerf, and use each proxy geometry
             mesh = self.extract_canonical_mesh(
-                level=0.0, inst_id=inst_id, vis_thresh=-10, grid_size=256
+                level=0.0, inst_id=inst_id, vis_thresh=-10, grid_size=128
             )
-            self.field2world[inst_id] = compute_rectification_se3(mesh, up_direction)
+            # get mesh at frame 0
+            device = next(self.parameters()).device
+            frame_id = torch.tensor([self.frame_offset_raw[inst_id]], device=device)
+            field2view_0 = (
+                self.get_camera(frame_id=frame_id, metric_scale=False)[0].cpu().numpy()
+            )
+            mesh.apply_transform(field2view_0)
+            scale = self.logscale.exp().cpu().numpy()
+            view2world = compute_rectification_se3(
+                mesh, up_direction, threshold=0.05 * scale
+            )
+            self.field2world[inst_id] = view2world @ field2view_0
 
     def get_field2world(self, inst_id=None):
         """Compute SE(3) to transform points in the scene space to world space
@@ -1349,10 +1361,12 @@ class NeRF(nn.Module):
         """
         field2world = self.get_field2world(inst_id)
         world2field = field2world.inverse().cpu()
-        mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
+        mesh = self.extract_canonical_mesh(
+            level=0.0, inst_id=inst_id, vis_thresh=-10, grid_size=128
+        )
         scale = self.logscale.exp().cpu().numpy()
         mesh.vertices /= scale
-        mesh = append_xz_plane(mesh, world2field, gl=False, scale=20 * scale)
+        mesh = append_xz_plane(mesh, world2field, gl=False, scale=1.0 / scale)
         if to_world:
             mesh.apply_transform(field2world.cpu().numpy())
         return mesh
