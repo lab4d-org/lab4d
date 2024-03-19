@@ -84,14 +84,10 @@ if __name__ == "__main__":
     # num_kps = x0_joints.shape[2]
     mean = x0.mean(0)
     std = x0.std(0) * 3
-    # mean_joints = x0_joints.mean(0)
-    # std_joints = x0_joints.std(0)
-    # mean_angles = x0_angles.mean(0)
-    # std_angles = x0_angles.std(0)
-    mean_joints = torch.zeros_like(x0_joints.mean(0))
-    std_joints = torch.ones_like(x0_joints.std(0))
-    mean_angles = torch.zeros_like(x0_angles.mean(0))
-    std_angles = torch.ones_like(x0_angles.std(0))
+    mean_joints = x0_joints.mean(0)
+    std_joints = x0_joints.std(0)
+    mean_angles = x0_angles.mean(0)
+    std_angles = x0_angles.std(0)
 
     env_model, goal_model, waypoint_model, fullbody_model, angle_model = define_models(
         config,

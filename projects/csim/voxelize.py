@@ -127,7 +127,7 @@ class BGField:
         # color = bg_field.extract_canonical_color(meshes_rest["bg"])
         # meshes_rest["bg"].visual.vertex_colors = color * 255
         # get dino feature
-        bg_feature = bg_field.extract_canonical_feature(meshes_rest["bg"])
+        bg_feature = bg_field.extract_canonical_feature(meshes_rest["bg"], None)
         # visualize the feature
         # pca_fn = data_info["apply_pca_fn"]
         # from lab4d.utils.numpy_utils import pca_numpy

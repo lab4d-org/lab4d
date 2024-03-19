@@ -606,12 +606,12 @@ class TrajDenoiser(nn.Module):
             if goal is not None:
                 cond_emb = self.cond_embed(goal)
 
-                # if self.training:
-                #     drop_rate = 0.5
-                #     rand_mask = (
-                #         torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
-                #     ).float()
-                #     cond_emb = cond_emb * rand_mask
+                if self.training:
+                    drop_rate = 0.5
+                    rand_mask = (
+                        torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
+                    ).float()
+                    cond_emb = cond_emb * rand_mask
             else:
                 cond_emb = self.cond_embed(
                     torch.zeros(bs, self.cond_embed[0].in_channels, device=device)
