@@ -10,7 +10,7 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --freeze_scale --freeze_camera_bg --load_path_bg logdir/home-$vidname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
   --pixels_per_image 12 --bg_vid 0 \
-  --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5
+  --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5
 # --feature_channels 384
 
 # fine-tune
@@ -23,7 +23,7 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --load_path_bg logdir/home-$vidname-bg-adapt3/ckpt_latest.pth --load_path logdir/home-$vidname-compose-fs-new/ckpt_latest.pth \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 \
   --pixels_per_image 12 --bg_vid 0 \
-  --nosingle_inst --beta_prob_init 0.0 --beta_prob_final 0.0
+  --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0
 # --feature_channels 384 
 
 CUDA_VISIBLE_DEVICE=$dev python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 0 --vis_thresh -10 --grid_size 256

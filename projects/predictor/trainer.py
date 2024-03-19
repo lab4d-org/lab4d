@@ -69,7 +69,7 @@ class PredTrainer(Trainer):
                 self.first_round = self.current_round
                 self.first_step = self.current_steps
 
-    def get_optimizable_param_list(self):
+    def get_optimizable_param_list(self, dummy1, dummy2):
         params_ref_list = []
         params_list = []
         lr_list = []

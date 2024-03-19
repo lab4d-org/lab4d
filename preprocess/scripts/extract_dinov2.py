@@ -63,12 +63,10 @@ def extract_dino_feat(dinov2_model, rgb, size=None):
 
 def load_dino_model(gpu_id=0):
     # load dinov2: small models producds smoother pca-ed features
+    dinov2_model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
     # dinov2_model = torch.hub.load(
-    #     "facebookresearch/dinov2", "dinov2_vits14", force_reload=True
+    #     "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
     # )
-    dinov2_model = torch.hub.load(
-        "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
-    )
     dinov2_model = dinov2_model.to("cuda:%d" % gpu_id)
     dinov2_model.eval()
     return dinov2_model
@@ -99,7 +97,7 @@ def extract_dinov2_seq(seqname, use_full, component_id, pca_save):
         feat = feat.reshape(112, 112, -1)
         feat = feat / np.linalg.norm(feat, axis=-1)[..., None]
         mask = cv2.resize(mask, (112, 112))
-        feat = feat * mask.astype(np.float32)[..., None]
+        # feat = feat * mask.astype(np.float32)[..., None]
         feats.append(feat)
 
         # visualization
@@ -118,7 +116,7 @@ def extract_dinov2_seq(seqname, use_full, component_id, pca_save):
         prefix = "full"
     else:
         prefix = "crop"
-    save_path_dp = "%s/%s-dinov2l-reg-%02d.npy" % (
+    save_path_dp = "%s/%s-dinov2-%02d.npy" % (
         save_path_dp,
         prefix,
         component_id,

@@ -23,7 +23,7 @@ from lab4d.engine.train_utils import (
     match_param_name,
 )
 from lab4d.utils.profile_utils import torch_profile
-from lab4d.utils.torch_utils import remove_ddp_prefix, resolve_size_mismatch
+from lab4d.utils.torch_utils import remove_ddp_prefix, resolve_size_mismatch, remove_state_startwith
 from lab4d.utils.vis_utils import img2color, make_image_grid
 
 
@@ -153,6 +153,17 @@ class Trainer:
         }
         return param_lr_with_freeze_field_bg
 
+    def get_lr_freeze_field_fg(self):
+        param_lr_with_freeze_field_bg = {
+            "module.fields.field_params.fg.basefield.": 0.0,
+            # "module.fields.field_params.fg.colorfield.": 0.0,
+            "module.fields.field_params.fg.sdf.": 0.0,
+            # "module.fields.field_params.fg.rgb.": 0.0,
+            "module.fields.field_params.fg.vis_mlp.": 0.0,
+            # "module.fields.field_params.fg.feature_field": 0.0,
+        }
+        return param_lr_with_freeze_field_bg
+
     def get_lr_freeze_field_fgbg(self):
         param_lr_with_freeze_field = {
             "module.fields.field_params.fg.basefield.": 0.0,
@@ -211,6 +222,8 @@ class Trainer:
 
         if opts["freeze_field_bg"]:
             param_lr_with.update(self.get_lr_freeze_field_bg())
+        if opts["freeze_field_fg"]:
+            param_lr_with.update(self.get_lr_freeze_field_fg())   
         if opts["freeze_field_fgbg"]:
             param_lr_with.update(self.get_lr_freeze_field_fgbg())
         if opts["freeze_camera_bg"]:
@@ -416,7 +429,7 @@ class Trainer:
             os.system("cp %s %s" % (param_path, latest_path))
 
     @staticmethod
-    def load_checkpoint(load_path, model, optimizer=None):
+    def load_checkpoint(load_path, model, optimizer=None, load_camera=True):
         """Load a model from checkpoint
 
         Args:
@@ -429,6 +442,9 @@ class Trainer:
         model_states = checkpoint["model"]
         if not isinstance(model, torch.nn.parallel.DistributedDataParallel):
             model_states = remove_ddp_prefix(model_states)
+
+        if not load_camera:
+            model_states = remove_state_startwith(model_states, "module.fields.field_params.fg.camera_mlp")
 
         resolve_size_mismatch(model, model_states)
 
@@ -459,7 +475,7 @@ class Trainer:
         if self.opts["load_path"] != "":
             # training time
             checkpoint = self.load_checkpoint(
-                self.opts["load_path"], self.model, optimizer=self.optimizer
+                self.opts["load_path"], self.model, optimizer=self.optimizer, load_camera=self.opts["load_fg_camera"]
             )
             if not self.opts["reset_steps"]:
                 self.current_steps = checkpoint["current_steps"]

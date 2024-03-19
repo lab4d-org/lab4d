@@ -165,7 +165,7 @@ class MultiFields(nn.Module):
         for field in self.field_params.values():
             field.symm_ratio = symm_ratio
 
-    def set_beta_prob(self, beta_prob):
+    def set_beta_prob(self, beta_prob_fg, beta_prob_bg):
         """Set beta probability for all child fields. This determines the
         probability of instance code swapping
 
@@ -173,7 +173,12 @@ class MultiFields(nn.Module):
             beta_prob (float): Instance code swapping probability, 0 to 1
         """
         for category, field in self.field_params.items():
-            field.basefield.inst_embedding.set_beta_prob(beta_prob)
+            if category=="fg":
+                field.basefield.inst_embedding.set_beta_prob(beta_prob_fg)
+            elif category=="bg":
+                field.basefield.inst_embedding.set_beta_prob(beta_prob_bg)
+            else:
+                raise NotImplementedError
 
     def update_geometry_aux(self):
         """Update proxy geometry and bounds for all child fields"""

@@ -229,10 +229,15 @@ class dvr_model(nn.Module):
 
         # anneal geometry/appearance code for foreground: steps(0->2k, 1->0.2), range (0.2,1)
         anchor_x = (0, 2000)
-        anchor_y = (config["beta_prob_init"], config["beta_prob_final"])
+        anchor_y = (config["beta_prob_init_fg"], config["beta_prob_final_fg"])
         type = "linear"
-        beta_prob = interp_wt(anchor_x, anchor_y, current_steps, type=type)
-        self.fields.set_beta_prob(beta_prob)
+        beta_prob_fg = interp_wt(anchor_x, anchor_y, current_steps, type=type)
+
+        anchor_x = (0, 2000)
+        anchor_y = (config["beta_prob_init_bg"], config["beta_prob_final_bg"])
+        type = "linear"
+        beta_prob_bg = interp_wt(anchor_x, anchor_y, current_steps, type=type)
+        self.fields.set_beta_prob(beta_prob_fg, beta_prob_bg)
 
         # camera prior wt: steps(0->1000, 1->0), range (0,1)
         loss_name = "reg_cam_prior_wt"
@@ -724,9 +729,9 @@ class dvr_model(nn.Module):
             feat_reproj_loss_bg = 100 * feat_reproj_loss_bg.norm(2, -1, keepdim=True)
             feat_reproj_loss_bg = feat_reproj_loss_bg * (1 - batch["mask"].float())
         if config["field_type"] == "comp":
-            # loss_dict["feature"] = feature_loss_fg + feature_loss_bg
+            loss_dict["feature"] = feature_loss_fg + feature_loss_bg
             # loss_dict["feat_reproj"] = feat_reproj_loss_fg + feat_reproj_loss_bg
-            loss_dict["feature"] = feature_loss_fg + feature_loss_bg * 0
+            # loss_dict["feature"] = feature_loss_fg + feature_loss_bg * 0
             loss_dict["feat_reproj"] = feat_reproj_loss_fg + feat_reproj_loss_bg * 0
         elif config["field_type"] == "fg":
             loss_dict["feature"] = feature_loss_fg

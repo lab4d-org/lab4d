@@ -323,8 +323,9 @@ class Predictor(nn.Module):
         self.head_uncertainty = UncertaintyHead(384)
 
         # self.data_generator = PolyGenerator()
-        self.data_generator1 = PolyGenerator(poly_name="Oct31at1-13AM-poly")
-        self.data_generator2 = PolyGenerator(poly_name="Oct5at10-49AM-poly")
+        assert len(opts["poly_1"])>0
+        self.data_generator1 = PolyGenerator(poly_name=opts["poly_1"])
+        self.data_generator2 = PolyGenerator(poly_name=opts["poly_2"])
 
         # hyper params
         self.azimuth_limit = np.pi

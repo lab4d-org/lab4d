@@ -9,7 +9,7 @@ logname=bg
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type bg --data_prefix full \
   --intrinsics_type const --extrinsics_type const --feature_channels 384 \
-  --freeze_scale --learning_rate 2e-3 --num_rounds 240 \
+  --freeze_scale --learning_rate 1e-3 --num_rounds 240 \
   --mask_wt 0.01 --normal_wt 1e-3 --feature_wt 1e-3 --depth_wt 0.01 --reg_eikonal_wt 0.001 --feat_reproj_wt 0.0 --flow_wt 0.0 \
   --pixels_per_image 4 --imgs_per_gpu 768
   # --init_scale_bg 0.2 

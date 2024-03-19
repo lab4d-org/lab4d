@@ -136,6 +136,9 @@ def two_frame_registration(
     depth1_warped = warp_flow(depth1.astype(float), flow[..., :2]).flatten()
     pts1 = np.linalg.inv(K1) @ hp1 * depth1_warped
 
+    invalid_mask = np.logical_or(np.isnan(depth0).flatten(), np.isnan(depth1_warped))
+    valid_mask = np.logical_and(valid_mask, ~invalid_mask)
+
     if registration_type == "procrustes":
         # Procrustes
         valid_mask = np.logical_and(valid_mask, depth1_warped > 0)

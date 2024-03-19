@@ -8,7 +8,7 @@ dependencies:
   - pip
   - pytorch=2.0.0
   - pytorch-cuda=11.7
-  - torchvision=0.15.2
+  - torchvision=0.15.1
   - cudatoolkit-dev=11.7
   - gcc_linux-64=10
   - gxx_linux-64=10

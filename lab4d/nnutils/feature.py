@@ -93,7 +93,9 @@ class FeatureNeRF(NeRF):
         self.use_feature = True
 
         self.feat_pos_embedding = PosEmbedding(3, N_freqs=6)  # lower frequency
-        self.feature_field = BaseMLP(
+        # self.feature_field = BaseMLP(
+        self.feature_field = CondMLP(
+            num_inst=self.num_inst,
             D=5,
             W=128,
             in_channels=self.feat_pos_embedding.out_channels,
@@ -137,7 +139,7 @@ class FeatureNeRF(NeRF):
         inst_id = samples_dict["inst_id"]
 
         # samples feature field
-        feat_field_dict = self.compute_feat(xyz)
+        feat_field_dict = self.compute_feat(xyz, inst_id)
         feat_dict.update(feat_field_dict)
 
         # global matching
@@ -241,14 +243,14 @@ class FeatureNeRF(NeRF):
             rand_xyz, _, _ = self.sample_points_aabb(
                 num_candidates // 2, extend_factor=0.1
             )
-        rand_feat = self.compute_feat(rand_xyz)["feature"]
+        rand_feat = self.compute_feat(rand_xyz, None)["feature"]
 
         # combine
         feature = torch.cat([feature, rand_feat], dim=0)
         xyz = torch.cat([xyz, rand_xyz], dim=0)
         return feature, xyz
 
-    def compute_feat(self, xyz):
+    def compute_feat(self, xyz, inst_id):
         """Render feature field
 
         Args:
@@ -258,7 +260,7 @@ class FeatureNeRF(NeRF):
         """
         feat_field_dict = {}
         xyz_embed = self.feat_pos_embedding(xyz)
-        feature = self.feature_field(xyz_embed)
+        feature = self.feature_field(xyz_embed, inst_id)
         feature = feature / feature.norm(dim=-1, keepdim=True)
         feat_field_dict["feature"] = feature
         return feat_field_dict
@@ -328,7 +330,7 @@ class FeatureNeRF(NeRF):
         return xy_reproj, xyz_cam
 
     @torch.no_grad()
-    def extract_canonical_feature(self, mesh):
+    def extract_canonical_feature(self, mesh, inst_id):
         """Extract color on canonical mesh vertices
 
         Args:
@@ -338,5 +340,5 @@ class FeatureNeRF(NeRF):
         """
         device = next(self.parameters()).device
         verts = torch.tensor(mesh.vertices, dtype=torch.float32, device=device)
-        feature = self.compute_feat(verts)["feature"]
+        feature = self.compute_feat(verts, inst_id)["feature"]
         return feature.cpu().numpy()

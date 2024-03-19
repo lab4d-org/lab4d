@@ -706,6 +706,10 @@ class CameraMLP_so3(TimeMLP):
         base_quat = F.normalize(base_quat, dim=-1)
         quat = quaternion_mul(quat, base_quat)
         trans = trans + base_trans
+
+        # ensure quaternions has positive w
+        neg_w = quat[..., 0] < 0
+        quat[neg_w] = -quat[neg_w]
         return quat, trans
 
     def update_base_quat(self):

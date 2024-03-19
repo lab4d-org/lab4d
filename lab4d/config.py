@@ -49,8 +49,10 @@ class TrainModelConfig:
         "fg_motion", "rigid", "{rigid, dense, bob, skel-human, skel-quad}"
     )
     flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
-    flags.DEFINE_float("beta_prob_final", 0.2, "probability of final morphology beta")
-    flags.DEFINE_float("beta_prob_init", 1.0, "probability of initial morphology beta")
+    flags.DEFINE_float("beta_prob_final_fg", 0.2, "probability of final morphology beta")
+    flags.DEFINE_float("beta_prob_init_fg", 1.0, "probability of initial morphology beta")
+    flags.DEFINE_float("beta_prob_final_bg", 0.2, "probability of final morphology beta")
+    flags.DEFINE_float("beta_prob_init_bg", 1.0, "probability of initial morphology beta")
     flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
     flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")
@@ -90,7 +92,9 @@ class TrainOptConfig:
         "reset steps of loss scheduling, set to False if resuming training",
     )
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
+    flags.DEFINE_boolean("load_fg_camera", True, "whether load camera for fg ckpt")
     flags.DEFINE_boolean("freeze_field_bg", False, "whether to freeze bg field")
+    flags.DEFINE_boolean("freeze_field_fg", False, "whether to freeze fg field")
     flags.DEFINE_boolean("freeze_field_fgbg", False, "whether to freeze fg+bg field")
     flags.DEFINE_boolean("freeze_camera_bg", False, "whether to freeze bg camera")
     flags.DEFINE_boolean("freeze_camera_fg", False, "whether to freeze fg camera")

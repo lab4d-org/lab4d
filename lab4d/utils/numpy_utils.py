@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
 import numpy as np
+import bisect
 
 
 def interp_wt(x, y, x2, type="linear"):
@@ -13,6 +14,13 @@ def interp_wt(x, y, x2, type="linear"):
     Returns:
         y2 (float): Scalar value mapped to [y0, y1]
     """
+    # extend to tuples
+    index = bisect.bisect_left(x, x2)
+    index = max(1, index)
+    index = min(len(x)-1, index)
+    x = (x[index-1], x[index])
+    y = (y[index-1], y[index])
+
     # Extract values from tuples
     x0, x1 = x
     y0, y1 = y

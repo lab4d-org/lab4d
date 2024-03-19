@@ -38,7 +38,7 @@ class PolyCamRender:
         self.scene_unrect = scene_unrect
         self.mesh = mesh
 
-        self.input_dict = {"shape": [self.mesh]}
+        self.input_dict = {"shape": self.mesh}
         self.aabb = mesh.bounding_box.bounds
 
         self.renderer = PyRenderWrapper(image_size=image_size)
@@ -83,6 +83,7 @@ class PolyCamRender:
         self.renderer.set_intrinsics(intrinsics)
 
         self.renderer.align_light_to_camera()
+        # cache to save loading time
         if hasattr(self.renderer, "mesh_pyrender"):
             color, xyz = self.renderer.render(
                 {}, crop_to_size=crop_to_size, return_xyz=return_xyz

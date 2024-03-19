@@ -107,9 +107,10 @@ class MeshLoader:
             else:
                 mesh_path = path_list[counter]
                 mesh = trimesh.load(mesh_path, process=False)
-                mesh.visual.vertex_colors = (
-                    mesh.visual.vertex_colors
-                )  # visual.kind = 'vertex'
+                if mesh.visual.kind == "vertex":
+                    mesh.visual.vertex_colors = (
+                        mesh.visual.vertex_colors
+                    )  # visual.kind = 'vertex'
 
             field2cam_fg = np.asarray(field2cam_fg_dict[fid_str])
 
