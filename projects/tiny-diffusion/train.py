@@ -15,11 +15,11 @@ from einops import rearrange
 import numpy as np
 
 sys.path.insert(0, os.getcwd())
-from projects.csim.voxelize import BGField
 
 from utils import get_lab4d_data, TrajDataset, define_models
 from ddpm import NoiseScheduler
 from config import get_config
+from denoiser import TotalDenoiser
 
 
 if __name__ == "__main__":
@@ -71,49 +71,15 @@ if __name__ == "__main__":
     )
     loader_eval = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
 
-    # model setup
-    state_size = 3
-    forecast_size = int(x0.shape[1] / state_size)
-    num_kps = int(x0_joints.shape[1] / state_size / forecast_size)
-    memory_size = int(y.shape[1] / state_size)
-    print(f"state_size: {state_size}")
-    print(f"forecast_size: {forecast_size}")
-    print(f"num_kps: {num_kps}")
-    print(f"memory_size: {memory_size}")
-    # forecast_size = x0.shape[1]
-    # num_kps = x0_joints.shape[2]
-    mean = x0.mean(0)
-    std = x0.std(0) * 3
-    mean_joints = x0_joints.mean(0)
-    std_joints = x0_joints.std(0)
-    mean_angles = x0_angles.mean(0)
-    std_angles = x0_angles.std(0)
-
-    env_model, goal_model, waypoint_model, fullbody_model, angle_model = define_models(
+    model = TotalDenoiser(
         config,
-        state_size,
-        forecast_size,
-        memory_size,
-        num_kps,
-        mean_goal=mean[-state_size:],
-        std_goal=std[-state_size:],
-        mean_wp=mean,
-        std_wp=std,
-        mean_joints=mean_joints,
-        std_joints=std_joints,
-        mean_angles=mean_angles,
-        std_angles=std_angles,
+        x0,
+        x0_joints,
+        x0_angles,
+        y,
         # use_env=False,
     )
-    env_model.cuda()
-    goal_model = goal_model.cuda()
-    waypoint_model = waypoint_model.cuda()
-    fullbody_model = fullbody_model.cuda()
-    angle_model = angle_model.cuda()
-
-    voxel_grid = BGField().voxel_grid
-    env_input = voxel_grid.data[None]
-    env_input = torch.tensor(env_input, dtype=torch.float32, device="cuda")
+    model = model.cuda()
 
     # optimization setup
     noise_scheduler = NoiseScheduler(
@@ -121,13 +87,7 @@ if __name__ == "__main__":
     )
     noise_scheduler = noise_scheduler.cuda()
 
-    params = (
-        list(env_model.parameters())
-        + list(goal_model.parameters())
-        + list(waypoint_model.parameters())
-        + list(fullbody_model.parameters())
-        + list(angle_model.parameters())
-    )
+    params = list(model.parameters())
     optimizer = torch.optim.AdamW(
         params,
         lr=config.learning_rate,
@@ -161,12 +121,11 @@ if __name__ == "__main__":
     losses = []
     print("Training model...")
     for epoch in range(config.num_epochs):
-        goal_model.train()
+        model.train()
         progress_bar = tqdm(total=len(loader_train))
         progress_bar.set_description(f"Epoch {epoch}")
         for step, batch in enumerate(loader_train):
-            # get input data
-            feat_volume = env_model.extract_features(env_input)
+            # get data
             clean = batch[0]
             past = batch[1]
             cam = batch[2]
@@ -177,86 +136,65 @@ if __name__ == "__main__":
             past_angles = batch[7]
             x0_angles_to_world = batch[8]
 
-            ############ goal prediction
-            clean_goal = clean[:, -state_size:]
+            # get context
+            feat_volume = model.extract_feature_grid()
+
+            # goal
+            clean_goal = clean[:, -model.state_size :]
             noise_goal, noisy_goal, t_frac = noise_scheduler.sample_noise(
-                clean_goal, std=goal_model.std
+                clean_goal, std=model.goal_model.std
             )
-            # get features
-            if env_model.feat_dim > 0:
-                feat = voxel_grid.readout_in_world(feat_volume, noisy_goal, x0_to_world)
-                feat = [feat]
-            else:
-                feat = []
-            # predict noise
-            goal_delta = goal_model(noisy_goal, t_frac, past, cam, feat)
-            loss_goal = F.mse_loss(goal_delta, noise_goal) / goal_model.std.mean()
-            ############################
+            goal_delta = model.forward_goal(
+                noisy_goal, x0_to_world, t_frac, past, cam, feat_volume
+            )
+            loss_goal = F.mse_loss(goal_delta, noise_goal) / model.goal_model.std.mean()
 
-            ############ waypoint prediction
+            # path
             noise_wp, noisy_wp, t_frac = noise_scheduler.sample_noise(
-                clean, std=waypoint_model.std
+                clean, std=model.waypoint_model.std
             )
-            # get features
-            if env_model.feat_dim > 0:
-                feat = voxel_grid.readout_in_world(feat_volume, noisy_wp, x0_to_world)
-                feat = [feat]
-            else:
-                feat = []
-            wp_delta = waypoint_model(
-                noisy_wp, t_frac, past, cam, feat, goal=clean_goal
+            wp_delta = model.forward_path(
+                noisy_wp,
+                x0_to_world,
+                t_frac,
+                past,
+                cam,
+                feat_volume,
+                clean_goal=clean_goal,
             )
-            loss_wp = F.mse_loss(wp_delta, noise_wp) / waypoint_model.std.mean()
-            ############################
+            loss_wp = F.mse_loss(wp_delta, noise_wp) / model.waypoint_model.std.mean()
 
-            ############ fullbody prediction
+            # full body
             noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
-                x0_joints, std=fullbody_model.std
+                x0_joints, std=model.fullbody_model.std
             )
-            # get features
+            noise_angles, noisy_angles, t_frac = noise_scheduler.sample_noise(
+                x0_angles, std=model.angle_model.std
+            )
             clean_ego = (
                 x0_angles_to_world.view(-1, 1, 3, 3).transpose(2, 3)
-                @ clean.view(-1, forecast_size, 3, 1)
+                @ clean.view(-1, model.forecast_size, 3, 1)
             ).view(clean.shape)
-            follow_wp = clean_ego
-            # # N, T, K3 => N,T, K, F => N,TKF
-            # feat = voxel_grid.readout_in_world(
-            #     feat_volume,
-            #     noisy_joints.view(noisy_joints.shape[0], -1, state_size * num_kps),
-            #     x0_to_world[:, None] + follow_wp.view(follow_wp.shape[0], -1, 3),
-            # )
-            # feat = feat.reshape(feat.shape[0], -1)
-            joints_delta = fullbody_model(
-                noisy_joints, t_frac, past_joints, cam * 0, [], goal=follow_wp
+            joints_delta, angles_delta = model.forward_fullbody(
+                noisy_joints,
+                noisy_angles,
+                t_frac,
+                past_joints,
+                past_angles,
+                cam,
+                follow_wp=clean_ego,
             )
             loss_joints = (
-                F.mse_loss(joints_delta, noise_joints) / fullbody_model.std.mean()
-            )
-            ############################
-
-            ############ angle prediction
-            noise_angles, noisy_angles, t_frac = noise_scheduler.sample_noise(
-                x0_angles, std=angle_model.std
-            )
-            # get features
-            follow_wp = clean_ego
-            angles_delta = angle_model(
-                noisy_angles, t_frac, past_angles, cam * 0, [], goal=follow_wp
+                F.mse_loss(joints_delta, noise_joints) / model.fullbody_model.std.mean()
             )
             loss_angles = (
-                F.mse_loss(angles_delta, noise_angles) / angle_model.std.mean()
+                F.mse_loss(angles_delta, noise_angles) / model.angle_model.std.mean()
             )
-            ############################
-            # ############ angle prediction
-            # follow_wp = clean
-            # angles_pred = angle_model(past_angles, follow_wp)
-            # loss_angles = F.mse_loss(angles_pred, x0_angles) / angle_model.std.mean()
-            # ############################
 
             loss = loss_goal + loss_wp + loss_joints + loss_angles
             loss.backward(loss)
 
-            nn.utils.clip_grad_norm_(goal_model.parameters(), 1.0)
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
@@ -302,27 +240,7 @@ if __name__ == "__main__":
         if epoch % config.save_model_epoch == 0 or epoch == config.num_epochs - 1:
             print("Saving model...")
             os.makedirs(outdir, exist_ok=True)
-            param_path = f"{outdir}/env_model_%04d.pth" % epoch
-            latest_path = f"{outdir}/env_model_latest.pth"
-            torch.save(env_model.state_dict(), param_path)
-            os.system("cp %s %s" % (param_path, latest_path))
-
-            param_path = f"{outdir}/goal_model_%04d.pth" % epoch
-            latest_path = f"{outdir}/goal_model_latest.pth"
-            torch.save(goal_model.state_dict(), param_path)
-            os.system("cp %s %s" % (param_path, latest_path))
-
-            param_path = f"{outdir}/waypoint_model_%04d.pth" % epoch
-            latest_path = f"{outdir}/waypoint_model_latest.pth"
-            torch.save(waypoint_model.state_dict(), param_path)
-            os.system("cp %s %s" % (param_path, latest_path))
-
-            param_path = f"{outdir}/fullbody_model_%04d.pth" % epoch
-            latest_path = f"{outdir}/fullbody_model_latest.pth"
-            torch.save(fullbody_model.state_dict(), param_path)
-            os.system("cp %s %s" % (param_path, latest_path))
-
-            param_path = f"{outdir}/angle_model_%04d.pth" % epoch
-            latest_path = f"{outdir}/angle_model_latest.pth"
-            torch.save(angle_model.state_dict(), param_path)
+            param_path = f"{outdir}/ckpt_%04d.pth" % epoch
+            latest_path = f"{outdir}/ckpt_latest.pth"
+            torch.save(model.state_dict(), param_path)
             os.system("cp %s %s" % (param_path, latest_path))

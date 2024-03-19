@@ -12,7 +12,7 @@ sys.path.insert(0, os.getcwd())
 from lab4d.nnutils.embedding import PosEmbedding
 from lab4d.utils.quat_transform import axis_angle_to_matrix, matrix_to_axis_angle
 from lab4d.nnutils.base import BaseMLP
-from projects.csim.voxelize import VoxelGrid, readout_voxel_fn
+from projects.csim.voxelize import BGField
 
 
 def simulate_forward_diffusion(x0, noise_scheduler, mean, std):
@@ -721,6 +721,183 @@ class TrajDenoiser(nn.Module):
         else:
             reverse_grad_grid = None
         return reverse_samples, reverse_grad_grid
+
+
+class TotalDenoiser(nn.Module):
+    def __init__(
+        self,
+        config,
+        x0,
+        x0_joints,
+        x0_angles,
+        y,
+        in_dim=1,
+        env_feat_dim=384,
+        use_env=True,
+        model=TrajDenoiser,
+    ):
+        super().__init__()
+        # model setup
+        state_size = 3
+        forecast_size = int(x0.shape[1] / state_size)
+        num_kps = int(x0_joints.shape[1] / state_size / forecast_size)
+        memory_size = int(y.shape[1] / state_size)
+        print(f"state_size: {state_size}")
+        print(f"forecast_size: {forecast_size}")
+        print(f"num_kps: {num_kps}")
+        print(f"memory_size: {memory_size}")
+        # forecast_size = x0.shape[1]
+        # num_kps = x0_joints.shape[2]
+        mean = x0.mean(0)
+        std = x0.std(0) * 3
+        mean_goal = mean[-state_size:]
+        std_goal = std[-state_size:]
+        mean_wp = mean
+        std_wp = std
+        mean_joints = x0_joints.mean(0)
+        std_joints = x0_joints.std(0)
+        mean_angles = x0_angles.mean(0)
+        std_angles = x0_angles.std(0)
+
+        env_model = EnvEncoder(in_dim, feat_dim=env_feat_dim)
+        if not use_env:
+            env_model.feat_dim = 0
+        goal_model = model(
+            mean_goal,
+            std_goal,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            feat_dim=[env_model.feat_dim],
+            forecast_size=1,
+            memory_size=memory_size,
+            state_size=state_size,
+            condition_dim=config.condition_dim,
+        )
+        waypoint_model = model(
+            mean_wp,
+            std_wp,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            feat_dim=[env_model.feat_dim * forecast_size],
+            forecast_size=forecast_size,
+            memory_size=memory_size,
+            state_size=state_size,
+            cond_size=state_size,
+            condition_dim=config.condition_dim,
+        )
+        fullbody_model = model(
+            mean_joints,
+            std_joints,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            # feat_dim=[env_model.feat_dim * forecast_size],
+            feat_dim=[],
+            forecast_size=forecast_size,
+            memory_size=memory_size,
+            state_size=state_size,
+            cond_size=state_size * forecast_size,
+            condition_dim=config.condition_dim,
+            kp_size=num_kps,
+            is_angle=True,
+        )
+        angle_model = model(
+            mean_angles,
+            std_angles,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            feat_dim=[],
+            forecast_size=forecast_size,
+            memory_size=memory_size,
+            state_size=state_size,
+            cond_size=state_size * forecast_size,
+            condition_dim=config.condition_dim,
+            kp_size=1,
+            is_angle=True,
+        )
+
+        voxel_grid = BGField().voxel_grid
+        env_input = voxel_grid.data[None]
+        env_input = torch.tensor(env_input, dtype=torch.float32, device="cuda")
+
+        self.env_model = env_model
+        self.goal_model = goal_model
+        self.waypoint_model = waypoint_model
+        self.fullbody_model = fullbody_model
+        self.angle_model = angle_model
+
+        self.state_size = state_size
+        self.forecast_size = forecast_size
+        self.voxel_grid = voxel_grid
+        self.env_input = env_input
+
+    def extract_feature_grid(self):
+        feat_volume = self.env_model.extract_features(self.env_input)
+        return feat_volume
+
+    def forward_goal(self, noisy_goal, x0_to_world, t_frac, past, cam, feat_volume):
+        # get features
+        if self.env_model.feat_dim > 0:
+            feat = self.voxel_grid.readout_in_world(
+                feat_volume, noisy_goal, x0_to_world
+            )
+            feat = [feat]
+        else:
+            feat = []
+        # predict noise
+        goal_delta = self.goal_model(noisy_goal, t_frac, past, cam, feat)
+        return goal_delta
+
+    def forward_path(
+        self, noisy_wp, x0_to_world, t_frac, past, cam, feat_volume, clean_goal=None
+    ):
+        ############ waypoint prediction
+
+        # get features
+        if self.env_model.feat_dim > 0:
+            feat = self.voxel_grid.readout_in_world(feat_volume, noisy_wp, x0_to_world)
+            feat = [feat]
+        else:
+            feat = []
+        wp_delta = self.waypoint_model(
+            noisy_wp, t_frac, past, cam, feat, goal=clean_goal
+        )
+        return wp_delta
+
+    def forward_fullbody(
+        self,
+        noisy_joints,
+        noisy_angles,
+        t_frac,
+        past_joints,
+        past_angles,
+        cam,
+        follow_wp=None,
+    ):
+        ############ fullbody prediction
+        # # N, T, K3 => N,T, K, F => N,TKF
+        # feat = voxel_grid.readout_in_world(
+        #     feat_volume,
+        #     noisy_joints.view(noisy_joints.shape[0], -1, state_size * num_kps),
+        #     x0_to_world[:, None] + follow_wp.view(follow_wp.shape[0], -1, 3),
+        # )
+        # feat = feat.reshape(feat.shape[0], -1)
+        joints_delta = self.fullbody_model(
+            noisy_joints, t_frac, past_joints, cam * 0, [], goal=follow_wp
+        )
+        ############################
+
+        ############ angle prediction
+        # get features
+        angles_delta = self.angle_model(
+            noisy_angles, t_frac, past_angles, cam * 0, [], goal=follow_wp
+        )
+        ############################
+        # ############ angle prediction
+        # follow_wp = clean
+        # angles_pred = angle_model(past_angles, follow_wp)
+        # loss_angles = F.mse_loss(angles_pred, x0_angles) / angle_model.std.mean()
+        # ############################
+        return joints_delta, angles_delta
 
 
 class Block(nn.Module):
