@@ -41,6 +41,7 @@ def reverse_diffusion(
     drop_past,
     track_x0=True,
     goal=None,
+    noisy_angles=None,
 ):
     """
     sample_x0: 1, nsamp,-1
@@ -53,6 +54,9 @@ def reverse_diffusion(
     bs = past.shape[0]
 
     sample_x0 = sample_x0.repeat(bs, 1, 1).view(bs * nsamp, -1)
+    if noisy_angles is not None:
+        noisy_angles = noisy_angles.repeat(bs, 1, 1).view(bs * nsamp, -1)
+        reverse_angles = [noisy_angles]
 
     past = past.repeat(1, nsamp, 1).view(bs * nsamp, -1)
     cam = cam.repeat(1, nsamp, 1).view(bs * nsamp, -1)
@@ -61,9 +65,8 @@ def reverse_diffusion(
     if goal is not None:
         goal = goal.repeat(1, nsamp, 1).view(bs * nsamp, -1)
 
-    reverse_samples = []
+    reverse_samples = [sample_x0]
     reverse_grad = []
-    reverse_samples.append(sample_x0)
     for i, t in enumerate(tqdm(timesteps)):
         t = torch.tensor(np.repeat(t, len(sample_x0)), dtype=torch.long, device="cuda")
         with torch.no_grad():
@@ -83,6 +86,7 @@ def reverse_diffusion(
                 drop_cam=drop_cam,
                 drop_past=drop_past,
                 goal=goal,
+                noisy_angles=noisy_angles,
             )
             # grad_uncond = model(
             #     sample_x0,
@@ -99,13 +103,27 @@ def reverse_diffusion(
             grad = grad_cond
 
         if track_x0:
-            sample_x0 = noise_scheduler.step(grad, t[0], sample_x0, model.std)
+            if noisy_angles is not None:
+                sample_x0 = torch.cat([sample_x0, noisy_angles], dim=-1)
+                std = torch.cat([model.std, torch.ones_like(noisy_angles[0])])
+            else:
+                std = model.std
+            sample_x0 = noise_scheduler.step(grad, t[0], sample_x0, std)
+            if noisy_angles is not None:
+                noisy_angles = sample_x0[..., -noisy_angles.shape[-1] :]
+                sample_x0 = sample_x0[..., : -noisy_angles.shape[-1]]
+                reverse_angles.append(noisy_angles)
         reverse_samples.append(sample_x0)
         reverse_grad.append(grad)
     reverse_samples = torch.stack(reverse_samples, 0)
     reverse_grad = torch.stack(reverse_grad, 0)
     reverse_samples = reverse_samples.view(num_timesteps + 1, bs, nsamp, -1)
     reverse_grad = reverse_grad.view(num_timesteps, bs, nsamp, -1)
+
+    if noisy_angles is not None:
+        reverse_angles = torch.stack(reverse_angles, 0)
+        reverse_angles = reverse_angles.view(num_timesteps + 1, bs, nsamp, -1)
+        reverse_samples = (reverse_samples, reverse_angles)
     return reverse_samples, reverse_grad
 
 
@@ -404,6 +422,7 @@ class TrajDenoiser(nn.Module):
         cond_size: int = 0,
         kp_size: int = 1,
         is_angle: bool = False,
+        angle_size: int = 0,
     ):
         # store mean and std as buffers
         super().__init__()
@@ -457,6 +476,17 @@ class TrajDenoiser(nn.Module):
             )
 
         in_channels = condition_dim * (3 + 1 + len(feat_dim) + int(cond_size > 0))
+
+        # additional angles
+        if angle_size > 0:
+            angle_embed = PosEmbedding(state_size * angle_size, N_freq)
+            self.angle_embed = nn.Sequential(
+                angle_embed, nn.Linear(angle_embed.out_channels, condition_dim)
+            )
+            self.angle_head = nn.Linear(hidden_size, state_size * angle_size)
+            in_channels += condition_dim
+        self.angle_size = angle_size
+
         # # prediction heads
         # self.pred_head = self.define_head(
         #     in_channels,
@@ -511,6 +541,7 @@ class TrajDenoiser(nn.Module):
         drop_cam=False,
         drop_past=False,
         goal=None,
+        noisy_angles=None,
     ):
         """
         noisy: N, K*3
@@ -619,6 +650,12 @@ class TrajDenoiser(nn.Module):
 
             emb = torch.cat((emb, cond_emb), dim=-1)
 
+        if hasattr(self, "angle_embed") and noisy_angles is not None:
+            angle_emb = self.angle_embed(
+                noisy_angles.reshape(bs, self.forecast_size, -1)
+            )
+            latent_emb = torch.cat((latent_emb, angle_emb), dim=-1)
+
         # # prediction: N,F => N,T*K*3
         # emb = torch.cat((latent_emb, emb), dim=-1)
         # delta = self.pred_head(emb)
@@ -640,6 +677,10 @@ class TrajDenoiser(nn.Module):
             delta = delta.view(delta.shape[:-1] + (-1, 3))
             delta = (rotmat[:, None] @ delta[..., None]).squeeze(-1)  # same for so3
             delta = delta.view(delta.shape[:-2] + (-1,))
+
+        if hasattr(self, "angle_head") and noisy_angles is not None:
+            angle_delta = self.angle_head(emb.view(-1, emb.shape[-1])).view(bs, -1)
+            delta = torch.cat([delta, angle_delta], dim=-1)
         return delta
 
     def simulate_forward_diffusion(self, x0, noise_scheduler):
@@ -663,6 +704,7 @@ class TrajDenoiser(nn.Module):
         drop_past,
         goal,
         xyz_grid=None,
+        denoise_angles=False,
     ):
         """
         past: bs, T,K,...
@@ -673,6 +715,16 @@ class TrajDenoiser(nn.Module):
             1, nsamp, self.forecast_size * self.kp_size * self.state_size, device="cuda"
         )
         noisy = noisy * self.std + self.mean
+
+        if denoise_angles:
+            noisy_angles = torch.randn(
+                1,
+                nsamp,
+                self.forecast_size * self.angle_size * self.state_size,
+                device="cuda",
+            )
+        else:
+            noisy_angles = None
 
         past = past.view(bs, 1, -1)
         cam = cam.view(bs, 1, -1)
@@ -694,6 +746,7 @@ class TrajDenoiser(nn.Module):
             drop_cam,
             drop_past,
             goal=goal,
+            noisy_angles=noisy_angles,
         )
         if xyz_grid is not None:
             # when computing grad, only use the first sample in the batch
@@ -717,7 +770,16 @@ class TrajDenoiser(nn.Module):
                 drop_past,
                 track_x0=False,
                 goal=goal,
+                noisy_angles=(
+                    torch.zeros_like(
+                        xyz_grid[..., :1].repeat(1, 1, noisy_angles.shape[-1])
+                    )
+                    if denoise_angles
+                    else None
+                ),
             )
+            if denoise_angles:
+                reverse_grad_grid = reverse_grad_grid[..., : -noisy_angles.shape[-1]]
         else:
             reverse_grad_grid = None
         return reverse_samples, reverse_grad_grid
@@ -737,6 +799,13 @@ class TotalDenoiser(nn.Module):
         model=TrajDenoiser,
     ):
         super().__init__()
+
+        # reshape
+        x0 = x0.view(x0.shape[0], -1)
+        x0_joints = x0_joints.view(x0_joints.shape[0], -1)
+        x0_angles = x0_angles.view(x0_angles.shape[0], -1)
+        y = y.view(y.shape[0], -1)
+
         # model setup
         state_size = 3
         forecast_size = int(x0.shape[1] / state_size)
@@ -746,18 +815,10 @@ class TotalDenoiser(nn.Module):
         print(f"forecast_size: {forecast_size}")
         print(f"num_kps: {num_kps}")
         print(f"memory_size: {memory_size}")
-        # forecast_size = x0.shape[1]
-        # num_kps = x0_joints.shape[2]
         mean = x0.mean(0)
         std = x0.std(0) * 3
         mean_goal = mean[-state_size:]
         std_goal = std[-state_size:]
-        mean_wp = mean
-        std_wp = std
-        mean_joints = x0_joints.mean(0)
-        std_joints = x0_joints.std(0)
-        mean_angles = x0_angles.mean(0)
-        std_angles = x0_angles.std(0)
 
         env_model = EnvEncoder(in_dim, feat_dim=env_feat_dim)
         if not use_env:
@@ -773,61 +834,21 @@ class TotalDenoiser(nn.Module):
             state_size=state_size,
             condition_dim=config.condition_dim,
         )
-        waypoint_model = model(
-            mean_wp,
-            std_wp,
-            hidden_size=config.hidden_size,
-            hidden_layers=config.hidden_layers,
-            feat_dim=[env_model.feat_dim * forecast_size],
-            forecast_size=forecast_size,
-            memory_size=memory_size,
-            state_size=state_size,
-            cond_size=state_size,
-            condition_dim=config.condition_dim,
-        )
-        fullbody_model = model(
-            mean_joints,
-            std_joints,
-            hidden_size=config.hidden_size,
-            hidden_layers=config.hidden_layers,
-            # feat_dim=[env_model.feat_dim * forecast_size],
-            feat_dim=[],
-            forecast_size=forecast_size,
-            memory_size=memory_size,
-            state_size=state_size,
-            cond_size=state_size * forecast_size,
-            condition_dim=config.condition_dim,
-            kp_size=num_kps,
-            is_angle=True,
-        )
-        angle_model = model(
-            mean_angles,
-            std_angles,
-            hidden_size=config.hidden_size,
-            hidden_layers=config.hidden_layers,
-            feat_dim=[],
-            forecast_size=forecast_size,
-            memory_size=memory_size,
-            state_size=state_size,
-            cond_size=state_size * forecast_size,
-            condition_dim=config.condition_dim,
-            kp_size=1,
-            is_angle=True,
-        )
 
-        voxel_grid = BGField().voxel_grid
+        bg_field = BGField()
+        voxel_grid = bg_field.voxel_grid
         env_input = voxel_grid.data[None]
         env_input = torch.tensor(env_input, dtype=torch.float32, device="cuda")
 
         self.env_model = env_model
         self.goal_model = goal_model
-        self.waypoint_model = waypoint_model
-        self.fullbody_model = fullbody_model
-        self.angle_model = angle_model
 
         self.state_size = state_size
+        self.memory_size = memory_size
         self.forecast_size = forecast_size
+        self.num_kps = num_kps
         self.voxel_grid = voxel_grid
+        self.bg_field = bg_field
         self.env_input = env_input
 
     def extract_feature_grid(self):
@@ -847,11 +868,189 @@ class TotalDenoiser(nn.Module):
         goal_delta = self.goal_model(noisy_goal, t_frac, past, cam, feat)
         return goal_delta
 
+    def load_ckpts(self, config):
+        model_path = "projects/tiny-diffusion/exps/%s/ckpt_%s.pth" % (
+            config.logname,
+            config.suffix,
+        )
+        self.load_state_dict(torch.load(model_path), strict=True)
+
+
+class TotalDenoiserTwoStage(TotalDenoiser):
+    def __init__(
+        self,
+        config,
+        x0,
+        x0_joints,
+        x0_angles,
+        y,
+        in_dim=1,
+        env_feat_dim=384,
+        use_env=True,
+        model=TrajDenoiser,
+    ):
+        super(TotalDenoiserTwoStage, self).__init__(
+            config,
+            x0,
+            x0_joints,
+            x0_angles,
+            y,
+            in_dim,
+            env_feat_dim,
+            use_env,
+            model,
+        )
+        # reshape
+        x0 = x0.view(x0.shape[0], -1)
+        x0_joints = x0_joints.view(x0_joints.shape[0], -1)
+        x0_angles = x0_angles.view(x0_angles.shape[0], -1)
+
+        mean = x0.mean(0)
+        std = x0.std(0) * 3
+        mean_wp = mean
+        std_wp = std
+        # mean_joints = x0_joints.mean(0)
+        # std_joints = x0_joints.std(0)
+        # mean_angles = x0_angles.mean(0)
+        # std_angles = x0_angles.std(0)
+
+        fullbody_model = model(
+            mean_wp,
+            std_wp,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            feat_dim=[self.env_model.feat_dim * self.forecast_size],
+            forecast_size=self.forecast_size,
+            memory_size=self.memory_size,
+            state_size=self.state_size,
+            cond_size=self.state_size,
+            condition_dim=config.condition_dim,
+            angle_size=self.num_kps + 1,
+        )
+        self.fullbody_model = fullbody_model
+
+    def forward_fullbody(
+        self,
+        noisy_wp,
+        x0_to_world,
+        t_frac,
+        past,
+        cam,
+        feat_volume,
+        noisy_joints,
+        noisy_angles,
+        clean_goal=None,
+    ):
+        # get features
+        if self.env_model.feat_dim > 0:
+            feat = self.voxel_grid.readout_in_world(feat_volume, noisy_wp, x0_to_world)
+            feat = [feat]
+        else:
+            feat = []
+        noisy_angles = torch.cat([noisy_angles, noisy_joints], dim=-1)
+        wp_delta, angles_delta = self.fullbody_model(
+            noisy_wp,
+            t_frac,
+            past,
+            cam,
+            feat,
+            goal=clean_goal,
+            noisy_angles=noisy_angles,
+        )
+        joints_delta = angles_delta[..., -self.state_size * self.forecast_size :]
+        angles_delta = angles_delta[..., : -self.state_size * self.forecast_size]
+        return wp_delta, angles_delta, joints_delta
+
+
+class TotalDenoiserThreeStage(TotalDenoiser):
+    def __init__(
+        self,
+        config,
+        x0,
+        x0_joints,
+        x0_angles,
+        y,
+        in_dim=1,
+        env_feat_dim=384,
+        use_env=True,
+        model=TrajDenoiser,
+    ):
+        super(TotalDenoiserThreeStage, self).__init__(
+            config,
+            x0,
+            x0_joints,
+            x0_angles,
+            y,
+            in_dim,
+            env_feat_dim,
+            use_env,
+            model,
+        )
+        # reshape
+        x0 = x0.view(x0.shape[0], -1)
+        x0_joints = x0_joints.view(x0_joints.shape[0], -1)
+        x0_angles = x0_angles.view(x0_angles.shape[0], -1)
+
+        mean = x0.mean(0)
+        std = x0.std(0) * 3
+        mean_wp = mean
+        std_wp = std
+        mean_joints = x0_joints.mean(0)
+        std_joints = x0_joints.std(0)
+        mean_angles = x0_angles.mean(0)
+        std_angles = x0_angles.std(0)
+
+        waypoint_model = model(
+            mean_wp,
+            std_wp,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            feat_dim=[self.env_model.feat_dim * self.forecast_size],
+            forecast_size=self.forecast_size,
+            memory_size=self.memory_size,
+            state_size=self.state_size,
+            cond_size=self.state_size,
+            condition_dim=config.condition_dim,
+        )
+
+        fullbody_model = model(
+            mean_joints,
+            std_joints,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            # feat_dim=[env_model.feat_dim * forecast_size],
+            feat_dim=[],
+            forecast_size=self.forecast_size,
+            memory_size=self.memory_size,
+            state_size=self.state_size,
+            cond_size=self.state_size * self.forecast_size,
+            condition_dim=config.condition_dim,
+            kp_size=self.num_kps,
+            is_angle=True,
+        )
+        angle_model = model(
+            mean_angles,
+            std_angles,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+            feat_dim=[],
+            forecast_size=self.forecast_size,
+            memory_size=self.memory_size,
+            state_size=self.state_size,
+            cond_size=self.state_size * self.forecast_size,
+            condition_dim=config.condition_dim,
+            kp_size=1,
+            is_angle=True,
+        )
+
+        self.waypoint_model = waypoint_model
+        self.fullbody_model = fullbody_model
+        self.angle_model = angle_model
+
     def forward_path(
         self, noisy_wp, x0_to_world, t_frac, past, cam, feat_volume, clean_goal=None
     ):
         ############ waypoint prediction
-
         # get features
         if self.env_model.feat_dim > 0:
             feat = self.voxel_grid.readout_in_world(feat_volume, noisy_wp, x0_to_world)
