@@ -177,67 +177,10 @@ if __name__ == "__main__":
             ...,
             : model.fullbody_model.state_size * model.fullbody_model.forecast_size,
         ]
-        reverse_joints = (
-            reverse_joints.view(-1, nsamp, model.forecast_size, model.num_kps, 3) * 0
+        reverse_joints = reverse_joints.view(
+            -1, nsamp, model.forecast_size, model.num_kps, 3
         )
         reverse_angles = reverse_angles.view(-1, nsamp, model.forecast_size, 1, 3)
-
-        # # waypoint | goal conditioning
-        # reverse_wp, _ = model.waypoint_model.reverse_diffusion(
-        #     nsamp,
-        #     num_timesteps,
-        #     noise_scheduler,
-        #     past[None],
-        #     cam[None],
-        #     x0_to_world[None],
-        #     feat_volume,
-        #     model.bg_field.voxel_grid,
-        #     drop_cam,
-        #     drop_past,
-        #     selected_goal[None],
-        #     xyz_grid=xyz_grid,
-        # )
-        # reverse_wp = reverse_wp.view(-1, nsamp, model.forecast_size, 1, 3)
-
-        # # full body | wp conditioning
-        # wp_samples = reverse_wp[-1, 0]  # T,1,3
-        # # to ego
-        # goal_wp = x0_angles_to_world.transpose(2, 3) @ wp_samples[..., None]
-        # goal_wp = goal_wp[..., 0]
-        # # reversed_goal = x0_sampled # GT
-        # reverse_joints, _ = model.fullbody_model.reverse_diffusion(
-        #     nsamp,
-        #     num_timesteps,
-        #     noise_scheduler,
-        #     past_joints[None],
-        #     cam[None] * 0,
-        #     None,
-        #     None,
-        #     None,
-        #     drop_cam,
-        #     drop_past,
-        #     goal_wp[None],
-        #     xyz_grid=xyz_grid,
-        # )
-        # # angle | wp conditioning
-        # reverse_angles, _ = model.angle_model.reverse_diffusion(
-        #     nsamp,
-        #     num_timesteps,
-        #     noise_scheduler,
-        #     past_angles[None],
-        #     cam[None] * 0,
-        #     None,
-        #     None,
-        #     None,
-        #     drop_cam,
-        #     drop_past,
-        #     goal_wp[None],
-        #     xyz_grid=xyz_grid,
-        # )
-        # reverse_joints = reverse_joints.view(
-        #     -1, nsamp, model.forecast_size, model.num_kps, 3
-        # )
-        # reverse_angles = reverse_angles.view(-1, nsamp, model.forecast_size, 1, 3)
 
         # spline | wp
         reverse_wp_dense = []

@@ -105,13 +105,16 @@ def reverse_diffusion(
         if track_x0:
             if noisy_angles is not None:
                 sample_x0 = torch.cat([sample_x0, noisy_angles], dim=-1)
-                std = torch.cat([model.std, torch.ones_like(noisy_angles[0])])
+                std = torch.cat([model.std, model.std_angle])
             else:
                 std = model.std
             sample_x0 = noise_scheduler.step(grad, t[0], sample_x0, std)
             if noisy_angles is not None:
                 noisy_angles = sample_x0[..., -noisy_angles.shape[-1] :]
                 sample_x0 = sample_x0[..., : -noisy_angles.shape[-1]]
+                reverse_angles.append(noisy_angles)
+        else:
+            if noisy_angles is not None:
                 reverse_angles.append(noisy_angles)
         reverse_samples.append(sample_x0)
         reverse_grad.append(grad)
@@ -423,6 +426,8 @@ class TrajDenoiser(nn.Module):
         kp_size: int = 1,
         is_angle: bool = False,
         angle_size: int = 0,
+        mean_angle=None,
+        std_angle=None,
     ):
         # store mean and std as buffers
         super().__init__()
@@ -432,8 +437,18 @@ class TrajDenoiser(nn.Module):
         if std is None:
             std = torch.ones(state_size * forecast_size * kp_size)
             print("Warning: std not provided. Make sure to load from ckpts.")
+
+        if mean_angle is None:
+            mean_angle = torch.zeros(state_size * angle_size * kp_size)
+            print("Warning: mean_angle not provided. Make sure to load from ckpts.")
+        if std_angle is None:
+            std_angle = torch.ones(state_size * angle_size * kp_size)
+            print("Warning: std_angle not provided. Make sure to load from ckpts.")
+
         self.register_buffer("mean", mean)
         self.register_buffer("std", std)
+        self.register_buffer("mean_angle", mean_angle)
+        self.register_buffer("std_angle", std_angle)
         self.forecast_size = forecast_size
         self.state_size = state_size
         self.kp_size = kp_size
@@ -651,6 +666,7 @@ class TrajDenoiser(nn.Module):
             emb = torch.cat((emb, cond_emb), dim=-1)
 
         if hasattr(self, "angle_embed") and noisy_angles is not None:
+            noisy_angles = (noisy_angles - self.mean_angle) / self.std_angle
             angle_emb = self.angle_embed(
                 noisy_angles.reshape(bs, self.forecast_size, -1)
             )
@@ -680,6 +696,7 @@ class TrajDenoiser(nn.Module):
 
         if hasattr(self, "angle_head") and noisy_angles is not None:
             angle_delta = self.angle_head(emb.view(-1, emb.shape[-1])).view(bs, -1)
+            angle_delta = angle_delta * self.std_angle + self.mean_angle
             delta = torch.cat([delta, angle_delta], dim=-1)
         return delta
 
@@ -723,6 +740,7 @@ class TrajDenoiser(nn.Module):
                 self.forecast_size * self.angle_size * self.state_size,
                 device="cuda",
             )
+            noisy_angles = self.std_angle * noisy_angles + self.mean_angle
         else:
             noisy_angles = None
 
@@ -772,7 +790,9 @@ class TrajDenoiser(nn.Module):
                 goal=goal,
                 noisy_angles=(
                     torch.zeros_like(
-                        xyz_grid[..., :1].repeat(1, 1, noisy_angles.shape[-1])
+                        xyz_grid[..., :1].repeat(
+                            (1,) * (xyz_grid.dim() - 1) + noisy_angles.shape[-1:]
+                        )
                     )
                     if denoise_angles
                     else None
@@ -909,10 +929,9 @@ class TotalDenoiserTwoStage(TotalDenoiser):
         std = x0.std(0) * 3
         mean_wp = mean
         std_wp = std
-        # mean_joints = x0_joints.mean(0)
-        # std_joints = x0_joints.std(0)
-        # mean_angles = x0_angles.mean(0)
-        # std_angles = x0_angles.std(0)
+        x0_angles = torch.cat([x0_angles, x0_joints], dim=-1)
+        mean_angle = x0_angles.mean(0)
+        std_angle = x0_angles.std(0)
 
         fullbody_model = model(
             mean_wp,
@@ -926,6 +945,8 @@ class TotalDenoiserTwoStage(TotalDenoiser):
             cond_size=self.state_size,
             condition_dim=config.condition_dim,
             angle_size=self.num_kps + 1,
+            mean_angle=mean_angle,
+            std_angle=std_angle,
         )
         self.fullbody_model = fullbody_model
 
@@ -948,7 +969,7 @@ class TotalDenoiserTwoStage(TotalDenoiser):
         else:
             feat = []
         noisy_angles = torch.cat([noisy_angles, noisy_joints], dim=-1)
-        wp_delta, angles_delta = self.fullbody_model(
+        all_delta = self.fullbody_model(
             noisy_wp,
             t_frac,
             past,
@@ -957,8 +978,12 @@ class TotalDenoiserTwoStage(TotalDenoiser):
             goal=clean_goal,
             noisy_angles=noisy_angles,
         )
-        joints_delta = angles_delta[..., -self.state_size * self.forecast_size :]
-        angles_delta = angles_delta[..., : -self.state_size * self.forecast_size]
+        wp_delta, angles_delta = (
+            all_delta[..., : self.state_size * self.forecast_size],
+            all_delta[..., self.state_size * self.forecast_size :],
+        )
+        joints_delta = angles_delta[..., self.state_size * self.forecast_size :]
+        angles_delta = angles_delta[..., : self.state_size * self.forecast_size]
         return wp_delta, angles_delta, joints_delta
 
 

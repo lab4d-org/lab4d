@@ -156,54 +156,10 @@ if __name__ == "__main__":
             )
             loss_goal = F.mse_loss(goal_delta, noise_goal) / model.goal_model.std.mean()
 
-            # # path + fullbody v1
-            # noise_wp, noisy_wp, t_frac = noise_scheduler.sample_noise(
-            #     clean, std=model.waypoint_model.std
-            # )
-            # noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
-            #     x0_joints, std=model.fullbody_model.std
-            # )
-            # noise_angles, noisy_angles, t_frac = noise_scheduler.sample_noise(
-            #     x0_angles, std=model.angle_model.std
-            # )
-            # wp_delta = model.forward_path(
-            #     noisy_wp,
-            #     x0_to_world,
-            #     t_frac,
-            #     past,
-            #     cam,
-            #     feat_volume,
-            #     clean_goal=clean_goal,
-            # )
-            # clean_ego = (
-            #     x0_angles_to_world.view(-1, 1, 3, 3).transpose(2, 3)
-            #     @ clean.view(-1, model.forecast_size, 3, 1)
-            # ).view(clean.shape)
-            # joints_delta, angles_delta = model.forward_fullbody(
-            #     noisy_joints,
-            #     noisy_angles,
-            #     t_frac,
-            #     past_joints,
-            #     past_angles,
-            #     cam,
-            #     follow_wp=clean_ego,
-            # )
-            # loss_wp = F.mse_loss(wp_delta, noise_wp) / model.waypoint_model.std.mean()
-            # loss_joints = (
-            #     F.mse_loss(joints_delta, noise_joints) / model.fullbody_model.std.mean()
-            # )
-            # loss_angles = (
-            #     F.mse_loss(angles_delta, noise_angles) / model.angle_model.std.mean()
-            # )
-
             # full body v2
             clean_all = torch.cat([clean, x0_angles, x0_joints], dim=1)
             std_all = torch.cat(
-                [
-                    model.fullbody_model.std,
-                    torch.ones(x0_angles.shape[1], device="cuda"),
-                    torch.ones(x0_joints.shape[1], device="cuda"),
-                ]
+                [model.fullbody_model.std, model.fullbody_model.std_angle]
             )
             noise_all, noisy_all, t_frac = noise_scheduler.sample_noise(
                 clean_all, std=std_all
@@ -230,8 +186,18 @@ if __name__ == "__main__":
                 noisy_angles=noisy_angles,
             )
             loss_wp = F.mse_loss(wp_delta, noise_wp) / model.fullbody_model.std.mean()
-            loss_joints = F.mse_loss(joints_delta, noise_joints)
-            loss_angles = F.mse_loss(angles_delta, noise_angles)
+            loss_joints = (
+                F.mse_loss(joints_delta, noise_joints)
+                / model.fullbody_model.std_angle[
+                    model.state_size * model.forecast_size :
+                ].mean()
+            )
+            loss_angles = (
+                F.mse_loss(angles_delta, noise_angles)
+                / model.fullbody_model.std_angle[
+                    : model.state_size * model.forecast_size
+                ].mean()
+            )
 
             # sum up
             loss = loss_goal + loss_wp + loss_joints + loss_angles
