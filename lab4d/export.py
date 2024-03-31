@@ -119,6 +119,11 @@ def extract_deformation(field, mesh_rest, inst_id):
         else:
             mesh_t = mesh_rest.copy()
 
+        # XYZ color
+        xyz_color = mesh_rest.vertices
+        xyz_color = (xyz_color - xyz_color.min(0)) / (xyz_color.max(0) - xyz_color.min(0))
+        mesh_t.visual.vertex_colors[:, :3] = xyz_color * 255
+
         motion_expl = MotionParamsExpl(
             field2cam=se3_mat,
             t_articulation=t_articulation,

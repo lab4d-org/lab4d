@@ -54,7 +54,8 @@ def main():
             renderer.set_intrinsics(loader.intrinsics[frame_idx])
         elif args.view == "bev":
             # bev
-            renderer.set_camera_bev(depth=2 * max(loader.aabb_max - loader.aabb_min))
+            renderer.set_camera_bev(depth=20)
+            # renderer.set_camera_bev(depth=2 * max(loader.aabb_max - loader.aabb_min))
             # set camera intrinsics
             fl = max(raw_size)
             intr = np.asarray([fl * 2, fl * 2, raw_size[1] / 2, raw_size[0] / 2])
@@ -71,15 +72,15 @@ def main():
         color = renderer.render(input_dict)[0]
         # add text
         color = color.astype(np.uint8)
-        color = cv2.putText(
-            color,
-            "frame: %02d" % frame_idx,
-            (30, 50),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            2,
-            (256, 0, 0),
-            2,
-        )
+        # color = cv2.putText(
+        #     color,
+        #     "frame: %02d" % frame_idx,
+        #     (30, 50),
+        #     cv2.FONT_HERSHEY_SIMPLEX,
+        #     2,
+        #     (256, 0, 0),
+        #     2,
+        # )
         frames.append(color)
 
     save_path = "%s/render-%s-%s-%s" % (
