@@ -16,7 +16,7 @@ from config import get_config
 sys.path.insert(0, os.getcwd())
 from lab4d.utils.quat_transform import axis_angle_to_matrix
 from projects.csim.voxelize import BGField
-from denoiser import TotalDenoiserThreeStage
+from denoiser import TotalDenoiserThreeStage, TotalDenoiserTwoStage
 
 
 if __name__ == "__main__":
@@ -62,13 +62,20 @@ if __name__ == "__main__":
     # bs, T, K, 3
 
     # model
-    model = TotalDenoiserThreeStage(
+    # model = TotalDenoiserThreeStage(
+    #     config,
+    #     x0_wp,
+    #     x0_joints,
+    #     x0_angles,
+    #     past_wp,
+    #     # use_env=False,
+    # )
+    model = TotalDenoiserTwoStage(
         config,
         x0_wp,
         x0_joints,
         x0_angles,
         past_wp,
-        # use_env=False,
     )
     model.load_ckpts(config)
     model = model.cuda()
@@ -129,12 +136,12 @@ if __name__ == "__main__":
     )
     reverse_grad_grid_goal = reverse_grad_grid_goal[:, 0]
 
-    # waypoint | goal conditioning
+    # full body | goal conditioning
     # goal = torch.tensor(reverse_samples_goal[-1][:1], device="cuda")
     goal = x0_goal  # gt
     # goal = None
     xyz_grid = xyz_cuda_wp
-    reverse_wp, reverse_grad_grid_wp = model.waypoint_model.reverse_diffusion(
+    reverse_wp, reverse_grad_grid_wp = model.fullbody_model.reverse_diffusion(
         nsamp,
         num_timesteps,
         noise_scheduler,
@@ -147,74 +154,98 @@ if __name__ == "__main__":
         drop_past,
         goal,
         xyz_grid=xyz_grid[None],
+        denoise_angles=True,
     )
+    reverse_angles = reverse_wp[1]
+    reverse_wp = reverse_wp[0]
     reverse_grad_grid_wp = reverse_grad_grid_wp[:, 0]
-    # full body | wp conditioning
-    # goal = torch.tensor(reverse_samples_wp[-1][:1], device="cuda")
-    goal = x0_wp  # GT
-    goal_ego = (x0_angles_to_world.transpose(3, 4) @ goal[..., None])[..., 0]
-    xyz_grid = xyz_cuda_joints
-    reverse_joints, reverse_grad_grid_joints = model.fullbody_model.reverse_diffusion(
-        nsamp,
-        num_timesteps,
-        noise_scheduler,
-        past_joints,
-        cam * 0,
-        None,
-        None,
-        None,
-        drop_cam,
-        drop_past,
-        goal_ego,
-        xyz_grid=xyz_grid[None],
-    )
-    reverse_grad_grid_joints = reverse_grad_grid_joints[:, 0]
-    # angle | wp conditioning
-    reverse_angles, _ = model.angle_model.reverse_diffusion(
-        nsamp,
-        num_timesteps,
-        noise_scheduler,
-        past_angles,
-        cam * 0,
-        None,
-        None,
-        None,
-        drop_cam,
-        drop_past,
-        goal_ego,
-        None,
-    )
-    # _, _, t_frac = noise_scheduler.sample_noise(x0_angles_sampled, 0.1)
-    # pdb.set_trace()
-    # angles_pred = angle_model(
-    #     torch.zeros_like(x0_angles_sampled),
-    #     torch.zeros_like(t_frac),
-    #     past_angles_sampled,
-    #     cam_sampled,
-    #     [],
-    #     goal=goal,
+
+    # # waypoint | goal conditioning
+    # # goal = torch.tensor(reverse_samples_goal[-1][:1], device="cuda")
+    # goal = x0_goal  # gt
+    # # goal = None
+    # xyz_grid = xyz_cuda_wp
+    # reverse_wp, reverse_grad_grid_wp = model.waypoint_model.reverse_diffusion(
+    #     nsamp,
+    #     num_timesteps,
+    #     noise_scheduler,
+    #     past_wp,
+    #     cam,
+    #     x0_to_world,
+    #     feat_volume,
+    #     model.bg_field.voxel_grid,
+    #     drop_cam,
+    #     drop_past,
+    #     goal,
+    #     xyz_grid=xyz_grid[None],
     # )
+    # reverse_grad_grid_wp = reverse_grad_grid_wp[:, 0]
+    # # full body | wp conditioning
+    # # goal = torch.tensor(reverse_samples_wp[-1][:1], device="cuda")
+    # goal = x0_wp  # GT
+    # goal_ego = (x0_angles_to_world.transpose(3, 4) @ goal[..., None])[..., 0]
+    # xyz_grid = xyz_cuda_joints
+    # reverse_joints, reverse_grad_grid_joints = model.fullbody_model.reverse_diffusion(
+    #     nsamp,
+    #     num_timesteps,
+    #     noise_scheduler,
+    #     past_joints,
+    #     cam * 0,
+    #     None,
+    #     None,
+    #     None,
+    #     drop_cam,
+    #     drop_past,
+    #     goal_ego,
+    #     xyz_grid=xyz_grid[None],
+    # )
+    # reverse_grad_grid_joints = reverse_grad_grid_joints[:, 0]
+    # # angle | wp conditioning
+    # reverse_angles, _ = model.angle_model.reverse_diffusion(
+    #     nsamp,
+    #     num_timesteps,
+    #     noise_scheduler,
+    #     past_angles,
+    #     cam * 0,
+    #     None,
+    #     None,
+    #     None,
+    #     drop_cam,
+    #     drop_past,
+    #     goal_ego,
+    #     None,
+    # )
+    # # _, _, t_frac = noise_scheduler.sample_noise(x0_angles_sampled, 0.1)
+    # # pdb.set_trace()
+    # # angles_pred = angle_model(
+    # #     torch.zeros_like(x0_angles_sampled),
+    # #     torch.zeros_like(t_frac),
+    # #     past_angles_sampled,
+    # #     cam_sampled,
+    # #     [],
+    # #     goal=goal,
+    # # )
 
     reverse_goal_all = reverse_goal.view(-1, bs, nsamp, 1, 1, 3)
     reverse_wp_all = reverse_wp.view(-1, bs, nsamp, model.forecast_size, 1, 3)
-    reverse_angles_all = reverse_angles.view(-1, bs, nsamp, model.forecast_size, 1, 3)
-    reverse_joints_all = reverse_joints.view(
-        -1, bs, nsamp, model.forecast_size, model.num_kps, 3
-    )
-    # # TODO create axis
-    # axis = trimesh.creation.axis(axis_length=0.1).vertices
-    # axis = torch.tensor(axis, dtype=torch.float32, device="cuda").view(
-    #     1, 1, 1, 1, -1, 3
+    # reverse_angles_all = reverse_angles.view(-1, bs, nsamp, model.forecast_size, 1, 3)
+    # reverse_joints_all = reverse_joints.view(
+    #     -1, bs, nsamp, model.forecast_size, model.num_kps, 3
     # )
-    # reverse_joints_all = axis.repeat(
-    #     reverse_joints_all.shape[0], bs, nsamp, forecast_size, 1, 1
-    # )
+    # # # TODO create axis
+    # # axis = trimesh.creation.axis(axis_length=0.1).vertices
+    # # axis = torch.tensor(axis, dtype=torch.float32, device="cuda").view(
+    # #     1, 1, 1, 1, -1, 3
+    # # )
+    # # reverse_joints_all = axis.repeat(
+    # #     reverse_joints_all.shape[0], bs, nsamp, forecast_size, 1, 1
+    # # )
 
-    reverse_joints_abs_all = (
-        x0_angles_to_world[None, :, None]
-        @ axis_angle_to_matrix(reverse_angles_all)
-        @ reverse_joints_all[..., None]
-    )[..., 0] + reverse_wp_all
+    # reverse_joints_abs_all = (
+    #     x0_angles_to_world[None, :, None]
+    #     @ axis_angle_to_matrix(reverse_angles_all)
+    #     @ reverse_joints_all[..., None]
+    # )[..., 0] + reverse_wp_all
 
     # compute numbers
     # TODO single-stage = reverse_wp_all[-1][:, :, -1:]
@@ -224,9 +255,9 @@ if __name__ == "__main__":
     for i in range(bs):
         reverse_goal = reverse_goal_all[:, i]
         reverse_wp = reverse_wp_all[:, i]
-        reverse_angles = reverse_angles_all[:, i]
-        reverse_joints = reverse_joints_all[:, i]
-        reverse_joints_abs = reverse_joints_abs_all[:, i]
+        # reverse_angles = reverse_angles_all[:, i]
+        # reverse_joints = reverse_joints_all[:, i]
+        # reverse_joints_abs = reverse_joints_abs_all[:, i]
         ############# visualization
         # goal visualization
         save_prefix = "goal-%d" % i

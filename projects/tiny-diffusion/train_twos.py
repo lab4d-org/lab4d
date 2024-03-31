@@ -19,7 +19,7 @@ sys.path.insert(0, os.getcwd())
 from utils import get_lab4d_data, TrajDataset, define_models
 from ddpm import NoiseScheduler
 from config import get_config
-from denoiser import TotalDenoiserThreeStage
+from denoiser import TotalDenoiserThreeStage, TotalDenoiserTwoStage
 
 
 if __name__ == "__main__":
@@ -71,13 +71,20 @@ if __name__ == "__main__":
     )
     loader_eval = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
 
-    model = TotalDenoiserThreeStage(
+    # model = TotalDenoiserThreeStage(
+    #     config,
+    #     x0,
+    #     x0_joints,
+    #     x0_angles,
+    #     y,
+    #     # use_env=False,
+    # )
+    model = TotalDenoiserTwoStage(
         config,
         x0,
         x0_joints,
         x0_angles,
         y,
-        # use_env=False,
     )
     model = model.cuda()
 
@@ -149,17 +156,25 @@ if __name__ == "__main__":
             )
             loss_goal = F.mse_loss(goal_delta, noise_goal) / model.goal_model.std.mean()
 
-            # path + fullbody v1
-            noise_wp, noisy_wp, t_frac = noise_scheduler.sample_noise(
-                clean, std=model.waypoint_model.std
+            # full body v2
+            clean_all = torch.cat([clean, x0_angles, x0_joints], dim=1)
+            std_all = torch.cat(
+                [model.fullbody_model.std, model.fullbody_model.std_angle]
             )
-            noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
-                x0_joints, std=model.fullbody_model.std
+            noise_all, noisy_all, t_frac = noise_scheduler.sample_noise(
+                clean_all, std=std_all
             )
-            noise_angles, noisy_angles, t_frac = noise_scheduler.sample_noise(
-                x0_angles, std=model.angle_model.std
-            )
-            wp_delta = model.forward_path(
+            noise_wp = noise_all[:, : clean.shape[-1]]
+            noisy_wp = noisy_all[:, : clean.shape[-1]]
+            noise_angles = noise_all[
+                :, clean.shape[-1] : clean.shape[-1] + x0_angles.shape[-1]
+            ]
+            noisy_angles = noisy_all[
+                :, clean.shape[-1] : clean.shape[-1] + x0_angles.shape[-1]
+            ]
+            noise_joints = noise_all[:, clean.shape[-1] + x0_angles.shape[-1] :]
+            noisy_joints = noisy_all[:, clean.shape[-1] + x0_angles.shape[-1] :]
+            wp_delta, angles_delta, joints_delta = model.forward_fullbody(
                 noisy_wp,
                 x0_to_world,
                 t_frac,
@@ -167,26 +182,21 @@ if __name__ == "__main__":
                 cam,
                 feat_volume,
                 clean_goal=clean_goal,
+                noisy_joints=noisy_joints,
+                noisy_angles=noisy_angles,
             )
-            clean_ego = (
-                x0_angles_to_world.view(-1, 1, 3, 3).transpose(2, 3)
-                @ clean.view(-1, model.forecast_size, 3, 1)
-            ).view(clean.shape)
-            joints_delta, angles_delta = model.forward_fullbody(
-                noisy_joints,
-                noisy_angles,
-                t_frac,
-                past_joints,
-                past_angles,
-                cam,
-                follow_wp=clean_ego,
-            )
-            loss_wp = F.mse_loss(wp_delta, noise_wp) / model.waypoint_model.std.mean()
+            loss_wp = F.mse_loss(wp_delta, noise_wp) / model.fullbody_model.std.mean()
             loss_joints = (
-                F.mse_loss(joints_delta, noise_joints) / model.fullbody_model.std.mean()
+                F.mse_loss(joints_delta, noise_joints)
+                / model.fullbody_model.std_angle[
+                    model.state_size * model.forecast_size :
+                ].mean()
             )
             loss_angles = (
-                F.mse_loss(angles_delta, noise_angles) / model.angle_model.std.mean()
+                F.mse_loss(angles_delta, noise_angles)
+                / model.fullbody_model.std_angle[
+                    : model.state_size * model.forecast_size
+                ].mean()
             )
 
             # sum up

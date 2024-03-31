@@ -14,7 +14,7 @@ from config import get_config
 sys.path.insert(0, os.getcwd())
 from lab4d.utils.quat_transform import axis_angle_to_matrix, matrix_to_axis_angle
 from projects.csim.voxelize import BGField
-from denoiser import TotalDenoiserThreeStage
+from denoiser import TotalDenoiserThreeStage, TotalDenoiserTwoStage
 
 
 if __name__ == "__main__":
@@ -46,13 +46,20 @@ if __name__ == "__main__":
     # ) = get_lab4d_data("database/motion/S26-train-L80-S1.pkl")
 
     # model
-    model = TotalDenoiserThreeStage(
+    # model = TotalDenoiserThreeStage(
+    #     config,
+    #     x0,
+    #     x0_joints,
+    #     x0_angles,
+    #     past,
+    #     # use_env=False,
+    # )
+    model = TotalDenoiserTwoStage(
         config,
         x0,
         x0_joints,
         x0_angles,
         past,
-        # use_env=False,
     )
     model.load_ckpts(config)
     model = model.cuda()
@@ -144,8 +151,8 @@ if __name__ == "__main__":
             best_idx = 0
             selected_goal = goal_samples[best_idx : best_idx + 1]
 
-        # waypoint | goal conditioning
-        reverse_wp, _ = model.waypoint_model.reverse_diffusion(
+        # full body | goal conditioning
+        reverse_wp, _ = model.fullbody_model.reverse_diffusion(
             nsamp,
             num_timesteps,
             noise_scheduler,
@@ -158,44 +165,18 @@ if __name__ == "__main__":
             drop_past,
             selected_goal[None],
             xyz_grid=xyz_grid,
+            denoise_angles=True,
         )
+        reverse_angles = reverse_wp[1]
+        reverse_wp = reverse_wp[0]
         reverse_wp = reverse_wp.view(-1, nsamp, model.forecast_size, 1, 3)
-
-        # full body | wp conditioning
-        wp_samples = reverse_wp[-1, 0]  # T,1,3
-        # to ego
-        goal_wp = x0_angles_to_world.transpose(2, 3) @ wp_samples[..., None]
-        goal_wp = goal_wp[..., 0]
-        # reversed_goal = x0_sampled # GT
-        reverse_joints, _ = model.fullbody_model.reverse_diffusion(
-            nsamp,
-            num_timesteps,
-            noise_scheduler,
-            past_joints[None],
-            cam[None] * 0,
-            None,
-            None,
-            None,
-            drop_cam,
-            drop_past,
-            goal_wp[None],
-            xyz_grid=xyz_grid,
-        )
-        # angle | wp conditioning
-        reverse_angles, _ = model.angle_model.reverse_diffusion(
-            nsamp,
-            num_timesteps,
-            noise_scheduler,
-            past_angles[None],
-            cam[None] * 0,
-            None,
-            None,
-            None,
-            drop_cam,
-            drop_past,
-            goal_wp[None],
-            xyz_grid=xyz_grid,
-        )
+        reverse_joints = reverse_angles[
+            ..., model.fullbody_model.state_size * model.fullbody_model.forecast_size :
+        ]
+        reverse_angles = reverse_angles[
+            ...,
+            : model.fullbody_model.state_size * model.fullbody_model.forecast_size,
+        ]
         reverse_joints = reverse_joints.view(
             -1, nsamp, model.forecast_size, model.num_kps, 3
         )
