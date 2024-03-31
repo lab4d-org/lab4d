@@ -35,6 +35,7 @@ def reverse_diffusion(
     past,
     cam,
     x0_to_world,
+    x0_angles_to_world,
     feat_volume,
     voxel_grid,
     drop_cam,
@@ -61,7 +62,12 @@ def reverse_diffusion(
     past = past.repeat(1, nsamp, 1).view(bs * nsamp, -1)
     cam = cam.repeat(1, nsamp, 1).view(bs * nsamp, -1)
     if x0_to_world is not None:
-        x0_to_world = x0_to_world.repeat(1, nsamp, 1).view(bs * nsamp, -1)
+        x0_to_world = x0_to_world.repeat(1, nsamp, 1).view(bs * nsamp, 3)
+    if x0_angles_to_world is not None:
+        x0_angles_to_world = x0_angles_to_world.repeat(1, nsamp, 1, 1).view(
+            bs * nsamp, 3, 3
+        )
+        x0_to_world = (x0_to_world, x0_angles_to_world)
     if goal is not None:
         goal = goal.repeat(1, nsamp, 1).view(bs * nsamp, -1)
 
@@ -88,19 +94,21 @@ def reverse_diffusion(
                 goal=goal,
                 noisy_angles=noisy_angles,
             )
-            # grad_uncond = model(
-            #     sample_x0,
-            #     t[:, None] / num_timesteps,
-            #     past,
-            #     cam,
-            #     feat,
-            #     drop_cam=True,
-            #     drop_past=True,
-            #     goal=goal,
-            # )
+            grad_uncond = model(
+                sample_x0,
+                t[:, None] / num_timesteps,
+                past,
+                cam,
+                feat,
+                drop_cam=True,
+                drop_past=True,
+                goal=goal,
+                noisy_angles=noisy_angles,
+            )
 
-            # grad = 0.5 * (grad_cond - grad_uncond) + grad_uncond
-            grad = grad_cond
+            cfg_score = 2.5
+            grad = cfg_score * (grad_cond - grad_uncond) + grad_uncond
+            # grad = grad_cond
 
         if track_x0:
             if noisy_angles is not None:
@@ -492,16 +500,6 @@ class TrajDenoiser(nn.Module):
 
         in_channels = condition_dim * (3 + 1 + len(feat_dim) + int(cond_size > 0))
 
-        # additional angles
-        if angle_size > 0:
-            angle_embed = PosEmbedding(state_size * angle_size, N_freq)
-            self.angle_embed = nn.Sequential(
-                angle_embed, nn.Linear(angle_embed.out_channels, condition_dim)
-            )
-            self.angle_head = nn.Linear(hidden_size, state_size * angle_size)
-            in_channels += condition_dim
-        self.angle_size = angle_size
-
         # # prediction heads
         # self.pred_head = self.define_head(
         #     in_channels,
@@ -529,6 +527,26 @@ class TrajDenoiser(nn.Module):
             num_layers=hidden_layers,
         )
         self.pred_head = nn.Linear(hidden_size, state_size * kp_size)
+
+        # additional angles
+        if angle_size > 0:
+            angle_embed = PosEmbedding(state_size * angle_size, N_freq)
+            self.angle_embed = nn.Sequential(
+                angle_embed, nn.Linear(angle_embed.out_channels, condition_dim)
+            )
+            self.angle_head = nn.Linear(hidden_size, state_size * angle_size)
+
+            in_channels += condition_dim
+            self.angle_proj = nn.Linear(in_channels, hidden_size)
+            seqTransEncoderLayer = nn.TransformerEncoderLayer(
+                d_model=hidden_size, nhead=4, batch_first=True
+            )
+            self.angle_encoder = nn.TransformerEncoder(
+                seqTransEncoderLayer,
+                num_layers=hidden_layers,
+            )
+
+        self.angle_size = angle_size
 
     def define_head(
         self,
@@ -665,13 +683,6 @@ class TrajDenoiser(nn.Module):
 
             emb = torch.cat((emb, cond_emb), dim=-1)
 
-        if hasattr(self, "angle_embed") and noisy_angles is not None:
-            noisy_angles = (noisy_angles - self.mean_angle) / self.std_angle
-            angle_emb = self.angle_embed(
-                noisy_angles.reshape(bs, self.forecast_size, -1)
-            )
-            latent_emb = torch.cat((latent_emb, angle_emb), dim=-1)
-
         # # prediction: N,F => N,T*K*3
         # emb = torch.cat((latent_emb, emb), dim=-1)
         # delta = self.pred_head(emb)
@@ -680,10 +691,10 @@ class TrajDenoiser(nn.Module):
         emb = torch.cat(
             (latent_emb, emb[:, None].repeat(1, latent_emb.shape[1], 1)), dim=-1
         )  # N,T,(KF+F')
-        emb = self.proj(emb)  # N,T,F
-        emb = self.encoder(emb)  # N,T,F
+        emb_out = self.proj(emb)  # N,T,F
+        emb_out = self.encoder(emb_out)  # N,T,F
         # NT,F=>NT,K3=>N,TK3
-        delta = self.pred_head(emb.view(-1, emb.shape[-1])).view(bs, -1)
+        delta = self.pred_head(emb_out.view(-1, emb_out.shape[-1])).view(bs, -1)
 
         delta = delta * self.std + self.mean
 
@@ -695,7 +706,17 @@ class TrajDenoiser(nn.Module):
             delta = delta.view(delta.shape[:-2] + (-1,))
 
         if hasattr(self, "angle_head") and noisy_angles is not None:
-            angle_delta = self.angle_head(emb.view(-1, emb.shape[-1])).view(bs, -1)
+            noisy_angles = (noisy_angles - self.mean_angle) / self.std_angle
+            angle_emb = self.angle_embed(
+                noisy_angles.reshape(bs, self.forecast_size, -1)
+            )
+            emb = torch.cat((emb, angle_emb), dim=-1)
+            emb_out = self.angle_proj(emb)  # N,T,F
+            emb_out = self.angle_encoder(emb_out)  # N,T,F
+
+            angle_delta = self.angle_head(emb_out.view(-1, emb_out.shape[-1])).view(
+                bs, -1
+            )
             angle_delta = angle_delta * self.std_angle + self.mean_angle
             delta = torch.cat([delta, angle_delta], dim=-1)
         return delta
@@ -715,6 +736,7 @@ class TrajDenoiser(nn.Module):
         past,
         cam,
         x0_to_world,
+        x0_angles_to_world,
         feat_volume,
         voxel_grid,
         drop_cam,
@@ -748,6 +770,8 @@ class TrajDenoiser(nn.Module):
         cam = cam.view(bs, 1, -1)
         if x0_to_world is not None:
             x0_to_world = x0_to_world.view(bs, 1, -1)
+        if x0_angles_to_world is not None:
+            x0_angles_to_world = x0_angles_to_world.view(bs, 1, 3, 3)
         if goal is not None:
             goal = goal.view(bs, 1, -1)
 
@@ -759,6 +783,7 @@ class TrajDenoiser(nn.Module):
             past,
             cam,
             x0_to_world,
+            x0_angles_to_world,
             feat_volume,
             voxel_grid,
             drop_cam,
@@ -782,6 +807,7 @@ class TrajDenoiser(nn.Module):
                 past,
                 cam,
                 x0_to_world,
+                x0_angles_to_world,
                 feat_volume,
                 voxel_grid,
                 drop_cam,

@@ -27,7 +27,7 @@ if __name__ == "__main__":
     drop_past = config.drop_past
     sample_idx = config.sample_idx
     state_size = 3
-    num_timesteps = 50
+    num_timesteps = config.num_timesteps
     timesteps = list(range(num_timesteps))[::-1]
     noise_scheduler = ddpm.NoiseScheduler(num_timesteps=num_timesteps).cuda()
 
@@ -120,6 +120,8 @@ if __name__ == "__main__":
         past_wp,
         cam,
         x0_to_world,
+        # x0_angles_to_world,
+        None,
         feat_volume,
         model.bg_field.voxel_grid,
         drop_cam,
@@ -141,6 +143,8 @@ if __name__ == "__main__":
         past_wp,
         cam,
         x0_to_world,
+        # x0_angles_to_world,
+        None,
         feat_volume,
         model.bg_field.voxel_grid,
         drop_cam,
@@ -163,6 +167,7 @@ if __name__ == "__main__":
         None,
         None,
         None,
+        None,
         drop_cam,
         drop_past,
         goal_ego,
@@ -176,6 +181,7 @@ if __name__ == "__main__":
         noise_scheduler,
         past_angles,
         cam * 0,
+        None,
         None,
         None,
         None,
@@ -231,10 +237,10 @@ if __name__ == "__main__":
         # goal visualization
         save_prefix = "goal-%d" % i
         # forward process
-        # forward_samples_goal = goal_model.simulate_forward_diffusion(
-        #     x0_goal_all, noise_scheduler
-        # )
-        forward_samples_goal = []
+        forward_samples_goal = model.goal_model.simulate_forward_diffusion(
+            x0_goal_all, noise_scheduler
+        )
+        # forward_samples_goal = []
         visualizer = DiffusionVisualizer(
             xzmax=xzmax,
             xzmin=xzmin,
@@ -265,10 +271,10 @@ if __name__ == "__main__":
         # waypoint visualization
         save_prefix = "wp-%d" % i
         # forward process
-        # forward_samples_waypoint = waypoint_model.simulate_forward_diffusion(
-        #     x0_wp_all, noise_scheduler
-        # )
-        forward_samples_waypoint = []
+        forward_samples_waypoint = model.waypoint_model.simulate_forward_diffusion(
+            x0_wp_all, noise_scheduler
+        )
+        # forward_samples_waypoint = []
         visualizer = DiffusionVisualizer(
             xzmax=xzmax,
             xzmin=xzmin,

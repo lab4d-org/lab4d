@@ -598,8 +598,8 @@ class DiffusionVisualizer:
                 self.articulation_loader.load_files(so3_wp_angles)
                 mesh = self.articulation_loader.mesh_dict[0]
                 self.server.add_mesh_trimesh(f"/frames/joints", mesh)
-                if t in np.asarray([15, 31, 47, 63]) - 8:
-                    self.server.add_mesh_trimesh(f"/frames/joints_{t}", mesh)
+                # if t in np.asarray([15, 31, 47, 63]) - 8:
+                #    self.server.add_mesh_trimesh(f"/frames/joints_{t}", mesh)
             else:
                 self.server.add_point_cloud(
                     f"/frames/joints",

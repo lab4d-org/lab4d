@@ -46,7 +46,7 @@ if __name__ == "__main__":
     y_joints = y_joints.view(y_joints.shape[0], -1)
     x0_angles = x0_angles.view(x0_angles.shape[0], -1)
     past_angles = past_angles.view(past_angles.shape[0], -1)
-    x0_angles_to_world = x0_angles_to_world.view(x0_angles_to_world.shape[0], -1)
+    x0_angles_to_world = x0_angles_to_world.reshape(x0_angles_to_world.shape[0], -1)
 
     dataset = TrajDataset(
         x0,
@@ -141,10 +141,13 @@ if __name__ == "__main__":
             past_joints = batch[5]
             x0_angles = batch[6]
             past_angles = batch[7]
-            x0_angles_to_world = batch[8]
+            x0_angles_to_world = batch[8].reshape(-1, 3, 3)
 
             # get context
             feat_volume = model.extract_feature_grid()
+
+            # combine
+            x0_to_world = (x0_to_world, x0_angles_to_world)
 
             # goal
             clean_goal = clean[:, -model.state_size :]

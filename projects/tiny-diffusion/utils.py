@@ -24,7 +24,7 @@ sys.path.insert(0, os.getcwd())
 from lab4d.utils.vis_utils import get_pts_traj
 from lab4d.utils.pyrender_wrapper import PyRenderWrapper
 from lab4d.utils.io import save_vid
-from lab4d.utils.quat_transform import matrix_to_axis_angle
+from lab4d.utils.quat_transform import matrix_to_axis_angle, axis_angle_to_matrix
 
 from denoiser import EnvEncoder, TrajDenoiser, TrajPredictor
 
@@ -45,11 +45,13 @@ def get_data():
 def get_lab4d_data(pkldatafilepath):
     # datapath = "/home/gengshay/code/guided-motion-diffusion/dataset/Custom/customposes.pkl"
     data = pkl.load(open(pkldatafilepath, "rb"))
+    # max_data = 10
+    max_data = len(data["poses"])
 
-    pose = [x for x in data["poses"]]
-    joints = [x for x in data["joints3D"]]
-    world_to_root = [x for x in data["se3"]]
-    world_to_cam = [x for x in data["cam_se3"]]
+    pose = [x for x in data["poses"]][:max_data]
+    joints = [x for x in data["joints3D"]][:max_data]
+    world_to_root = [x for x in data["se3"]][:max_data]
+    world_to_cam = [x for x in data["cam_se3"]][:max_data]
     print("loading dataset of length %d | seq length %d" % (len(pose), len(pose[0])))
 
     # current frame
@@ -86,8 +88,16 @@ def get_lab4d_data(pkldatafilepath):
     root_world_trans_curr = root_world_trans[:, idx0].clone()
     cam_world = cam_world - root_world_trans[:, idx0 : idx0 + 1]
     root_world_trans = root_world_trans - root_world_trans[:, idx0 : idx0 + 1]
+    # # TODO canonicalize the trajectory
+    # canonicalize_rot = root_world_rot[:, idx0 : idx0 + 1].transpose(2, 3)
+    # canonicalize_rot = matrix_to_axis_angle(canonicalize_rot)
+    # canonicalize_rot[..., [0, 2]] *= 0
+    # canonicalize_rot = axis_angle_to_matrix(canonicalize_rot)
+    # cam_world = (canonicalize_rot @ cam_world[..., None])[..., 0]
+    # root_world_trans = (canonicalize_rot @ root_world_trans[..., None])[..., 0]
 
     # transform root rotation to have identity at t0
+    # root_world_rot_curr = canonicalize_rot.transpose(2, 3)[:, 0]
     root_world_rot_curr = root_world_rot[:, idx0].clone()
     root_world_rot = root_world_rot[:, idx0 : idx0 + 1].transpose(2, 3) @ root_world_rot
     root_world_so3 = matrix_to_axis_angle(root_world_rot)

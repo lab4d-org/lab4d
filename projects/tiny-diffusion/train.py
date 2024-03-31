@@ -46,7 +46,7 @@ if __name__ == "__main__":
     y_joints = y_joints.view(y_joints.shape[0], -1)
     x0_angles = x0_angles.view(x0_angles.shape[0], -1)
     past_angles = past_angles.view(past_angles.shape[0], -1)
-    x0_angles_to_world = x0_angles_to_world.view(x0_angles_to_world.shape[0], -1)
+    x0_angles_to_world = x0_angles_to_world.reshape(x0_angles_to_world.shape[0], -1)
 
     dataset = TrajDataset(
         x0,
@@ -134,10 +134,13 @@ if __name__ == "__main__":
             past_joints = batch[5]
             x0_angles = batch[6]
             past_angles = batch[7]
-            x0_angles_to_world = batch[8]
+            x0_angles_to_world = batch[8].reshape(-1, 3, 3)
 
             # get context
             feat_volume = model.extract_feature_grid()
+
+            # # combine
+            # x0_to_world = (x0_to_world, x0_angles_to_world)
 
             # goal
             clean_goal = clean[:, -model.state_size :]
@@ -147,17 +150,10 @@ if __name__ == "__main__":
             goal_delta = model.forward_goal(
                 noisy_goal, x0_to_world, t_frac, past, cam, feat_volume
             )
-            loss_goal = F.mse_loss(goal_delta, noise_goal) / model.goal_model.std.mean()
-
             # path + fullbody v1
+            # path
             noise_wp, noisy_wp, t_frac = noise_scheduler.sample_noise(
                 clean, std=model.waypoint_model.std
-            )
-            noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
-                x0_joints, std=model.fullbody_model.std
-            )
-            noise_angles, noisy_angles, t_frac = noise_scheduler.sample_noise(
-                x0_angles, std=model.angle_model.std
             )
             wp_delta = model.forward_path(
                 noisy_wp,
@@ -168,10 +164,22 @@ if __name__ == "__main__":
                 feat_volume,
                 clean_goal=clean_goal,
             )
+
+            # fullbody
+            noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
+                torch.cat([x0_angles, x0_joints], 1),
+                std=torch.cat([model.angle_model.std, model.fullbody_model.std], 0),
+            )
+            noise_angles = noise_joints[..., : x0_angles.shape[-1]]
+            noisy_angles = noisy_joints[..., : x0_angles.shape[-1]]
+            noise_joints = noise_joints[..., x0_angles.shape[-1] :]
+            noisy_joints = noisy_joints[..., x0_angles.shape[-1] :]
+
             clean_ego = (
                 x0_angles_to_world.view(-1, 1, 3, 3).transpose(2, 3)
                 @ clean.view(-1, model.forecast_size, 3, 1)
             ).view(clean.shape)
+            # clean_ego = clean
             joints_delta, angles_delta = model.forward_fullbody(
                 noisy_joints,
                 noisy_angles,
@@ -181,6 +189,8 @@ if __name__ == "__main__":
                 cam,
                 follow_wp=clean_ego,
             )
+
+            loss_goal = F.mse_loss(goal_delta, noise_goal) / model.goal_model.std.mean()
             loss_wp = F.mse_loss(wp_delta, noise_wp) / model.waypoint_model.std.mean()
             loss_joints = (
                 F.mse_loss(joints_delta, noise_joints) / model.fullbody_model.std.mean()

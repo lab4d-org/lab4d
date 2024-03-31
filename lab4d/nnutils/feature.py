@@ -93,9 +93,9 @@ class FeatureNeRF(NeRF):
         self.use_feature = True
 
         self.feat_pos_embedding = PosEmbedding(3, N_freqs=6)  # lower frequency
-        # self.feature_field = BaseMLP(
-        self.feature_field = CondMLP(
-            num_inst=self.num_inst,
+        self.feature_field = BaseMLP(
+            # self.feature_field = CondMLP(
+            # num_inst=self.num_inst,
             D=5,
             W=128,
             in_channels=self.feat_pos_embedding.out_channels,
@@ -260,7 +260,8 @@ class FeatureNeRF(NeRF):
         """
         feat_field_dict = {}
         xyz_embed = self.feat_pos_embedding(xyz)
-        feature = self.feature_field(xyz_embed, inst_id)
+        # feature = self.feature_field(xyz_embed, inst_id)
+        feature = self.feature_field(xyz_embed)
         feature = feature / feature.norm(dim=-1, keepdim=True)
         feat_field_dict["feature"] = feature
         return feat_field_dict

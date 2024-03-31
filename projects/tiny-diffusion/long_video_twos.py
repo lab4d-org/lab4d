@@ -66,6 +66,11 @@ if __name__ == "__main__":
     model.eval()
     feat_volume = model.extract_feature_grid()
 
+    # # recompute voxel of root
+    # model.bg_field.voxel_grid.count_root_visitation(
+    #     model.bg_field.voxel_grid.root_trajs[:, :3, 3], splat_radius=1.0
+    # )
+
     # data
     x0_wp = x0[sample_idx]
     past = past[sample_idx]
@@ -90,11 +95,13 @@ if __name__ == "__main__":
     )
     visualizer.run_viser()
     hit_list = torch.stack([cam[0, 0], cam[-1, 0]], 0)  # 2,3
+    hit_list = (x0_angles_to_world[:, 0] @ hit_list[..., None])[..., 0]
     hit_list = hit_list + x0_to_world[:, 0]
     visualizer.userwp_list = hit_list.cpu().numpy().tolist()
     visualizer.show_control_points()
 
-    accumulated_traj = past.clone()  # T',1, 3 in the latest ego coordinate
+    # T,1,3 ego-center|world-orient
+    accumulated_traj = (x0_angles_to_world @ past[..., None])[..., 0]
     current_joints = x0_joints[-1:]  # 1, K, 3
     # for sample_idx in range(100):
     while True:
@@ -109,7 +116,9 @@ if __name__ == "__main__":
                 visualizer.userwp_list, device="cuda", dtype=torch.float32
             )
             cam = spline_interp(cam.view(1, -1), 2, interp_size=model.memory_size)
-            cam = (cam.view(-1, 3) - x0_to_world).view(-1, 1, 3)
+            cam = cam.view(-1, 3) - x0_to_world
+            cam = x0_angles_to_world.transpose(-1, -2) @ cam[..., None]
+            cam = cam.view(-1, 1, 3)
 
         if len(visualizer.goal_list) > 0:
             selected_goal = torch.tensor(
@@ -117,6 +126,9 @@ if __name__ == "__main__":
             )
             # delete frames/goal
             selected_goal = selected_goal - x0_to_world[0]
+            selected_goal = (
+                x0_angles_to_world[0].transpose(-1, -2) @ selected_goal[..., None]
+            )[..., 0]
             selected_goal = selected_goal.view(1, 3)
             reverse_goal = selected_goal[None, None, None]
         else:
@@ -130,6 +142,7 @@ if __name__ == "__main__":
                 past[None],
                 cam[None],
                 x0_to_world[None],
+                x0_angles_to_world[None],
                 feat_volume,
                 model.bg_field.voxel_grid,
                 drop_cam,
@@ -143,12 +156,14 @@ if __name__ == "__main__":
             goal_samples = reverse_goal[-1, :, 0, 0]  # bs,3
 
             # filter goals that has nevel been visited
-            goal_score = model.bg_field.voxel_grid.readout_voxel(
-                goal_samples + x0_to_world[0, 0], mode="root_visitation"
-            )
-            goal_samples = goal_samples[goal_score > 0]
-            # best_idx = goal_samples.norm(dim=-1).argmax()  # find the furthest goal
-            best_idx = 0
+            # goal_score = model.bg_field.voxel_grid.readout_voxel(
+            #     (x0_angles_to_world[0] @ goal_samples[..., None])[..., 0]
+            #     + x0_to_world[0],
+            #     mode="root_visitation",
+            # )
+            # goal_samples = goal_samples[goal_score > 0]
+            best_idx = goal_samples.norm(dim=-1).argmax()  # find the furthest goal
+            # best_idx = 0
             selected_goal = goal_samples[best_idx : best_idx + 1]
 
         # full body | goal conditioning
@@ -159,6 +174,7 @@ if __name__ == "__main__":
             past[None],
             cam[None],
             x0_to_world[None],
+            x0_angles_to_world[None],
             feat_volume,
             model.bg_field.voxel_grid,
             drop_cam,
@@ -257,6 +273,14 @@ if __name__ == "__main__":
         #     prefix="joints-%03d" % sample_idx,
         # )
 
+        # To world orient
+        reverse_goal = (x0_angles_to_world[None, None] @ reverse_goal[..., None])[
+            ..., 0
+        ]
+        reverse_wp_dense = (
+            x0_angles_to_world[None, None] @ reverse_wp_dense[..., None]
+        )[..., 0]
+
         angles_world_dense = matrix_to_axis_angle(
             x0_angles_to_world @ axis_angle_to_matrix(reverse_angles_dense[-1, 0])
         )
@@ -280,7 +304,6 @@ if __name__ == "__main__":
         pred_traj = reverse_wp_dense[-1, 0]
         accumulated_traj = torch.cat([accumulated_traj, pred_traj], 0)
         accumulated_traj = accumulated_traj - pred_traj[-1:]
-        past = accumulated_traj[-model.memory_size - 1 : -1]
         # update past_joints, past_angles
         past_joints = reverse_joints_dense[-1, 0][-model.memory_size - 1 : -1]
         current_joints = reverse_joints_dense[-1, 0][-1:]
@@ -296,5 +319,8 @@ if __name__ == "__main__":
         x0_angles_to_world = matrix_to_axis_angle(x0_angles_to_world)
         x0_angles_to_world[..., [0, 2]] *= 0
         x0_angles_to_world = axis_angle_to_matrix(x0_angles_to_world)
-        print(x0_angles_to_world)
+
+        # to ego orient
+        past = accumulated_traj[-model.memory_size - 1 : -1]
+        past = (x0_angles_to_world.transpose(-1, -2) @ past[..., None])[..., 0]
 visualizer.delete()

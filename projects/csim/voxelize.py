@@ -22,9 +22,12 @@ import viser.transforms as tf
 import pickle as pkl
 
 sys.path.insert(0, os.getcwd())
-from lab4d.utils.mesh_loader import MeshLoader
-from lab4d.config import load_flags_from_file
-from lab4d.engine.trainer import Trainer
+try:
+    from lab4d.utils.mesh_loader import MeshLoader
+    from lab4d.config import load_flags_from_file
+    from lab4d.engine.trainer import Trainer
+except:
+    pass
 
 
 class BGField:
@@ -437,10 +440,16 @@ class VoxelGrid:
         ego_to_world: ...,L
         feat: ..., K, F
         """
+        if isinstance(ego_to_world, tuple):
+            ego_to_world_angle = ego_to_world[1]
+            ego_to_world = ego_to_world[0]
         res = self.res
         origin = self.origin
         Ldim = ego_to_world.shape[-1]
-        x_world = x_ego.view(x_ego.shape[:-1] + (-1, Ldim)) + ego_to_world[..., None, :]
+        x_world = x_ego.view(x_ego.shape[:-1] + (-1, Ldim))
+        if "ego_to_world_angle" in locals():
+            x_world = (ego_to_world_angle[..., None, :, :] @ x_world[..., None])[..., 0]
+        x_world = x_world + ego_to_world[..., None, :]
         feat = readout_features(feature_vol, x_world, res, origin)
         feat = feat.reshape(x_ego.shape[:-1] + (-1,))
         return feat
