@@ -11,12 +11,13 @@ import json
 seqnum = 26
 in_path = "../vid2sim/logdir/home-2023-curated3-compose-ft/export_*"
 
-# type = "train"
-type = "test"
-# seq_len = 64
-seq_len = 80
+type = "train"
+# type = "test"
+seq_len = 64
+# seq_len = 80
 
 test_seq = [9, 18, 20, 24]
+# test_seq = list(range(1, seqnum + 1))[1:]
 train_seq = [i for i in range(1, seqnum + 1) if i not in test_seq]
 if type == "train":
     include_dir = train_seq

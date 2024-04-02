@@ -664,6 +664,13 @@ class TrajDenoiser(nn.Module):
                 feat_emb.append(feat_emb_sub)
             feat_emb = torch.cat(feat_emb, dim=-1)
 
+            if self.training:
+                drop_rate = 0.5
+                rand_mask = (
+                    torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
+                ).float()
+                feat_emb = feat_emb * rand_mask
+
             emb = torch.cat((emb, feat_emb), dim=-1)
 
         if hasattr(self, "cond_embed"):

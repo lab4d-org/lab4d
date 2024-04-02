@@ -42,8 +42,8 @@ class BGField:
         pca_fn = data_info["apply_pca_fn"]
 
         # load flags from file with absl
-        logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
-        # logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but too similar
+        # logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
+        logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but bg is too similar
         # logdir = "logdir/home-2023-curated3-compose-ft-old/"  # cse feature
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
@@ -65,8 +65,8 @@ class BGField:
             inst_id = int(dirpath.split("_")[-1].split("export_")[-1])
             bgmesh_path = "%s/bg-mesh.obj" % dirpath
             # try to load mesh from dir
-            if False:
-                # if os.path.exists(bgmesh_path):
+            # if False:
+            if os.path.exists(bgmesh_path):
                 print("loading mesh from %s" % bgmesh_path)
                 bg_mesh = trimesh.load_mesh(bgmesh_path)
             else:
@@ -77,8 +77,8 @@ class BGField:
 
             # try to load voxel from dir
             bgvoxel_path = "%s/bg-voxel.pkl" % dirpath
-            if False:
-                # if os.path.exists(bgvoxel_path):
+            # if False:
+            if os.path.exists(bgvoxel_path):
                 print("loading voxel from %s" % bgvoxel_path)
                 bg_voxel = pkl.load(open(bgvoxel_path, "rb"))
             else:
