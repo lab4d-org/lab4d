@@ -1,9 +1,14 @@
 # taken from guided motion diffusion
+import pdb
+import os, sys
 import torch
 import torch.nn as nn
 import einops
 from einops.layers.torch import Rearrange
 import numpy as np
+
+sys.path.insert(0, os.getcwd())
+from lab4d.nnutils.embedding import PosEmbedding
 
 
 class Downsample1d(nn.Module):
@@ -254,11 +259,11 @@ class TemporalUnet(nn.Module):
         self,
         input_dim,
         cond_dim,
-        dim=256,
-        dim_mults=(1, 2, 4, 8),
+        dim=512,
+        dim_mults=(2, 2, 2, 2),
         attention=False,
-        adagn=False,
-        zero=False,
+        adagn=True,
+        zero=True,
     ):
         super().__init__()
 
@@ -268,7 +273,7 @@ class TemporalUnet(nn.Module):
         print(f"[ models/temporal ] Channel dimensions: {in_out}")
 
         time_dim = dim
-        self.time_mlp = nn.Sequential(
+        self.cond_mlp = nn.Sequential(
             nn.Linear(cond_dim, dim * 4),
             nn.Mish(),
             nn.Linear(dim * 4, dim),
@@ -357,10 +362,8 @@ class TemporalUnet(nn.Module):
         x : [ seqlen x batch x dim ]
         cons: [ batch x cond_dim]
         """
-        x = einops.rearrange(x, "s b d -> b d s")
-        # print('x:', x.shape)
-
-        c = self.time_mlp(cond)
+        x = einops.rearrange(x, "b t d -> b d t")
+        c = self.cond_mlp(cond)
         # print('c:', c.shape)
         h = []
 
@@ -383,7 +386,46 @@ class TemporalUnet(nn.Module):
             x = upsample(x)
 
         x = self.final_conv(x)
-        # print('x:', x.shape)
-
-        x = einops.rearrange(x, "b d s -> s b d")
+        x = einops.rearrange(x, "b d t -> b t d")
         return x
+
+
+class TransformerPredictor(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        hidden_size,
+        hidden_layers,
+        state_size,
+        kp_size,
+        condition_dim,
+        N_freq=8,
+    ):
+        super().__init__()
+
+        latent_embed = PosEmbedding(state_size * kp_size, N_freq)
+        self.latent_embed = nn.Sequential(
+            latent_embed, nn.Linear(latent_embed.out_channels, condition_dim)
+        )
+
+        self.proj = nn.Linear(in_channels, hidden_size)
+        seqTransEncoderLayer = nn.TransformerEncoderLayer(
+            d_model=hidden_size, nhead=4, batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(
+            seqTransEncoderLayer,
+            num_layers=hidden_layers,
+        )
+        self.pred_head = nn.Linear(hidden_size, state_size * kp_size)
+
+    def forward(self, noisy, emb):
+        bs = noisy.shape[0]
+        latent_emb = self.latent_embed(noisy)
+        emb = torch.cat(
+            (latent_emb, emb[:, None].repeat(1, latent_emb.shape[1], 1)), dim=-1
+        )  # N,T,(KF+F')
+        emb_out = self.proj(emb)  # N,T,F
+        emb_out = self.encoder(emb_out)  # N,T,F
+        # NT,F=>NT,K3=>N,TK3
+        delta = self.pred_head(emb_out.view(-1, emb_out.shape[-1])).view(bs, -1)
+        return delta

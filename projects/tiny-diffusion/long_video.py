@@ -42,8 +42,10 @@ if __name__ == "__main__":
         x0_angles_to_world,
         # ) = get_lab4d_data("database/motion/S26-test-L64-S10.pkl")
         # ) = get_lab4d_data("database/motion/S26-test-L80-S10.pkl")
+        # ) = get_lab4d_data("database/motion/S26-train-L80-S1.pkl")
+        # ) = get_lab4d_data("database/motion/S26-train-L240-S1.pkl")
     ) = get_lab4d_data("database/motion/S26-train-L64-S1.pkl")
-    # ) = get_lab4d_data("database/motion/S26-train-L80-S1.pkl")
+    x0_goal = x0[:, -1:]
 
     # model
     model = TotalDenoiserThreeStage(
@@ -60,6 +62,7 @@ if __name__ == "__main__":
     feat_volume = model.extract_feature_grid()
 
     # data
+    x0_goal = x0_goal[sample_idx]
     x0_wp = x0[sample_idx]
     past = past[sample_idx]
     cam = cam[sample_idx]
@@ -159,6 +162,7 @@ if __name__ == "__main__":
             best_idx = goal_samples.norm(dim=-1).argmax()  # find the furthest goal
             # best_idx = 0
             selected_goal = goal_samples[best_idx : best_idx + 1]
+        # selected_goal = x0_goal[:, 0]
 
         # waypoint | goal conditioning
         reverse_wp, _ = model.waypoint_model.reverse_diffusion(

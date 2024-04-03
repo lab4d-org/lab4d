@@ -14,6 +14,8 @@ from lab4d.utils.quat_transform import axis_angle_to_matrix, matrix_to_axis_angl
 from lab4d.nnutils.base import BaseMLP
 from projects.csim.voxelize import BGField
 
+from arch import TemporalUnet, TransformerPredictor
+
 
 def simulate_forward_diffusion(x0, noise_scheduler, mean, std):
     forward_samples_goal = []
@@ -357,15 +359,6 @@ class TrajPredictor(nn.Module):
         # prediction: N,F => N,T*K*3
         delta = self.pred_head(emb)
 
-        # # Transformer
-        # emb = torch.cat(
-        #     (emb[:, None].repeat(1, latent_emb.shape[1], 1)), dim=-1
-        # )  # N,T,(KF+F')
-        # emb = self.proj(emb)  # N,T,F
-        # emb = self.encoder(emb)  # N,T,F
-        # # NT,F=>NT,K3=>N,TK3
-        # delta = self.pred_head(emb.view(-1, emb.shape[-1])).view(bs, -1)
-
         delta = delta * self.std + self.mean
 
         # undo rotation augmentation
@@ -467,11 +460,6 @@ class TrajDenoiser(nn.Module):
         self.time_embed = nn.Sequential(
             time_embed, nn.Linear(time_embed.out_channels, condition_dim)
         )
-        # latent_embed = PosEmbedding(state_size * forecast_size * kp_size, N_freq)
-        latent_embed = PosEmbedding(state_size * kp_size, N_freq)
-        self.latent_embed = nn.Sequential(
-            latent_embed, nn.Linear(latent_embed.out_channels, condition_dim)
-        )
 
         # condition embedding
         past_mlp = PosEmbedding(state_size * memory_size * kp_size, N_freq)
@@ -518,15 +506,22 @@ class TrajDenoiser(nn.Module):
         #     activation=nn.ReLU(True),
         #     final_act=False,
         # )
-        self.proj = nn.Linear(in_channels, hidden_size)
-        seqTransEncoderLayer = nn.TransformerEncoderLayer(
-            d_model=hidden_size, nhead=4, batch_first=True
-        )
-        self.encoder = nn.TransformerEncoder(
-            seqTransEncoderLayer,
-            num_layers=hidden_layers,
-        )
-        self.pred_head = nn.Linear(hidden_size, state_size * kp_size)
+
+        # if forecast_size == 1:
+        if True:
+            self.pred_head = TransformerPredictor(
+                in_channels,
+                hidden_size,
+                hidden_layers,
+                state_size,
+                kp_size,
+                condition_dim,
+                N_freq=N_freq,
+            )
+        else:
+            self.pred_head = TemporalUnet(
+                input_dim=state_size * kp_size, cond_dim=in_channels - condition_dim
+            )
 
         # additional angles
         if angle_size > 0:
@@ -621,11 +616,9 @@ class TrajDenoiser(nn.Module):
                 # # add random noise
                 # goal = goal + torch.randn_like(goal, device=device) * 0.1
 
-        noisy = (noisy - self.mean) / self.std
+        noisy = (noisy - self.mean) / (self.std + 1e-6)
 
         # state embedding
-        # latent_emb = self.latent_embed(noisy)
-        latent_emb = self.latent_embed(noisy.reshape(bs, self.forecast_size, -1))
         t_goal_emb = self.time_embed(t)
 
         # condition embedding
@@ -690,18 +683,9 @@ class TrajDenoiser(nn.Module):
 
             emb = torch.cat((emb, cond_emb), dim=-1)
 
-        # # prediction: N,F => N,T*K*3
-        # emb = torch.cat((latent_emb, emb), dim=-1)
-        # delta = self.pred_head(emb)
-
-        # Transformer
-        emb = torch.cat(
-            (latent_emb, emb[:, None].repeat(1, latent_emb.shape[1], 1)), dim=-1
-        )  # N,T,(KF+F')
-        emb_out = self.proj(emb)  # N,T,F
-        emb_out = self.encoder(emb_out)  # N,T,F
-        # NT,F=>NT,K3=>N,TK3
-        delta = self.pred_head(emb_out.view(-1, emb_out.shape[-1])).view(bs, -1)
+        noisy = noisy.reshape(bs, self.forecast_size, -1)
+        delta = self.pred_head(noisy, emb)
+        delta = delta.reshape(delta.shape[0], -1)
 
         delta = delta * self.std + self.mean
 
@@ -713,7 +697,7 @@ class TrajDenoiser(nn.Module):
             delta = delta.view(delta.shape[:-2] + (-1,))
 
         if hasattr(self, "angle_head") and noisy_angles is not None:
-            noisy_angles = (noisy_angles - self.mean_angle) / self.std_angle
+            noisy_angles = (noisy_angles - self.mean_angle) / (self.std_angle + 1e-6)
             angle_emb = self.angle_embed(
                 noisy_angles.reshape(bs, self.forecast_size, -1)
             )

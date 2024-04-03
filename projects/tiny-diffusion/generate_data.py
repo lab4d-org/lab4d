@@ -15,6 +15,7 @@ type = "train"
 # type = "test"
 seq_len = 64
 # seq_len = 80
+# seq_len = 240  # 16+224
 
 test_seq = [9, 18, 20, 24]
 # test_seq = list(range(1, seqnum + 1))[1:]

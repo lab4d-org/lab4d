@@ -45,6 +45,7 @@ if __name__ == "__main__":
         # ) = get_lab4d_data("database/motion/S26-test-L80-S10.pkl")
         # ) = get_lab4d_data("database/motion/S26-train-L80-S1.pkl")
         # ) = get_lab4d_data("database/motion/S26-test-L64-S10.pkl")
+        # ) = get_lab4d_data("database/motion/S26-train-L240-S1.pkl")
     ) = get_lab4d_data("database/motion/S26-train-L64-S1.pkl")
     x0_goal_all = x0_wp_all[:, -1:]
 

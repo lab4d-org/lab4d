@@ -44,6 +44,7 @@ def get_data():
 
 def get_lab4d_data(pkldatafilepath):
     # datapath = "/home/gengshay/code/guided-motion-diffusion/dataset/Custom/customposes.pkl"
+    # full_len = int(pkldatafilepath.split("-L")[1].split("-")[0])
     data = pkl.load(open(pkldatafilepath, "rb"))
     # max_data = 10
     max_data = len(data["poses"])
@@ -56,18 +57,22 @@ def get_lab4d_data(pkldatafilepath):
 
     # current frame
     idx0 = 8
+    # idx0 = 16
 
     # goal list
-    goal_idx = [15, 31, 47, 63]
+    goal_idx = [15, 31, 47, 63]  # TODO: get this automatically
     # goal_idx = [63]
     # goal_idx = [7, 15, 23, 31, 39, 47, 55, 63]
     # goal_idx = [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63]
+    # goal_idx = list(range(240))[idx0:]
     forecast_size = len(goal_idx)
 
-    # ADD CONTEXT LENGTH
-    add_length = int(pkldatafilepath.split("/")[-1].split("-L")[1].split("-")[0]) - 64
-    idx0 = idx0 + add_length
-    goal_idx = [add_length + x for x in goal_idx]
+    # # ADD CONTEXT LENGTH
+    # add_length = (
+    #     int(pkldatafilepath.split("/")[-1].split("-L")[1].split("-")[0]) - full_len
+    # )
+    # idx0 = idx0 + add_length
+    # goal_idx = [add_length + x for x in goal_idx]
 
     # load data: N, T, 3
     root_world_se3 = np.linalg.inv(np.stack(world_to_root, axis=0))
