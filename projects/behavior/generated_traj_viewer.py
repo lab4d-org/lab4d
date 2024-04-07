@@ -47,8 +47,8 @@ class MeshViewer:
         # load flags from file with absl
         opts = load_flags_from_file("%s/opts.log" % args.logdir)
         opts["load_suffix"] = "latest"
-        opts["logroot"] = "logdir-12-05"
-        opts["inst_id"] = 0
+        opts["logroot"] = "logdir"
+        opts["inst_id"] = 1
         opts["grid_size"] = 128
         opts["level"] = 0
         opts["vis_thresh"] = -10
@@ -147,8 +147,10 @@ class MeshViewer:
             self.server.add_mesh_trimesh(
                 name=f"/frames/t{i}/shape", mesh=input_dict["shape"]
             )
-            # if "bone" in input_dict:
-            #     server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
+            if "bone" in input_dict:
+                self.server.add_mesh_trimesh(
+                    name=f"/frames/t{i}/bone", mesh=input_dict["bone"]
+                )
 
             # # Add some axes.
             # server.add_frame(

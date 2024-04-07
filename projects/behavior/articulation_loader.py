@@ -11,7 +11,7 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 from lab4d.engine.trainer import Trainer
 from lab4d.utils.mesh_loader import MeshLoader
-from lab4d.utils.vis_utils import draw_cams, get_pts_traj
+from lab4d.utils.vis_utils import draw_cams, get_pts_traj, get_colormap
 from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation
 
 
@@ -19,7 +19,7 @@ class ArticulationLoader(MeshLoader):
     @torch.no_grad()
     def __init__(self, opts):
         self.raw_size = (1024, 1024)
-        self.mode = "shape"
+        self.mode = "bone"
         self.compose_mode = "compose"
         self.opts = opts
 
@@ -75,6 +75,7 @@ class ArticulationLoader(MeshLoader):
 
         self.extr_dict = {}
         self.mesh_dict = {}
+        self.bone_dict = {}
         self.ghost_dict = {}
         self.scene_dict = {}
         self.pts_traj_dict = {}
@@ -107,20 +108,22 @@ class ArticulationLoader(MeshLoader):
             # root to world
             root_to_world = np.linalg.inv(world_to_root_list[frame_idx])
             mesh.apply_transform(root_to_world)
+            mesh_bone.apply_transform(root_to_world)
 
-            # save fg/bg meshes
-            self.mesh_dict[frame_idx] = mesh
             # TODO assign color based on segment id
             # 0-64, 64-64+160*1, 64+160*1-64+160*2
             # bucket = np.asarray([i * 160 for i in range(10)])
             bucket = np.asarray([64 + i * 160 for i in range(10)])
             bucket_id = np.digitize(frame_idx, bucket)
-            from lab4d.utils.vis_utils import get_colormap
 
             colormap = get_colormap()[bucket_id]
             color = mesh.visual.vertex_colors
             color[:, :3] = colormap
             mesh.visual.vertex_colors = color
+
+            # save fg/bg meshes
+            self.mesh_dict[frame_idx] = mesh
+            self.bone_dict[frame_idx] = mesh_bone
 
             if self.compose_mode == "compose":
                 mesh_bg = trimesh.util.concatenate([meshes_rest["bg"], mesh_roottraj])

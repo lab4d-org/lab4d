@@ -170,8 +170,10 @@ class MeshViewer:
                 self.server.add_mesh_trimesh(
                     name=f"/frames/t{i}/shape", mesh=input_dict["shape"]
                 )
-            # if "bone" in input_dict:
-            #     server.add_mesh_trimesh(name=f"/frames/t{i}/bone", mesh=input_dict["bone"])
+                if "bone" in input_dict:
+                    self.server.add_mesh_trimesh(
+                        name=f"/frames/t{i}/bone/", mesh=input_dict["bone"]
+                    )
 
             # Place the frustum.
             rgb = self.rgb_list[i]

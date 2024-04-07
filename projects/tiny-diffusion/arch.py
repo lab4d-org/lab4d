@@ -9,6 +9,7 @@ import numpy as np
 
 sys.path.insert(0, os.getcwd())
 from lab4d.nnutils.embedding import PosEmbedding
+from lab4d.nnutils.base import BaseMLP
 
 
 class Downsample1d(nn.Module):
@@ -390,6 +391,28 @@ class TemporalUnet(nn.Module):
         return x
 
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)  # T,dim
+
+        self.register_buffer("pe", pe)  # T,dim
+
+    def forward(self, x):
+        # not used in the final model
+        # NTD
+        x = x + self.pe[None, : x.shape[1]]
+        return self.dropout(x)
+
+
 class TransformerPredictor(nn.Module):
     def __init__(
         self,
@@ -404,28 +427,45 @@ class TransformerPredictor(nn.Module):
         super().__init__()
 
         latent_embed = PosEmbedding(state_size * kp_size, N_freq)
-        self.latent_embed = nn.Sequential(
-            latent_embed, nn.Linear(latent_embed.out_channels, condition_dim)
-        )
+        if kp_size > 1:
+            self.latent_embed = nn.Sequential(
+                latent_embed,
+                BaseMLP(
+                    D=4,
+                    W=256,
+                    in_channels=latent_embed.out_channels,
+                    out_channels=hidden_size,
+                    skips=[1, 2, 3, 4],
+                    activation=nn.GELU(),
+                    final_act=False,
+                ),
+            )
+        else:
+            self.latent_embed = nn.Sequential(
+                latent_embed, nn.Linear(latent_embed.out_channels, hidden_size)
+            )
 
-        self.proj = nn.Linear(in_channels, hidden_size)
+        self.proj = nn.Linear(in_channels - condition_dim, hidden_size)
         seqTransEncoderLayer = nn.TransformerEncoderLayer(
-            d_model=hidden_size, nhead=4, batch_first=True
+            d_model=hidden_size, nhead=4, batch_first=True, activation="gelu"
         )
         self.encoder = nn.TransformerEncoder(
             seqTransEncoderLayer,
             num_layers=hidden_layers,
         )
+        self.c_sequence_pos_encoder = PositionalEncoding(hidden_size)
         self.pred_head = nn.Linear(hidden_size, state_size * kp_size)
+        # zero the convolution in the final conv
+        nn.init.zeros_(self.pred_head.weight)
+        nn.init.zeros_(self.pred_head.bias)
 
     def forward(self, noisy, emb):
         bs = noisy.shape[0]
+        seqlen = noisy.shape[1]
         latent_emb = self.latent_embed(noisy)
-        emb = torch.cat(
-            (latent_emb, emb[:, None].repeat(1, latent_emb.shape[1], 1)), dim=-1
-        )  # N,T,(KF+F')
-        emb_out = self.proj(emb)  # N,T,F
-        emb_out = self.encoder(emb_out)  # N,T,F
+        xseq = torch.cat((self.proj(emb[:, None]), latent_emb), dim=1)  # N,T+1,F
+        xseq = self.c_sequence_pos_encoder(xseq)  # [N, T+1, F]
+        xseq = self.encoder(xseq)[:, -seqlen:]  # N,T,F
         # NT,F=>NT,K3=>N,TK3
-        delta = self.pred_head(emb_out.view(-1, emb_out.shape[-1])).view(bs, -1)
+        delta = self.pred_head(xseq.reshape(-1, xseq.shape[-1])).view(bs, -1)
         return delta

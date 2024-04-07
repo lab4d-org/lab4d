@@ -43,8 +43,7 @@ def get_data():
 
 
 def get_lab4d_data(pkldatafilepath):
-    # datapath = "/home/gengshay/code/guided-motion-diffusion/dataset/Custom/customposes.pkl"
-    # full_len = int(pkldatafilepath.split("-L")[1].split("-")[0])
+    full_len = int(pkldatafilepath.split("-L")[1].split("-")[0])
     data = pkl.load(open(pkldatafilepath, "rb"))
     # max_data = 10
     max_data = len(data["poses"])
@@ -60,11 +59,13 @@ def get_lab4d_data(pkldatafilepath):
     # idx0 = 16
 
     # goal list
-    goal_idx = [15, 31, 47, 63]  # TODO: get this automatically
+    # goal_idx = [15, 31, 47, 63]  # TODO: get this automatically
+    # goal_idx = [15, 31, 63]
     # goal_idx = [63]
     # goal_idx = [7, 15, 23, 31, 39, 47, 55, 63]
     # goal_idx = [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63]
-    # goal_idx = list(range(240))[idx0:]
+    goal_idx = list(range(full_len))[idx0 + 1 :][::2]
+    print("goal_idx", goal_idx)
     forecast_size = len(goal_idx)
 
     # # ADD CONTEXT LENGTH

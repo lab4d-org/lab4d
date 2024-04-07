@@ -146,7 +146,7 @@ if __name__ == "__main__":
             # goal
             clean_goal = clean[:, -model.state_size :]
             noise_goal, noisy_goal, t_frac = noise_scheduler.sample_noise(
-                clean_goal, std=model.goal_model.std
+                clean_goal, std=model.goal_model.std, mean=model.goal_model.mean
             )
             goal_delta = model.forward_goal(
                 noisy_goal, x0_to_world, t_frac, past, cam, feat_volume
@@ -154,7 +154,7 @@ if __name__ == "__main__":
             # path + fullbody v1
             # path
             noise_wp, noisy_wp, t_frac = noise_scheduler.sample_noise(
-                clean, std=model.waypoint_model.std
+                clean, std=model.waypoint_model.std, mean=model.waypoint_model.mean
             )
             wp_delta = model.forward_path(
                 noisy_wp,
@@ -170,6 +170,7 @@ if __name__ == "__main__":
             noise_joints, noisy_joints, t_frac = noise_scheduler.sample_noise(
                 torch.cat([x0_angles, x0_joints], 1),
                 std=torch.cat([model.angle_model.std, model.fullbody_model.std], 0),
+                mean=torch.cat([model.angle_model.mean, model.fullbody_model.mean], 0),
             )
             noise_angles = noise_joints[..., : x0_angles.shape[-1]]
             noisy_angles = noisy_joints[..., : x0_angles.shape[-1]]
@@ -191,20 +192,22 @@ if __name__ == "__main__":
                 follow_wp=clean_ego,
             )
 
-            loss_goal = F.mse_loss(goal_delta, noise_goal) / model.goal_model.std.mean()
-            loss_wp = F.mse_loss(wp_delta, noise_wp) / model.waypoint_model.std.mean()
-            loss_joints = (
-                F.mse_loss(joints_delta, noise_joints) / model.fullbody_model.std.mean()
-            )
-            loss_angles = (
-                F.mse_loss(angles_delta, noise_angles) / model.angle_model.std.mean()
-            )
+            loss_goal = ((goal_delta - noise_goal)).pow(2).mean()
+            loss_wp = ((wp_delta - noise_wp)).pow(2).mean()
+            loss_joints = ((joints_delta - noise_joints)).pow(2).mean()
+            loss_angles = ((angles_delta - noise_angles)).pow(2).mean()
 
             # sum up
             loss = loss_goal + loss_wp + loss_joints + loss_angles
             loss.backward(loss)
 
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            grad_th = 1.0
+            # grad_norm = nn.utils.clip_grad_norm_(model.parameters(), grad_th)
+            # if grad_norm > grad_th:
+            #     print("large grad, do not step")
+            # else:
+            #     optimizer.step()
+            nn.utils.clip_grad_norm_(model.parameters(), grad_th)
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()

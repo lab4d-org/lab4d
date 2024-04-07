@@ -116,9 +116,14 @@ def reverse_diffusion(
             if noisy_angles is not None:
                 sample_x0 = torch.cat([sample_x0, noisy_angles], dim=-1)
                 std = torch.cat([model.std, model.std_angle])
+                mean = torch.cat([model.mean, model.mean_angle])
             else:
                 std = model.std
-            sample_x0 = noise_scheduler.step(grad, t[0], sample_x0, std)
+                mean = model.mean
+            sample_x0_norm = (sample_x0 - mean) / std
+            sample_x0_norm = noise_scheduler.step(grad, t[0], sample_x0_norm)
+            sample_x0 = sample_x0_norm * std + mean
+            grad = grad * std
             if noisy_angles is not None:
                 noisy_angles = sample_x0[..., -noisy_angles.shape[-1] :]
                 sample_x0 = sample_x0[..., : -noisy_angles.shape[-1]]
@@ -488,26 +493,6 @@ class TrajDenoiser(nn.Module):
 
         in_channels = condition_dim * (3 + 1 + len(feat_dim) + int(cond_size > 0))
 
-        # # prediction heads
-        # self.pred_head = self.define_head(
-        #     in_channels,
-        #     hidden_size,
-        #     hidden_layers,
-        #     forecast_size,
-        #     state_size,
-        #     kp_size,
-        # )
-        # self.pred_head = BaseMLP(
-        #     D=hidden_layers,
-        #     W=hidden_size,
-        #     in_channels=in_channels,
-        #     out_channels=forecast_size * state_size * kp_size,
-        #     skips=[4],
-        #     activation=nn.ReLU(True),
-        #     final_act=False,
-        # )
-
-        # if forecast_size == 1:
         if True:
             self.pred_head = TransformerPredictor(
                 in_channels,
@@ -542,6 +527,7 @@ class TrajDenoiser(nn.Module):
             )
 
         self.angle_size = angle_size
+        self.drop_rate = 0.5
 
     def define_head(
         self,
@@ -616,7 +602,7 @@ class TrajDenoiser(nn.Module):
                 # # add random noise
                 # goal = goal + torch.randn_like(goal, device=device) * 0.1
 
-        noisy = (noisy - self.mean) / (self.std + 1e-6)
+        noisy = (noisy - self.mean) / (self.std)
 
         # state embedding
         t_goal_emb = self.time_embed(t)
@@ -625,15 +611,8 @@ class TrajDenoiser(nn.Module):
         past_emb = self.past_mlp(past.view(past.shape[0], -1))
         cam_emb = self.cam_mlp(cam.view(cam.shape[0], -1))
         if self.training:
-            drop_rate = 0.5
-            rand_mask = (
-                torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
-            ).float()
-            cam_emb = cam_emb * rand_mask
-            rand_mask = (
-                torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
-            ).float()
-            past_emb = past_emb * rand_mask
+            cam_emb = self.drop_embedding(cam_emb)
+            past_emb = self.drop_embedding(past_emb)
         if drop_cam:
             cam_emb = cam_emb * 0
         if drop_past:
@@ -658,11 +637,7 @@ class TrajDenoiser(nn.Module):
             feat_emb = torch.cat(feat_emb, dim=-1)
 
             if self.training:
-                drop_rate = 0.5
-                rand_mask = (
-                    torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
-                ).float()
-                feat_emb = feat_emb * rand_mask
+                feat_emb = self.drop_embedding(feat_emb)
 
             emb = torch.cat((emb, feat_emb), dim=-1)
 
@@ -671,11 +646,7 @@ class TrajDenoiser(nn.Module):
                 cond_emb = self.cond_embed(goal)
 
                 if self.training:
-                    drop_rate = 0.5
-                    rand_mask = (
-                        torch.rand(noisy.shape[0], 1, device=noisy.device) > drop_rate
-                    ).float()
-                    cond_emb = cond_emb * rand_mask
+                    cond_emb = self.drop_embedding(cond_emb)
             else:
                 cond_emb = self.cond_embed(
                     torch.zeros(bs, self.cond_embed[0].in_channels, device=device)
@@ -686,8 +657,6 @@ class TrajDenoiser(nn.Module):
         noisy = noisy.reshape(bs, self.forecast_size, -1)
         delta = self.pred_head(noisy, emb)
         delta = delta.reshape(delta.shape[0], -1)
-
-        delta = delta * self.std + self.mean
 
         # undo rotation augmentation
         if self.training and not self.is_angle:
@@ -718,6 +687,13 @@ class TrajDenoiser(nn.Module):
             x0, noise_scheduler, self.mean, self.std
         )
         return forward_samples_goal
+
+    def drop_embedding(self, emb):
+        bs = emb.shape[0]
+        dev = emb.device
+        rand_mask = (torch.rand(bs, 1, device=dev) > self.drop_rate).float()
+        emb = emb * rand_mask
+        return emb
 
     def reverse_diffusion(
         self,
@@ -853,7 +829,7 @@ class TotalDenoiser(nn.Module):
         print(f"num_kps: {num_kps}")
         print(f"memory_size: {memory_size}")
         mean = x0.mean(0)
-        std = x0.std(0) * 3
+        std = x0.std(0) * 2
         mean_goal = mean[-state_size:]
         std_goal = std[-state_size:]
 
@@ -1034,13 +1010,13 @@ class TotalDenoiserThreeStage(TotalDenoiser):
         x0_angles = x0_angles.view(x0_angles.shape[0], -1)
 
         mean = x0.mean(0)
-        std = x0.std(0) * 3
+        std = x0.std(0) * 2
         mean_wp = mean
         std_wp = std
         mean_joints = x0_joints.mean(0)
-        std_joints = x0_joints.std(0)
+        std_joints = x0_joints.std(0) * 2
         mean_angles = x0_angles.mean(0)
-        std_angles = x0_angles.std(0)
+        std_angles = x0_angles.std(0) * 2
 
         waypoint_model = model(
             mean_wp,

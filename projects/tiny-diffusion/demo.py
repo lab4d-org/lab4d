@@ -338,3 +338,24 @@ if __name__ == "__main__":
             prefix=save_prefix,
         )
         visualizer.delete()
+
+        out_path = "projects/tiny-diffusion/exps/%s/" % config.logname
+        for idx, joints in enumerate(reverse_joints_all[-1, 0]):
+            wp = x0_to_world[0] + reverse_wp_all[-1, 0, idx]
+            sample = torch.cat(
+                [reverse_angles_all[-1, 0, idx], wp, joints],
+                dim=-2,
+            )
+            sample = sample.reshape(sample.shape[0], -1).cpu().numpy()
+            # T,81
+            if not os.path.exists("%s/sample_%03d" % (out_path, idx)):
+                os.mkdir("%s/sample_%03d" % (out_path, idx))
+            np.save("%s/sample_%03d/sample.npy" % (out_path, idx), sample)
+
+        # run the command
+        ckpt_path = "logdir-12-05/home-2023-11-11--11-51-53-compose/"
+        bash_cmd = f"'cd ../vid2sim/; source ~/miniconda3/etc/profile.d/conda.sh; conda activate lab4d; python projects/behavior/vis.py --gendir {out_path} --logdir {ckpt_path} --fps 30'"
+        bash_cmd = f"/bin/bash -c {bash_cmd}"
+        print(bash_cmd)
+        os.system(bash_cmd)
+        print("results are at %s" % out_path)

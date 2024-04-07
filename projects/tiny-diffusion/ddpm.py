@@ -89,7 +89,10 @@ class NoiseScheduler(nn.Module):
         variance = variance.clip(1e-20)
         return variance
 
-    def step(self, model_output, timestep, sample, std):
+    def step(self, model_output, timestep, sample):
+        """
+        Step in the normalized space
+        """
         t = timestep
         pred_original_sample = self.reconstruct_x0(sample, t, model_output)
         pred_prev_sample = self.q_posterior(pred_original_sample, sample, t)
@@ -97,7 +100,6 @@ class NoiseScheduler(nn.Module):
         variance = 0
         if t > 0:
             noise = torch.randn_like(model_output)
-            noise = noise * std
             variance = (self.get_variance(t) ** 0.5) * noise
 
         pred_prev_sample = pred_prev_sample + variance
@@ -113,15 +115,21 @@ class NoiseScheduler(nn.Module):
 
         return s1 * x_start + s2 * x_noise
 
-    def sample_noise(self, clean, std):
+    def sample_noise(self, clean, std, mean):
+        """
+        Sample noise in the normalized space and add it to the clean signal
+        clean: unnormalized
+        noise: normalized
+        noisy: unnormalized
+        """
         shape = clean.shape
         noise = torch.randn(shape, device="cuda")
-        # dataset std
-        noise = noise * std
+        clean = (clean - mean) / std
         timesteps = torch.randint(0, self.num_timesteps, (shape[0],), device="cuda")
         timesteps = timesteps.long()
         noisy = self.add_noise(clean, noise, timesteps)
         t_frac = timesteps[:, None] / self.num_timesteps
+        noisy = noisy * std + mean
         return noise, noisy, t_frac
 
     def __len__(self):
