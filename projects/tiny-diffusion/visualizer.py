@@ -359,7 +359,7 @@ class DiffusionVisualizer:
                 marker="o",
                 alpha=0.5,
             )
-            if i < len(reverse_samples) - 1:
+            if i < len(reverse_samples) - 1 and reverse_grad is not None:
                 grad = reverse_grad[i]
                 # aver over height
                 grad = grad.reshape((yshape, -1, num_wps * num_kps, 3)).mean(0)
@@ -371,7 +371,7 @@ class DiffusionVisualizer:
                     -grad[:, -1, 2],
                     angles="xy",
                     scale_units="xy",
-                    scale=30,  # inverse scaling
+                    scale=5,  # inverse scaling
                     color=(0.5, 0.5, 0.5),
                 )
             ax.text(0.0, 0.95, f"step {i: 4} / {num_timesteps}", transform=ax.transAxes)

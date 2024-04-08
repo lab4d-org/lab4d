@@ -7,7 +7,7 @@ def get_config():
     parser.add_argument("--logname", type=str, default="base")
     parser.add_argument("--train_batch_size", type=int, default=512)
     parser.add_argument("--num_epochs", type=int, default=200)
-    parser.add_argument("--learning_rate", type=float, default=5e-4)
+    parser.add_argument("--learning_rate", type=float, default=2e-4)
     parser.add_argument("--num_timesteps", type=int, default=50)
     parser.add_argument("--condition_dim", type=int, default=64)
     parser.add_argument("--hidden_size", type=int, default=256)

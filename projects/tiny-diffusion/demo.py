@@ -130,7 +130,6 @@ if __name__ == "__main__":
         goal,
         xyz_grid=xyz_grid[None],
     )
-    reverse_grad_grid_goal = reverse_grad_grid_goal[:, 0]
 
     # waypoint | goal conditioning
     # goal = torch.tensor(reverse_samples_goal[-1][:1], device="cuda")
@@ -153,7 +152,6 @@ if __name__ == "__main__":
         goal,
         xyz_grid=xyz_grid[None],
     )
-    reverse_grad_grid_wp = reverse_grad_grid_wp[:, 0]
     # full body | wp conditioning
     # goal = torch.tensor(reverse_samples_wp[-1][:1], device="cuda")
     goal = x0_wp  # GT
@@ -174,7 +172,6 @@ if __name__ == "__main__":
         goal_ego,
         xyz_grid=xyz_grid[None],
     )
-    reverse_grad_grid_joints = reverse_grad_grid_joints[:, 0]
     # angle | wp conditioning
     reverse_angles, _ = model.angle_model.reverse_diffusion(
         nsamp,
@@ -229,6 +226,11 @@ if __name__ == "__main__":
     # eval_all(reverse_wp_all[-1][:, :, -1:], x0_goal, reverse_wp_all[-1], x0_wp)
 
     for i in range(bs):
+        if reverse_grad_grid_goal is not None:
+            reverse_grad_grid_goal = reverse_grad_grid_goal[:, i]
+            reverse_grad_grid_wp = reverse_grad_grid_wp[:, i]
+            reverse_grad_grid_joints = reverse_grad_grid_joints[:, i]
+
         reverse_goal = reverse_goal_all[:, i]
         reverse_wp = reverse_wp_all[:, i]
         reverse_angles = reverse_angles_all[:, i]
