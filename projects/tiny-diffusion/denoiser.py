@@ -493,7 +493,8 @@ class TrajDenoiser(nn.Module):
 
         in_channels = condition_dim * (3 + 1 + len(feat_dim) + int(cond_size > 0))
 
-        if True:
+        if forecast_size == 1:
+            # if True:
             self.pred_head = TransformerPredictor(
                 in_channels,
                 hidden_size,
@@ -505,7 +506,9 @@ class TrajDenoiser(nn.Module):
             )
         else:
             self.pred_head = TemporalUnet(
-                input_dim=state_size * kp_size, cond_dim=in_channels - condition_dim
+                input_dim=state_size * kp_size,
+                cond_dim=in_channels - condition_dim,
+                dim=hidden_size,
             )
 
         # additional angles

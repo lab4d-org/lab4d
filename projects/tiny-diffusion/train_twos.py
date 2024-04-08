@@ -89,9 +89,7 @@ if __name__ == "__main__":
     model = model.cuda()
 
     # optimization setup
-    noise_scheduler = NoiseScheduler(
-        num_timesteps=config.num_timesteps, beta_schedule=config.beta_schedule
-    )
+    noise_scheduler = NoiseScheduler(num_timesteps=config.num_timesteps)
     noise_scheduler = noise_scheduler.cuda()
 
     params = list(model.parameters())

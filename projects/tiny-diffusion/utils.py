@@ -55,7 +55,7 @@ def get_lab4d_data(pkldatafilepath):
     print("loading dataset of length %d | seq length %d" % (len(pose), len(pose[0])))
 
     # current frame
-    idx0 = 8
+    idx0 = 7
     # idx0 = 16
 
     # goal list
@@ -64,7 +64,7 @@ def get_lab4d_data(pkldatafilepath):
     # goal_idx = [63]
     # goal_idx = [7, 15, 23, 31, 39, 47, 55, 63]
     # goal_idx = [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63]
-    goal_idx = list(range(full_len))[idx0 + 1 :][::2]
+    goal_idx = list(range(full_len))[idx0 + 1 :]
     print("goal_idx", goal_idx)
     forecast_size = len(goal_idx)
 

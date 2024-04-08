@@ -1,34 +1,77 @@
+import pdb
+import math
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 
+def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, scale_betas=1.0):
+    """
+    taken from GMD
+    Get a pre-defined beta schedule for the given name.
+
+    The beta schedule library consists of beta schedules which remain similar
+    in the limit of num_diffusion_timesteps.
+    Beta schedules may be added, but should not be removed or changed once
+    they are committed to maintain backwards compatibility.
+    """
+    if schedule_name == "linear":
+        # Linear schedule from Ho et al, extended to work for any number of
+        # diffusion steps.
+        scale = scale_betas * 1000 / num_diffusion_timesteps
+        beta_start = scale * 0.0001
+        beta_end = scale * 0.02
+        return np.linspace(
+            beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64
+        )
+    elif schedule_name == "cosine":
+        return betas_for_alpha_bar(
+            num_diffusion_timesteps,
+            lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2,
+        )
+    else:
+        raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
+
+
+def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
+    """
+    taken from GMD
+    Create a beta schedule that discretizes the given alpha_t_bar function,
+    which defines the cumulative product of (1-beta) over time from t = [0,1].
+
+    :param num_diffusion_timesteps: the number of betas to produce.
+    :param alpha_bar: a lambda that takes an argument t from 0 to 1 and
+                      produces the cumulative product of (1-beta) up to that
+                      part of the diffusion process.
+    :param max_beta: the maximum beta to use; use values lower than 1 to
+                     prevent singularities.
+    """
+    betas = []
+    for i in range(num_diffusion_timesteps):
+        t1 = i / num_diffusion_timesteps
+        t2 = (i + 1) / num_diffusion_timesteps
+        betas.append(min(1 - alpha_bar(t2) / alpha_bar(t1), max_beta))
+    return np.array(betas)
+
+
 class NoiseScheduler(nn.Module):
-    def __init__(
-        self,
-        num_timesteps=1000,
-        beta_start=0.0001,
-        beta_end=0.02,
-        beta_schedule="linear",
-    ):
+    # def __init__(self, num_timesteps=1000, beta_schedule="cosine"):
+    def __init__(self, num_timesteps=1000, beta_schedule="linear"):
         super().__init__()
 
         self.num_timesteps = num_timesteps
-        if beta_schedule == "linear":
-            betas = torch.linspace(
-                beta_start, beta_end, num_timesteps, dtype=torch.float32
-            )
-        elif beta_schedule == "quadratic":
-            betas = (
-                torch.linspace(
-                    beta_start**0.5, beta_end**0.5, num_timesteps, dtype=torch.float32
-                )
-                ** 2
-            )
+        betas = get_named_beta_schedule(beta_schedule, num_timesteps)
+        betas = torch.tensor(betas, dtype=torch.float32)
 
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, axis=0)
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+
+        # # plot alphas_cumprod
+        # import matplotlib.pyplot as plt
+        # plt.plot(alphas_cumprod.cpu().numpy())
+        # plt.savefig("alphas_cumprod.png")
 
         # required for self.add_noise
         sqrt_alphas_cumprod = alphas_cumprod**0.5

@@ -161,7 +161,7 @@ class ResidualTemporalBlock(nn.Module):
         inp_channels,
         out_channels,
         embed_dim,
-        kernel_size=5,
+        kernel_size=3,
         adagn=False,
         zero=False,
     ):
@@ -260,9 +260,8 @@ class TemporalUnet(nn.Module):
         self,
         input_dim,
         cond_dim,
-        dim=512,
-        dim_mults=(2, 2, 2, 2),
-        attention=False,
+        dim=128,
+        dim_mults=(2, 2),
         adagn=True,
         zero=True,
     ):
@@ -297,11 +296,6 @@ class TemporalUnet(nn.Module):
                         ResidualTemporalBlock(
                             dim_out, dim_out, embed_dim=time_dim, adagn=adagn, zero=zero
                         ),
-                        (
-                            Residual(PreNorm(dim_out, LinearAttention(dim_out)))
-                            if attention
-                            else nn.Identity()
-                        ),
                         Downsample1d(dim_out) if not is_last else nn.Identity(),
                     ]
                 )
@@ -310,11 +304,6 @@ class TemporalUnet(nn.Module):
         mid_dim = dims[-1]
         self.mid_block1 = ResidualTemporalBlock(
             mid_dim, mid_dim, embed_dim=time_dim, adagn=adagn, zero=zero
-        )
-        self.mid_attn = (
-            Residual(PreNorm(mid_dim, LinearAttention(mid_dim)))
-            if attention
-            else nn.Identity()
         )
         self.mid_block2 = ResidualTemporalBlock(
             mid_dim, mid_dim, embed_dim=time_dim, adagn=adagn, zero=zero
@@ -336,11 +325,6 @@ class TemporalUnet(nn.Module):
                         ),
                         ResidualTemporalBlock(
                             dim_in, dim_in, embed_dim=time_dim, adagn=adagn, zero=zero
-                        ),
-                        (
-                            Residual(PreNorm(dim_in, LinearAttention(dim_in)))
-                            if attention
-                            else nn.Identity()
                         ),
                         Upsample1d(dim_in) if not is_last else nn.Identity(),
                     ]
@@ -368,22 +352,19 @@ class TemporalUnet(nn.Module):
         # print('c:', c.shape)
         h = []
 
-        for resnet, resnet2, attn, downsample in self.downs:
+        for resnet, resnet2, downsample in self.downs:
             x = resnet(x, c)
             x = resnet2(x, c)
-            x = attn(x)
             h.append(x)
             x = downsample(x)
 
         x = self.mid_block1(x, c)
-        x = self.mid_attn(x)
         x = self.mid_block2(x, c)
 
-        for resnet, resnet2, attn, upsample in self.ups:
+        for resnet, resnet2, upsample in self.ups:
             x = torch.cat((x, h.pop()), dim=1)
             x = resnet(x, c)
             x = resnet2(x, c)
-            x = attn(x)
             x = upsample(x)
 
         x = self.final_conv(x)
