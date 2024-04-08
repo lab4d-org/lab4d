@@ -371,7 +371,7 @@ class DiffusionVisualizer:
                     -grad[:, -1, 2],
                     angles="xy",
                     scale_units="xy",
-                    scale=5,  # inverse scaling
+                    scale=1,  # inverse scaling
                     color=(0.5, 0.5, 0.5),
                 )
             ax.text(0.0, 0.95, f"step {i: 4} / {num_timesteps}", transform=ax.transAxes)

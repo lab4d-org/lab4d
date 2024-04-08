@@ -60,6 +60,11 @@ def reverse_diffusion(
     if noisy_angles is not None:
         noisy_angles = noisy_angles.repeat(bs, 1, 1).view(bs * nsamp, -1)
         reverse_angles = [noisy_angles]
+        std = torch.cat([model.std, model.std_angle])
+        mean = torch.cat([model.mean, model.mean_angle])
+    else:
+        std = model.std
+        mean = model.mean
 
     past = past.repeat(1, nsamp, 1).view(bs * nsamp, -1)
     cam = cam.repeat(1, nsamp, 1).view(bs * nsamp, -1)
@@ -115,15 +120,9 @@ def reverse_diffusion(
         if track_x0:
             if noisy_angles is not None:
                 sample_x0 = torch.cat([sample_x0, noisy_angles], dim=-1)
-                std = torch.cat([model.std, model.std_angle])
-                mean = torch.cat([model.mean, model.mean_angle])
-            else:
-                std = model.std
-                mean = model.mean
             sample_x0_norm = (sample_x0 - mean) / std
             sample_x0_norm = noise_scheduler.step(grad, t[0], sample_x0_norm)
             sample_x0 = sample_x0_norm * std + mean
-            grad = grad * std
             if noisy_angles is not None:
                 noisy_angles = sample_x0[..., -noisy_angles.shape[-1] :]
                 sample_x0 = sample_x0[..., : -noisy_angles.shape[-1]]
@@ -132,7 +131,7 @@ def reverse_diffusion(
             if noisy_angles is not None:
                 reverse_angles.append(noisy_angles)
         reverse_samples.append(sample_x0)
-        reverse_grad.append(grad)
+        reverse_grad.append(grad * std)
     reverse_samples = torch.stack(reverse_samples, 0)
     reverse_grad = torch.stack(reverse_grad, 0)
     reverse_samples = reverse_samples.view(num_timesteps + 1, bs, nsamp, -1)
