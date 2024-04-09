@@ -40,7 +40,7 @@ def main():
     loader = ArticulationLoader(opts)
     frames = []
     for sample_idx, genpath in enumerate(
-        sorted(glob.glob("%s/*/sample.npy" % args.gendir))
+        sorted(glob.glob("%s/sample/*.npy" % args.gendir))
     ):
         sample = np.load(genpath)
         loader.load_files(sample)

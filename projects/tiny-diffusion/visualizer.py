@@ -363,6 +363,7 @@ class DiffusionVisualizer:
                 grad = reverse_grad[i]
                 # aver over height
                 grad = grad.reshape((yshape, -1, num_wps * num_kps, 3)).mean(0)
+                scale = np.linalg.norm(grad, 2, -1).mean() * 10
                 xyz_sliced = xyz.reshape((yshape, -1, 3))[0]
                 plt.quiver(
                     xyz_sliced[:, 0],
@@ -371,7 +372,7 @@ class DiffusionVisualizer:
                     -grad[:, -1, 2],
                     angles="xy",
                     scale_units="xy",
-                    scale=1,  # inverse scaling
+                    scale=scale,  # inverse scaling
                     color=(0.5, 0.5, 0.5),
                 )
             ax.text(0.0, 0.95, f"step {i: 4} / {num_timesteps}", transform=ax.transAxes)

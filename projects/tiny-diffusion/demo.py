@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import trimesh
 import argparse
+import shutil
 
 import ddpm
 from utils import get_lab4d_data, load_models, get_grid_xyz
@@ -342,6 +343,7 @@ if __name__ == "__main__":
         visualizer.delete()
 
         out_path = "projects/tiny-diffusion/exps/%s/" % config.logname
+        shutil.rmtree("%s/sample/" % out_path, ignore_errors=True)
         for idx, joints in enumerate(reverse_joints_all[-1, 0]):
             wp = x0_to_world[0] + reverse_wp_all[-1, 0, idx]
             sample = torch.cat(
@@ -350,9 +352,8 @@ if __name__ == "__main__":
             )
             sample = sample.reshape(sample.shape[0], -1).cpu().numpy()
             # T,81
-            if not os.path.exists("%s/sample_%03d" % (out_path, idx)):
-                os.mkdir("%s/sample_%03d" % (out_path, idx))
-            np.save("%s/sample_%03d/sample.npy" % (out_path, idx), sample)
+            os.makedirs("%s/sample", exist_ok=True)
+            np.save("%s/sample/%04d.npy" % (out_path, idx), sample)
 
         # run the command
         ckpt_path = "logdir-12-05/home-2023-11-11--11-51-53-compose/"

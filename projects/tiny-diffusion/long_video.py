@@ -3,6 +3,7 @@ import cv2
 import pdb
 import numpy as np
 import torch
+import shutil
 import trimesh
 
 import ddpm
@@ -93,10 +94,11 @@ if __name__ == "__main__":
 
     # T,1,3 ego-center|world-orient
     # accumulated_traj = (x0_angles_to_world @ past[..., None])[..., 0]
+    out_path = "projects/tiny-diffusion/exps/%s/" % config.logname
+    shutil.rmtree("%s/sample/" % out_path, ignore_errors=True)
     accumulated_traj = past.clone()  # T',1, 3 in the latest ego coordinate
     current_joints = x0_joints[-1:]  # 1, K, 3
-    # for sample_idx in range(100):
-    while True:
+    for sample_idx in range(100):
         if not drop_cam:
             pdb.set_trace()
         # else:
@@ -325,6 +327,19 @@ if __name__ == "__main__":
             x0_to_world,
         )
 
+        # render to video in a separate thread
+        ######################################
+        wp = x0_to_world[0] + reverse_wp_dense[-1, 0]
+        sample = torch.cat(
+            [angles_world_dense, wp, reverse_joints_dense[-1, 0]],
+            dim=-2,
+        )
+        sample = sample.reshape(sample.shape[0], -1).cpu().numpy()
+        # T,81
+        os.makedirs("%s/sample" % (out_path), exist_ok=True)
+        np.save("%s/sample/%04d.npy" % (out_path, sample_idx), sample)
+        ######################################
+
         # update past
         pred_traj = reverse_wp_dense[-1, 0]
         accumulated_traj = torch.cat([accumulated_traj, pred_traj], 0)
@@ -349,3 +364,10 @@ if __name__ == "__main__":
         past = accumulated_traj[-model.memory_size - 1 : -1]
         # past = (x0_angles_to_world.transpose(-1, -2) @ past[..., None])[..., 0]
 visualizer.delete()
+
+# run the command
+ckpt_path = "logdir-12-05/home-2023-11-11--11-51-53-compose/"
+bash_cmd = f"'cd ../vid2sim/; source ~/miniconda3/etc/profile.d/conda.sh; conda activate lab4d; python projects/behavior/vis.py --gendir {out_path} --logdir {ckpt_path} --fps 30'"
+bash_cmd = f"/bin/bash -c {bash_cmd}"
+print(bash_cmd)
+os.system(bash_cmd)
