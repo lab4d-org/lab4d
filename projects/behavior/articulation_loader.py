@@ -12,7 +12,10 @@ if cwd not in sys.path:
 from lab4d.engine.trainer import Trainer
 from lab4d.utils.mesh_loader import MeshLoader
 from lab4d.utils.vis_utils import draw_cams, get_pts_traj, get_colormap
-from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation
+from lab4d.utils.quat_transform import (
+    dual_quaternion_to_quaternion_translation,
+    dual_quaternion_to_se3,
+)
 
 
 class ArticulationLoader(MeshLoader):
@@ -76,10 +79,12 @@ class ArticulationLoader(MeshLoader):
         self.extr_dict = {}
         self.mesh_dict = {}
         self.bone_dict = {}
+        self.t_articulation_dict = {}
         self.ghost_dict = {}
         self.scene_dict = {}
         self.pts_traj_dict = {}
         self.kps_dict = {}
+        self.root_to_world = {}
         for frame_idx, fr_sample in tqdm.tqdm(enumerate(sample)):
             # joint angles to articulations
             so3 = torch.tensor(fr_sample[6:], dtype=torch.float32, device="cuda")
@@ -124,6 +129,11 @@ class ArticulationLoader(MeshLoader):
             # save fg/bg meshes
             self.mesh_dict[frame_idx] = mesh
             self.bone_dict[frame_idx] = mesh_bone
+            self.root_to_world[frame_idx] = root_to_world
+            scaled_t_articulation = dual_quaternion_to_se3(t_articulation)[0]
+            scaled_t_articulation = scaled_t_articulation.cpu().numpy()
+            scaled_t_articulation[:, :3, 3] /= scale_fg
+            self.t_articulation_dict[frame_idx] = scaled_t_articulation
 
             if self.compose_mode == "compose":
                 mesh_bg = trimesh.util.concatenate([meshes_rest["bg"], mesh_roottraj])
@@ -131,7 +141,7 @@ class ArticulationLoader(MeshLoader):
 
             # world space keypoints
             _, kps = dual_quaternion_to_quaternion_translation(t_articulation)
-            kps = kps[0].cpu().numpy()
+            kps = kps[0].cpu().numpy() / scale_fg
             kps = kps @ root_to_world[:3, :3].T + root_to_world[:3, 3]
             self.kps_dict[frame_idx] = kps
 
@@ -139,8 +149,11 @@ class ArticulationLoader(MeshLoader):
             kps_all = np.asarray(list(self.kps_dict.values()))
             self.pts_traj_dict[frame_idx] = get_pts_traj(kps_all, frame_idx)
 
-            # extrinsics
-            self.extr_dict[frame_idx] = np.eye(4)
+            # extrinsics: observer
+            # self.extr_dict[frame_idx] = self.get_following_camera(frame_idx)
+            # self.extr_dict[frame_idx] = self.get_selfie_camera(frame_idx)
+            # self.extr_dict[frame_idx] = self.get_identity_camera()
+            self.extr_dict[frame_idx] = self.get_body_camera(frame_idx)
 
         # intrinsics
         self.intrinsics = np.zeros((len(self.extr_dict), 4))
@@ -155,6 +168,39 @@ class ArticulationLoader(MeshLoader):
         bounds = self.meshes_rest["bg"].bounds
         self.aabb_min = bounds[0, [0, 2]]
         self.aabb_max = bounds[1, [0, 2]]
+
+    def get_following_camera(self, frame_idx, dist=2):
+        root_to_world = self.root_to_world[frame_idx]
+        root_to_observer = np.eye(4)
+        root_to_observer[:3, 3] = np.array([0, 0, dist])
+        root_to_observer[:3, :3] = cv2.Rodrigues(np.array([0, np.pi, 0]))[0]
+        world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
+        return world_to_observer
+
+    def get_selfie_camera(self, frame_idx, dist=1):
+        root_to_world = self.root_to_world[frame_idx]
+        root_to_observer = np.eye(4)
+        root_to_observer[:3, 3] = np.array([0, 0, dist])
+        world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
+        return world_to_observer
+
+    def get_body_camera(self, frame_idx, part_name="head"):
+        if part_name == "head":
+            part_idx = 3
+            delta_mat = np.eye(4)
+            delta_mat[:3, :3] = (
+                cv2.Rodrigues(np.array([-np.pi / 4, 0, 0]))[0]
+                @ cv2.Rodrigues(np.array([0, 0, np.pi]))[0]
+            )
+
+        observer_to_root = self.t_articulation_dict[frame_idx][part_idx]
+        root_to_world = self.root_to_world[frame_idx]
+        observer_to_world = root_to_world @ observer_to_root
+        world_to_observer = delta_mat @ np.linalg.inv(observer_to_world)
+        return world_to_observer
+
+    def get_identity_camera(self):
+        return np.eye(4)
 
     def get_max_extend_abs(self):
         return max(max(np.abs(self.aabb_max)), max(np.abs(self.aabb_min)))

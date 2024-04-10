@@ -352,7 +352,7 @@ if __name__ == "__main__":
             )
             sample = sample.reshape(sample.shape[0], -1).cpu().numpy()
             # T,81
-            os.makedirs("%s/sample", exist_ok=True)
+            os.makedirs("%s/sample" % out_path, exist_ok=True)
             np.save("%s/sample/%04d.npy" % (out_path, idx), sample)
 
         # run the command

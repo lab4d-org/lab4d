@@ -109,6 +109,7 @@ def reverse_diffusion(
                 feat,
                 drop_cam=True,
                 drop_past=True,
+                drop_feat=False,
                 goal=goal,
                 noisy_angles=noisy_angles,
             )
@@ -529,7 +530,7 @@ class TrajDenoiser(nn.Module):
             )
 
         self.angle_size = angle_size
-        self.drop_rate = 0.5
+        self.drop_rate = 0.1
 
     def define_head(
         self,
@@ -556,6 +557,7 @@ class TrajDenoiser(nn.Module):
         feat,
         drop_cam=False,
         drop_past=False,
+        drop_feat=False,
         goal=None,
         noisy_angles=None,
     ):
@@ -640,6 +642,9 @@ class TrajDenoiser(nn.Module):
 
             if self.training:
                 feat_emb = self.drop_embedding(feat_emb)
+
+            if drop_feat:
+                feat_emb = feat_emb * 0
 
             emb = torch.cat((emb, feat_emb), dim=-1)
 

@@ -55,25 +55,29 @@ def main():
             input_dict = loader.query_frame(frame_idx)
 
             # bev
-            renderer.set_camera_bev(depth=loader.get_max_extend_abs() * 2)
+            renderer.set_camera_bev(depth=loader.get_max_extend_abs())
+            # world_to_observer = loader.get_body_camera(frame_idx)
+            # world_to_observer = loader.get_selfie_camera(frame_idx)
+            # world_to_observer = loader.get_following_camera(frame_idx)
+            # renderer.set_camera(world_to_observer)
             # set camera intrinsics
             fl = max(raw_size)
-            intr = np.asarray([fl * 2, fl * 2, raw_size[1] / 2, raw_size[0] / 2])
+            intr = np.asarray([fl, fl, raw_size[1] / 2, raw_size[0] / 2])
             renderer.set_intrinsics(intr)
             renderer.align_light_to_camera()
 
             color = renderer.render(input_dict)[0]
             # add text
             color = color.astype(np.uint8)
-            color = cv2.putText(
-                color,
-                "frame: %02d" % frame_idx,
-                (30, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                2,
-                (256, 0, 0),
-                2,
-            )
+            # color = cv2.putText(
+            #     color,
+            #     "frame: %02d" % frame_idx,
+            #     (30, 50),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     2,
+            #     (256, 0, 0),
+            #     2,
+            # )
             frames.append(color)
         renderer.delete()
 

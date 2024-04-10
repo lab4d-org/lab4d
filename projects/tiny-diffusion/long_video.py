@@ -98,7 +98,7 @@ if __name__ == "__main__":
     shutil.rmtree("%s/sample/" % out_path, ignore_errors=True)
     accumulated_traj = past.clone()  # T',1, 3 in the latest ego coordinate
     current_joints = x0_joints[-1:]  # 1, K, 3
-    for sample_idx in range(100):
+    for sample_idx in range(20):
         if not drop_cam:
             pdb.set_trace()
         # else:

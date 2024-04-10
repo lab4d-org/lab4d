@@ -186,8 +186,8 @@ def get_predefined_skeleton(skel_type):
     BOB_SYMM_IDX = {key: key for key in range(1, 25)}
     BOB_REST_JOINTS = torch.randn(25, 3) * 0.02
 
-    # TODO: annotate the semantic meaning of each joint
     # TODO: map human to QUAD
+    # index, parent index, # name of the index
     HUMAN_PARENT = {
         1: 0,  # spine 1
         13: 0,  # left upper leg

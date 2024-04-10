@@ -201,7 +201,7 @@ class MeshLoader:
             input_dict["bone"] = self.bone_dict[frame_idx]
             # make shape transparent and gray
             input_dict["shape"].visual.vertex_colors[:3] = 102
-            input_dict["shape"].visual.vertex_colors[3:] = 192
+            input_dict["shape"].visual.vertex_colors[3:] = 128
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
             # scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
