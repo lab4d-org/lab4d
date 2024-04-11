@@ -17,3 +17,6 @@
 [submodule "projects/gsplat/third_party/diff-gaussian-rasterization"]
 	path = projects/gsplat/third_party/diff-gaussian-rasterization
 	url = https://github.com/ashawkey/diff-gaussian-rasterization.git
+[submodule "projects/gd-mdm"]
+	path = projects/gd-mdm
+	url = https://github.com/gengshan-y/gd-mdm.git
