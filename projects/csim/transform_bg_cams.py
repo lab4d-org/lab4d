@@ -125,6 +125,7 @@ def transform_bg_cams(seqname, src_dir="tmp/dino/"):
     # valid_idx = np.where(errors <= np.percentile(errors, 25))[0]
     # valid_idx = np.where(errors <= np.median(errors))[0]
     valid_idx = [np.argmin(errors)]  # best one
+    # valid_idx = range(len(errors))  # all
     # valid_idx = None
     # valid_idx = [0]
     # max_len = min(10, len(errors))  # top 20

@@ -774,6 +774,7 @@ class dvr_model(nn.Module):
 
         # weighting
         loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
+        loss_dict["depth"] = loss_dict["depth"] * (batch["depth"] > 0).float()
 
         # consistency between rendered mask and gauss mask
         if "gauss_mask" in rendered.keys():

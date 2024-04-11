@@ -2,7 +2,8 @@ seqname=predictor
 dev=$1
 
 #logname=Feb14at5-55тАпPM-poly
-logname=Feb26at10-02 PM-poly
+#logname=Feb26at10-02 PM-poly
+logname=Feb19at9-47 PM-poly
 rm -rf logdir/$seqname-$logname
 rm -rf logdir/$seqname-$logname-ft1
 rm -rf logdir/$seqname-$logname-ft2

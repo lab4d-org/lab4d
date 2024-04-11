@@ -1,49 +1,32 @@
 seqname=$1
 dev=$2
 
-# # foregroud from scratch with composition
-# logname=compose-fs
-# rm -rf logdir/$seqname-$logname
-# bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
-#   --intrinsics_type const --extrinsics_type mixse3 \
-#   --freeze_scale --freeze_camera_bg --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
-#   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
-#   --pixels_per_image 12 --bg_vid 0 \
-#   --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5 \
-#   --feature_channels 384 --imgs_per_gpu 384 
-#   # --load_path logdir-old/home-2023-11-curated-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
-#   # --feature_type cse  --imgs_per_gpu 512
+# foregroud from scratch with composition
+logname=compose-fs
+rm -rf logdir/$seqname-$logname
+bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
+  --intrinsics_type const --extrinsics_type mixse3 \
+  --freeze_scale --freeze_camera_bg --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
+  --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
+  --pixels_per_image 12 --bg_vid 0 \
+  --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5 \
+  --feature_channels 384 --imgs_per_gpu 384 
+  # --load_path logdir-old/home-2023-11-curated-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
+  # --feature_type cse  --imgs_per_gpu 512
 
-# # fine-tune
-# logname=compose-ft
-# rm -rf logdir/$seqname-$logname
-# bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
-#   --intrinsics_type const --extrinsics_type mixse3 \
-#   --freeze_scale --freeze_camera_bg --freeze_field_fgbg --learning_rate 1e-4 --noreset_steps --noabsorb_base --nouse_freq_anneal --num_rounds 20 \
-#   --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --load_path logdir/$seqname-compose-fs/ckpt_latest.pth \
-#   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 \
-#   --pixels_per_image 12 --bg_vid 0 \
-#   --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 \
-#   --imgs_per_gpu 384 --feature_channels 384 
-#   # --feature_type cse --imgs_per_gpu 512
-
+# fine-tune
 logname=compose-ft
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 0 --vis_thresh -20 --grid_size 128 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 1 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 2 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 3 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 4 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 5 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 6 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 7 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 8 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 9 --vis_thresh -20 --grid_size 128 --data_prefix full 0
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 10 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 11 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 12 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 13 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 14 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 15 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 16 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 17 --vis_thresh -20 --grid_size 128 --data_prefix full 0;
-python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 18 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 19 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 20 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 21 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 22 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 23 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 24 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 25 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 26 --vis_thresh -20 --grid_size 128 --data_prefix full 0;
-# python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 27 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 28 --vis_thresh -20 --grid_size 128 --data_prefix full 0;
-# # # python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 29 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 30 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 31 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 32 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 33 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 34 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 35 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 36 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 37 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 38 --vis_thresh -20 --grid_size 128 --data_prefix full 0;
-# # # python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 39 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 40 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 41 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 42 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 43 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 44 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 45 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 46 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 47 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 48 --vis_thresh -20 --grid_size 128 --data_prefix full 0;
-# # # python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 49 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 50 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 51 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 52 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 53 --vis_thresh -20 --grid_size 128 --data_prefix full 0;python lab4d/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --inst_id 54 --vis_thresh -20 --grid_size 128 --data_prefix full 0;
+rm -rf logdir/$seqname-$logname
+bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
+  --intrinsics_type const --extrinsics_type mixse3 \
+  --freeze_scale --freeze_camera_bg --freeze_field_fgbg --learning_rate 1e-4 --noreset_steps --noabsorb_base --nouse_freq_anneal --num_rounds 20 \
+  --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --load_path logdir/$seqname-compose-fs/ckpt_latest.pth \
+  --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 \
+  --pixels_per_image 12 --bg_vid 0 \
+  --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 \
+  --imgs_per_gpu 384 --feature_channels 384 
+  # --feature_type cse --imgs_per_gpu 512
+
 
 
 ## old ones

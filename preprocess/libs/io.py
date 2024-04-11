@@ -109,6 +109,7 @@ def read_depth(depth_path, shape):
     depth = np.load(depth_path).astype(np.float32)
     if depth.shape[0] != shape[0] or depth.shape[1] != shape[1]:
         depth = cv2.resize(depth, shape[:2][::-1], interpolation=cv2.INTER_LINEAR)
+    depth[np.isnan(depth)]=0
     return depth
 
 

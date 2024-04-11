@@ -128,8 +128,12 @@ def record3d_to_lab4d(
     # extrinsics = np.tile(np.eye(4)[None], (len(poses), 1, 1))
     # extrinsics[:, :3, 3] = poses[:, 4:]
     # extrinsics[:, :3, :3] = R.from_quat(poses[:, :4]).as_matrix()
-    # # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
-    # transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
+    # if flip:
+    #     # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
+    #     transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
+    # else:
+    #     # from (x-right, y-up, z-inward) to (x-right, y-down, z-forward)
+    #     transformation_matrix = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
     # extrinsics[:, :3, :3] = extrinsics[:, :3, :3] @ transformation_matrix[None]
     # extrinsics = np.linalg.inv(extrinsics)
     # gl_to_cv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
@@ -178,9 +182,8 @@ def record3d_to_lab4d(
     # canonical_registration(seqname, 256, "quad")
 
     # run camera inference on the scene
-    # cmd = f'python projects/predictor/inference.py --flagfile=logdir/predictor-Feb26at10-02 PM-poly-ft4/opts.log --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/{seqname}/'
-    cmd = f'python projects/predictor/inference.py --flagfile=logdir/predictor-{envname}-ft4/opts.log --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/{seqname}/'
-    os.system(cmd)
+    # cmd = f'python projects/predictor/inference.py --flagfile=logdir/predictor-{envname}-ft4/opts.log --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/{seqname}/'
+    # os.system(cmd)
     os.system(f'python projects/csim/transform_bg_cams.py {seqname}')
 
 if __name__ == "__main__":
@@ -191,13 +194,14 @@ if __name__ == "__main__":
     # prompt="cat"
 
 
-    # flip=False
-    # home_path = "database/configs/Feb14at5-55тАпPM-poly.config"
-    # prompt = "bunny"
+    flip=False
+    home_path = "database/configs/Feb14at5-55тАпPM-poly.config"
+    prompt = "bunny"
     # vidname = "2024-02-14--17-50-52"
+    vidname = "2024-02-14--17-51-46"
 
-    flip=True
-    home_path = "database/configs/Feb26at10-02 PM-poly.config"
-    prompt = "cat"
+    # flip=True
+    # home_path = "database/configs/Feb26at10-02 PM-poly.config"
+    # prompt = "cat"
     # vidname = "2024-02-26--22-00-31"
     record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
