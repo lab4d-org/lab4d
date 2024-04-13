@@ -20,11 +20,10 @@
 
 
 ## TODOs
-- [x] more data and checkpoints
-- [ ] feedforward models
-- [ ] web viewer
-- [ ] evaluation and benchmarks
+- [ ] web viewer (see [PPR branch](https://github.com/gengshan-y/ppr))
+- [ ] evaluation (see [PPR branch](https://github.com/gengshan-y/ppr)) and benchmarks
 - [ ] multi-view reconstruction
+- [ ] feedforward models (see [DASR](https://github.com/jefftan969/dasr))
 
 ## Acknowledgement
 - Our pre-processing pipeline is built upon the following open-sourced repos: 
