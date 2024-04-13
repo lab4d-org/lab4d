@@ -19,4 +19,4 @@
 	url = https://github.com/ashawkey/diff-gaussian-rasterization.git
 [submodule "projects/gd-mdm"]
 	path = projects/gd-mdm
-	url = https://github.com/gengshan-y/gd-mdm.git
+	url = git@github.com:gengshan-y/gd-mdm.git
