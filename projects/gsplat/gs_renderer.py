@@ -423,7 +423,7 @@ class GaussianModel(nn.Module):
         # update init traj if lab4d ckpt exists
         if self.lab4d_model is not None:
             dev = "cuda"
-            inst_id = 1
+            inst_id = 0
             inst_id = torch.tensor([inst_id], device=dev)
             frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
             frameid = torch.arange(total_frames, device=dev)
@@ -440,7 +440,7 @@ class GaussianModel(nn.Module):
 
         # update init camera if lab4d ckpt exists
         if self.lab4d_model is not None:
-            inst_id = 1
+            inst_id = 0
             frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
             rtmat = self.lab4d_model.get_cameras()["fg"]
             rtmat = rtmat[frame_offsets[inst_id] : frame_offsets[inst_id + 1]]
@@ -552,11 +552,12 @@ class GaussianModel(nn.Module):
 
         # Prune if opacity is low, scale if high, or grad is low
         selected_trans_pts = (self.get_opacity < min_opacity).squeeze()
-        selected_big_pts = self.get_scaling.max(dim=1).values > max_scale
+        # selected_big_pts = self.get_scaling.max(dim=1).values > max_scale
         selected_oog_pts = torch.logical_and(grads < min_grad, self.denom[..., 0] > 0)
         selected_oom_pts = oom_ratio > min_vis  # 10% frames oom
         print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
-        prune_mask = torch.logical_or(selected_trans_pts, selected_big_pts)
+        # prune_mask = torch.logical_or(selected_trans_pts, selected_big_pts)
+        prune_mask = selected_trans_pts
         prune_mask = torch.logical_or(prune_mask, selected_oog_pts)
         prune_mask = torch.logical_or(prune_mask, selected_oom_pts)
         return clone_mask, prune_mask
@@ -762,7 +763,7 @@ class GaussianModel(nn.Module):
     def get_lab4d_loss(self, frameid):
         dev = self._xyz.device
         frameid = frameid.view(-1)
-        inst_id = 1
+        inst_id = 0
         inst_id = torch.tensor([inst_id], device=dev)
 
         # predicted pose

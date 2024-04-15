@@ -35,42 +35,42 @@ def json_to_camera(json_data):
     intrinsics[3] = json_data["cy"]
     return extrinsics, intrinsics
 
+if __name__ == "__main__":
+    target_dir = "../ace/datasets/home"
+    source_dir = "database/polycam/Oct5at10-49AM-poly/keyframes"
+    os.makedirs("%s/train/rgb" % target_dir, exist_ok=True)
+    os.makedirs("%s/train/poses" % target_dir, exist_ok=True)
+    os.makedirs("%s/train/calibration" % target_dir, exist_ok=True)
 
-target_dir = "../ace/datasets/home"
-source_dir = "database/polycam/Oct5at10-49AM-poly/keyframes"
-os.makedirs("%s/train/rgb" % target_dir, exist_ok=True)
-os.makedirs("%s/train/poses" % target_dir, exist_ok=True)
-os.makedirs("%s/train/calibration" % target_dir, exist_ok=True)
+    # from (x-down, y-right, z-inward) to (x-right, y-down, z-forward)
+    transformation_matrix = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]])
 
-# from (x-down, y-right, z-inward) to (x-right, y-down, z-forward)
-transformation_matrix = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]])
+    extrinsics_all = []
+    for imgpath in sorted(glob.glob("%s/images/*.jpg" % source_dir)):
+        filename = imgpath.split("/")[-1].split(".")[0]
+        # copy to target dir
+        target_file = "%s/train/rgb/%s.color.png" % (target_dir, filename)
+        image = cv2.imread(imgpath)
+        image = np.transpose(image, [1, 0, 2])  # vertical to horizontal
+        image = image[:, ::-1, :]  # flip horizontally
+        cv2.imwrite(target_file, image)
 
-extrinsics_all = []
-for imgpath in sorted(glob.glob("%s/images/*.jpg" % source_dir)):
-    filename = imgpath.split("/")[-1].split(".")[0]
-    # copy to target dir
-    target_file = "%s/train/rgb/%s.color.png" % (target_dir, filename)
-    image = cv2.imread(imgpath)
-    image = np.transpose(image, [1, 0, 2])  # vertical to horizontal
-    image = image[:, ::-1, :]  # flip horizontally
-    cv2.imwrite(target_file, image)
+        # copy to poses
+        # both ace and polycam saves view-to-world poses
+        camera_path = imgpath.replace("images", "cameras").replace(".jpg", ".json")
+        json_data = json.load(open(camera_path))
+        extrinsics, intrinsics = json_to_camera(json_data)
+        extrinsics[:3, :3] = extrinsics[:3, :3] @ transformation_matrix
 
-    # copy to poses
-    # both ace and polycam saves view-to-world poses
-    camera_path = imgpath.replace("images", "cameras").replace(".jpg", ".json")
-    json_data = json.load(open(camera_path))
-    extrinsics, intrinsics = json_to_camera(json_data)
-    extrinsics[:3, :3] = extrinsics[:3, :3] @ transformation_matrix
+        target_file = "%s/train/poses/%s.pose.txt" % (target_dir, filename)
+        np.savetxt(target_file, extrinsics)
 
-    target_file = "%s/train/poses/%s.pose.txt" % (target_dir, filename)
-    np.savetxt(target_file, extrinsics)
+        target_file = "%s/train/calibration/%s.calibration.txt" % (target_dir, filename)
+        np.savetxt(target_file, intrinsics[0:1])
 
-    target_file = "%s/train/calibration/%s.calibration.txt" % (target_dir, filename)
-    np.savetxt(target_file, intrinsics[0:1])
+        extrinsics_all.append(extrinsics)
 
-    extrinsics_all.append(extrinsics)
-
-# extrinsics_all = np.stack(extrinsics_all)
-extrinsics_all = np.linalg.inv(extrinsics_all)
-mesh = draw_cams(extrinsics_all)
-mesh.export("tmp/0.obj")
+    # extrinsics_all = np.stack(extrinsics_all)
+    extrinsics_all = np.linalg.inv(extrinsics_all)
+    mesh = draw_cams(extrinsics_all)
+    mesh.export("tmp/0.obj")

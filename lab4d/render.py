@@ -185,7 +185,10 @@ def construct_batch_from_opts(opts, model, data_info):
 
 def batch_to_flow_batch(batch):
     for k, v in batch.items():
-        batch[k] = torch.stack([v[:-1], v[1:]], dim=1).reshape(-1, *v.shape[1:])
+        if isinstance(v, dict):
+            v = batch_to_flow_batch(v)
+        else:
+            batch[k] = torch.stack([v[:-1], v[1:]], dim=1).reshape(-1, *v.shape[1:])
         # render a specific frame
         # frame = 1170
         # batch[k] = torch.stack(

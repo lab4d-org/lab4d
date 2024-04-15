@@ -567,7 +567,9 @@ class GSplatTrainer(Trainer):
 
         if prune_mask.sum() or clone_mask.sum():
             self.prune_parameters(~prune_mask, clone_mask)
-            optimizer_state = list(self.optimizer.state.values())
+            vlist = []
+            for i in range(len(self.optimizer.param_groups)):
+                vlist.append(self.optimizer.state[self.optimizer.param_groups[i]['params'][0]])
 
             # self.model.update_geometry_aux()
             # self.model.export_geometry_aux(
@@ -581,8 +583,8 @@ class GSplatTrainer(Trainer):
         # update optimizer
         self.optimizer_init()
         # restore optimizer stats
-        for i, (k, v) in enumerate(self.optimizer.state.items()):
-            self.optimizer.state[k] = optimizer_state[i]
+        for i,v in enumerate(vlist):
+            self.optimizer.state[self.optimizer.param_groups[i]['params'][0]] = v
         self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
         self.scheduler.step(self.current_steps)
 

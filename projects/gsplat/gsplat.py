@@ -130,7 +130,7 @@ class GSplatModel(nn.Module):
 
         # initialize temporal part: (dx,dy,dz)t
         if not config["fg_motion"] == "rigid":
-            total_frames = data_info["total_frames"]
+            total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
             if config["use_timesync"]:
                 num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
                 total_frames = total_frames // num_vids

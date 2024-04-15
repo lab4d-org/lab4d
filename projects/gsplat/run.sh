@@ -1,17 +1,17 @@
 # dynamic singlecam
-dev=2
-# seqname=cat-pikachu-0
-seqname=2023-11-03--20-53-19
-logname=gsplat-ref-exp-update-arap-img-fix2
+dev=0
+seqname=cat-pikachu-0
+#seqname=2023-11-03--20-53-19
+logname=gsplat-ref-exp-z123-prune
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
-  --pixels_per_image -1 --imgs_per_gpu 8 --field_type fg --eval_res 256 \
-  --num_rounds 120 --iters_per_round 200 --learning_rate 5e-4 \
-  --feature_type cse --use_timesync --intrinsics_type const --extrinsics_type image --fg_motion image \
-  --use_init_cam \
-  --flow_wt 0.1 --lab4d_path logdir/home-2023-11-03--20-53-19-compose-fs-new2/opts.log --reg_lab4d_wt 1.0 --reg_arap_wt 1.0
-  # --extrinsics_type explicit --fg_motion dynamic
-  # --extrinsics_type image --fg_motion image
+  --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --eval_res 256 \
+  --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
+  --feature_type cse --use_timesync --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
+  --use_init_cam --lab4d_path logdir/cat-pikachu-0-fg-skel/opts.log \
+  --flow_wt 0.0 --guidance_zero123_wt 2e-4
+  # --flow_wt 0.1 --reg_arap_wt 1.0 \
+  # --extrinsics_type image --fg_motion image --reg_lab4d_wt 1.0
 # python projects/gsplat/render.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
 # python projects/gsplat/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
 
@@ -84,12 +84,12 @@ bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname
 # dev=0
 # seqname=eagle
 # # seqname=cat-pikachu-0
-# logname=gsplat-ref-resetstat-test2
+# logname=gsplat-ref
 # rm -rf logdir/$seqname-$logname
 # bash scripts/train.sh projects/gsplat/train.py $dev --seqname $seqname --logname $logname \
 #   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --intrinsics_type const --extrinsics_type const \
 #   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
-#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --fg_motion rigid
+#   --guidance_sd_wt 0.0 --guidance_zero123_wt 0.0 --feature_type cse --fg_motion rigid --eval_res 256 --flow_wt 0.0
 
 # # image-based
 # dev=1
