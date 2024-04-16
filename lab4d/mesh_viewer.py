@@ -158,13 +158,13 @@ class MeshViewer:
 
     def run(self) -> None:
         # Start the server.
-        for i in tqdm(range(self.num_frames)):
+        for i, (frame_idx,_) in enumerate(tqdm(self.loader.extr_dict.items())):
             # Add base frame.
             self.frame_nodes.append(
                 self.server.add_frame(f"/frames/t{i}", show_axes=False)
             )
 
-            input_dict = self.loader.query_frame(i)
+            input_dict = self.loader.query_frame(frame_idx)
             if len(self.loader.path_list) > 1:
                 # for foreground
                 self.server.add_mesh_trimesh(
@@ -177,7 +177,7 @@ class MeshViewer:
 
             # Place the frustum.
             rgb = self.rgb_list[i]
-            extrinsics = np.linalg.inv(self.loader.extr_dict[i])
+            extrinsics = np.linalg.inv(self.loader.extr_dict[frame_idx])
             intrinsics = self.loader.intrinsics[i] / self.downsample_factor
             fov = 2 * np.arctan2(rgb.shape[0] / 2, intrinsics[0])
             aspect = rgb.shape[1] / rgb.shape[0]

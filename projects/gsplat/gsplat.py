@@ -1052,12 +1052,12 @@ class GSplatModel(nn.Module):
         # type = "linear"
         # self.set_loss_weight(loss_name, anchor_x, anchor_y, progress, type=type)
 
-        # reg_lab4d_wt
-        loss_name = "reg_lab4d_wt"
-        anchor_x = (0, 2000.0)
-        anchor_y = (1.0, 0.0)
-        type = "linear"
-        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        # # reg_lab4d_wt
+        # loss_name = "reg_lab4d_wt"
+        # anchor_x = (0, 2000.0)
+        # anchor_y = (1.0, 0.0)
+        # type = "linear"
+        # self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
     def set_loss_weight(
         self, loss_name, anchor_x, anchor_y, progress_ratio, type="linear"

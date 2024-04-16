@@ -225,6 +225,9 @@ class CameraConst(nn.Module):
         quat = matrix_to_quaternion(rtmat[:, :3, :3])
         self.register_buffer("trans", trans, persistent=False)
         self.register_buffer("quat", quat, persistent=False)
+        self.register_buffer(
+            "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
+        )
 
     def mlp_init(self):
         pass

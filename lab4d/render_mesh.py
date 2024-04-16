@@ -43,7 +43,7 @@ def main():
     renderer = PyRenderWrapper(raw_size)
     print("Rendering [%s]:" % args.view)
     frames = []
-    for frame_idx, _ in tqdm.tqdm(loader.extr_dict.items()):
+    for idx, (frame_idx, _) in enumerate(tqdm.tqdm(loader.extr_dict.items())):
         # input dict
         input_dict = loader.query_frame(frame_idx)
 
@@ -51,7 +51,7 @@ def main():
             # set camera extrinsics
             renderer.set_camera(loader.extr_dict[frame_idx])
             # set camera intrinsics
-            renderer.set_intrinsics(loader.intrinsics[frame_idx])
+            renderer.set_intrinsics(loader.intrinsics[idx])
         elif args.view == "bev":
             # bev
             renderer.set_camera_bev(depth=20)

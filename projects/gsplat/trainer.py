@@ -580,13 +580,13 @@ class GSplatTrainer(Trainer):
             # torch.cuda.empty_cache()
             # self.reset_opacity()
 
-        # update optimizer
-        self.optimizer_init()
-        # restore optimizer stats
-        for i,v in enumerate(vlist):
-            self.optimizer.state[self.optimizer.param_groups[i]['params'][0]] = v
-        self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
-        self.scheduler.step(self.current_steps)
+            # update optimizer
+            self.optimizer_init()
+            # restore optimizer stats
+            for i,v in enumerate(vlist):
+                self.optimizer.state[self.optimizer.param_groups[i]['params'][0]] = v
+            self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
+            self.scheduler.step(self.current_steps)
 
     def prune_parameters(self, valid_mask, clone_mask):
         """

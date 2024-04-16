@@ -776,7 +776,7 @@ class GaussianModel(nn.Module):
         with torch.no_grad():
             # motion_gt = self.camera_mlp.init_vals[2].to(dev)
             # motion_gt = motion_gt[:, frameid]
-            xyz_gt = self.camera_mlp.init_vals[1].to(dev).detach()
+            # xyz_gt = self.camera_mlp.init_vals[1].to(dev).detach()
 
             frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
             frameid = frameid + frame_offsets[inst_id]
@@ -801,18 +801,18 @@ class GaussianModel(nn.Module):
         # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002)
         # loss = loss + samploss(xyz, xyz_gt).mean()
 
-        sys.path.insert(
-            0,
-            "%s/../ppr/eval/third_party/ChamferDistancePytorch/"
-            % os.path.join(os.path.dirname(__file__)),
-        )
-        from chamfer3D.dist_chamfer_3D import chamfer_3DDist
+        # sys.path.insert(
+        #     0,
+        #     "%s/../ppr/eval/third_party/ChamferDistancePytorch/"
+        #     % os.path.join(os.path.dirname(__file__)),
+        # )
+        # from chamfer3D.dist_chamfer_3D import chamfer_3DDist
 
-        chamLoss = chamfer_3DDist()
-        loss_xyz_fw, loss_xyz_bw, _, _ = chamLoss(xyz_gt[None], xyz[None])
-        loss_xyz = (loss_xyz_fw.mean() + loss_xyz_bw.mean()) / 2 * 1000
-        print("loss_xyz: ", loss_xyz)
-        loss = loss + loss_xyz
+        # chamLoss = chamfer_3DDist()
+        # loss_xyz_fw, loss_xyz_bw, _, _ = chamLoss(xyz_gt[None], xyz[None])
+        # loss_xyz = (loss_xyz_fw.mean() + loss_xyz_bw.mean()) / 2 * 1000
+        # print("loss_xyz: ", loss_xyz)
+        # loss = loss + loss_xyz
 
         return loss
 
