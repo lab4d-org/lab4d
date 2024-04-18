@@ -449,18 +449,17 @@ class GaussianModel(nn.Module):
         # update init traj if lab4d ckpt exists
         if self.lab4d_model is not None:
             dev = "cuda"
-            inst_id = 0
-            inst_id = torch.tensor([inst_id], device=dev)
             frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
-            frameid = torch.arange(total_frames, device=dev)
-            frameid = frameid + frame_offsets[inst_id]
+            for inst_id in range(0, len(frame_offsets)-1):
+                inst_id = torch.tensor([inst_id], device=dev)
+                frameid = torch.arange(frame_offsets[inst_id], frame_offsets[inst_id+1], device=dev)
 
-            chunk_size = 64
-            xyz_t = torch.zeros((self.get_num_pts, total_frames, 3), device="cpu")
-            for i in range(0, total_frames, chunk_size):
-                chunk_frameid = frameid[i : i + chunk_size]
-                xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()
-            trajectory[:, :, 4:] = xyz_t - self._xyz[:, None]
+                chunk_size = 64
+                xyz_t = torch.zeros((self.get_num_pts, len(frameid), 3), device="cpu")
+                for i in range(0, len(frameid), chunk_size):
+                    chunk_frameid = frameid[i : i + chunk_size]
+                    xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()         
+                trajectory[:, frameid, 4:] = xyz_t - self._xyz[:, None]
 
         self._trajectory = nn.Parameter(trajectory)
 
@@ -471,10 +470,7 @@ class GaussianModel(nn.Module):
 
         # update init camera if lab4d ckpt exists
         if self.lab4d_model is not None:
-            inst_id = 0
-            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
             rtmat = self.lab4d_model.get_cameras()["fg"]
-            rtmat = rtmat[frame_offsets[inst_id] : frame_offsets[inst_id + 1]]
 
         frame_info = data_info["frame_info"]
         if config["extrinsics_type"] == "const":

@@ -544,9 +544,7 @@ class GSplatModel(nn.Module):
 
         loss_dict = {}
         self.compute_recon_losses(loss_dict, rendered, batch)
-        self.mask_losses(
-            loss_dict, batch["mask"], batch["vis2d"], rendered["alpha"], self.config
-        )
+        self.mask_losses(loss_dict, batch, rendered["alpha"], self.config)
 
         # compute regularization loss
         self.compute_reg_loss(loss_dict, frameid)
@@ -739,7 +737,7 @@ class GSplatModel(nn.Module):
             loss_dict["reg_lab4d"] = self.gaussians.get_lab4d_loss(frameid)
 
     @staticmethod
-    def mask_losses(loss_dict, maskfg, vis2d, mask_pred, config):
+    def mask_losses(loss_dict, batch, mask_pred, config):
         """Apply segmentation mask on dense losses
 
         Args:
@@ -754,10 +752,13 @@ class GSplatModel(nn.Module):
                 "hxy" (M,2,N,3)
             config (Dict): Command-line options
         """
+        maskfg = batch["mask"]
+        vis2d = batch["vis2d"]
+
         # always mask-out non-visible (out-of-frame) pixels
-        keys_allpix = ["mask", "flow", "rgb"]
+        keys_allpix = ["mask"]
         # field type specific keys
-        keys_type_specific = []
+        keys_type_specific = ["flow", "rgb"]
         # rendered-mask weighted losses
         keys_mask_weighted = ["flow", "rgb"]
 
@@ -782,6 +783,12 @@ class GSplatModel(nn.Module):
         # apply mask weights
         for k in keys_mask_weighted:
             loss_dict[k] *= mask_pred.detach()
+
+        is_detected = batch["is_detected"].float()[:, None, None]
+
+        # remove mask loss for frames without detection
+        if config["field_type"] == "fg" or config["field_type"] == "comp":
+            loss_dict["mask"] = loss_dict["mask"] * is_detected
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):
