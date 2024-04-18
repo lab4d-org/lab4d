@@ -28,6 +28,7 @@ from lab4d.utils.geom_utils import (
     K2inv,
     pinhole_projection,
     rot_angle,
+    decimate_mesh,
 )
 from lab4d.utils.camera_utils import get_rotating_cam
 from lab4d.utils.quat_transform import (
@@ -110,6 +111,7 @@ class GSplatModel(nn.Module):
             self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
         else:
             mesh = self.gaussians.lab4d_model.fields.extract_canonical_meshes()["fg"]
+            mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
             scale_fg = self.gaussians.lab4d_model.fields.field_params["fg"]
             self.gaussians.scale_fg = scale_fg.logscale.exp()
             pcd = BasicPointCloud(
@@ -872,7 +874,10 @@ class GSplatModel(nn.Module):
                 modified in place to reshape each value to (M, 2, ...)
         """
         for k, v in batch.items():
-            batch[k] = v.reshape(-1, 2, *v.shape[1:])
+            if isinstance(v, dict):
+                GSplatModel.reshape_batch_inv(v)
+            else:
+                batch[k] = v.reshape(-1, 2, *v.shape[1:])
 
     @staticmethod
     def reshape_batch(batch):

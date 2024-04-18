@@ -385,7 +385,7 @@ class SkinningWarp(IdentityWarp):
         skin_prob = skin.softmax(-1)
 
         # left-multiply per-point se3
-        out = dual_quaternion_skinning(se3, xyz, skin_prob)
+        out, dual_quat = dual_quaternion_skinning(se3, xyz, skin_prob)
 
         # # linear blend skinning
         # out = linear_blend_skinning(se3, xyz, skin_prob)
@@ -393,6 +393,7 @@ class SkinningWarp(IdentityWarp):
         warp_dict = {}
         # warp_dict["skin_entropy"] = cross_entropy_skin_loss(skin)[..., None]
         warp_dict["skin_entropy"] = torch.zeros_like(skin[..., :1])  # TODO: remove
+        warp_dict["dual_quat"] = dual_quat
         if delta_skin is not None:
             # (M, N, D, 1)
             warp_dict["delta_skin"] = delta_skin.pow(2).mean(-1, keepdims=True)

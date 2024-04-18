@@ -26,6 +26,8 @@ from lab4d.utils.quat_transform import (
     quaternion_to_matrix,
     quaternion_conjugate,
     matrix_to_quaternion,
+    dual_quaternion_to_quaternion_translation,
+    quaternion_conjugate,
 )
 from lab4d.utils.geom_utils import rot_angle
 from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
@@ -233,12 +235,35 @@ class GaussianModel(nn.Module):
 
     def update_trajectory(self, frameid):
         if isinstance(self.camera_mlp, TrajPredictor):
+            # image-based motion
             _, _, motion = self.camera_mlp.get_vals(frameid, xyz=self._xyz)  # N, bs, 3
             self._trajectory.data[:, frameid, 4:] = motion
-            # to prop grad to motion
-            self._trajectory_pred = torch.zeros_like(self._trajectory)
-            self._trajectory_pred = self._trajectory_pred + self._trajectory
-            self._trajectory_pred[:, frameid, 4:] = motion
+            #TODO add delta quat
+        else:
+            # lab4d model (fourier basis motion)
+            field = self.lab4d_model.fields.field_params["fg"]
+            scale_fg = self.scale_fg.detach()
+            frameid = frameid.reshape(-1)
+            inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
+            xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
+            xyz_repeated_in = xyz_repeated[:,None] * scale_fg
+            xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)
+            xyz_t = xyz_t[:, 0] / scale_fg
+            motion = (xyz_t - xyz_repeated).transpose(0, 1).contiguous()
+
+            # rotataion and translation of each gaussian
+            quat, _ = dual_quaternion_to_quaternion_translation(warp_dict["dual_quat"])
+            quat = quat.transpose(0, 1).contiguous()
+            rot = self.rotation_activation(self._rotation)
+            quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
+            self._trajectory.data[:, frameid, :4] = quat_delta
+            self._trajectory.data[:, frameid, 4:] = motion
+        
+        # to prop grad to motion
+        self._trajectory_pred = torch.zeros_like(self._trajectory)
+        self._trajectory_pred = self._trajectory_pred + self._trajectory
+        self._trajectory_pred[:, frameid, 4:] = motion
+        self._trajectory_pred[:, frameid, :4] = quat_delta
 
     def get_xyz(self, frameid=None):
         if hasattr(self, "_trajectory"):
@@ -416,6 +441,7 @@ class GaussianModel(nn.Module):
         else:
             return 0
 
+    @torch.no_grad()
     def init_trajectory(self, total_frames):
         trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
         trajectory[:, :, 0] = 1.0
@@ -428,7 +454,12 @@ class GaussianModel(nn.Module):
             frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
             frameid = torch.arange(total_frames, device=dev)
             frameid = frameid + frame_offsets[inst_id]
-            xyz_t = self.get_lab4d_xyz_t(inst_id, frameid).cpu()  # N, T, 3
+
+            chunk_size = 64
+            xyz_t = torch.zeros((self.get_num_pts, total_frames, 3), device="cpu")
+            for i in range(0, total_frames, chunk_size):
+                chunk_frameid = frameid[i : i + chunk_size]
+                xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()
             trajectory[:, :, 4:] = xyz_t - self._xyz[:, None]
 
         self._trajectory = nn.Parameter(trajectory)

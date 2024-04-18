@@ -37,7 +37,7 @@ def resolve_size_mismatch(model, ckpt_states):
         # if GSplat, ignore
         if "gaussians._" in k:
             set_nested_attr(model, k, nn.Parameter(v))
-            print("ignored due to gsplats")
+            print("ignored parameter %s due to gsplats"%k)
             continue
 
         # resolve size mismatch

@@ -103,6 +103,7 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
         skin: (M, ..., B) Skinning weights from each point to each bone
     Returns:
         pts: (M, ..., 3) Articulated points
+        dq: (M, ..., 3), (M,..., 3): dual quaternions
     """
     shape = pts.shape
     bs, B, _ = dual_quat[0].shape
@@ -128,10 +129,11 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
     qr_w = qr_w * qr_mag_inv
     qd_w = qd_w * qr_mag_inv
     # apply
-    pts = dual_quaternion_apply((qr_w, qd_w), pts)
+    dual_quat = (qr_w, qd_w)
+    pts = dual_quaternion_apply(dual_quat, pts)
 
     pts = pts.view(*shape)
-    return pts
+    return pts, dual_quat
 
 
 def linear_blend_skinning(dual_quat, xyz, skin_prob):
@@ -647,17 +649,19 @@ def marching_cubes(
         mesh = [i for i in mesh.split(only_watertight=False)]
         mesh = sorted(mesh, key=lambda x: x.vertices.shape[0])
         mesh = mesh[-1]
-        res_f = 10000
-        # decimation
-        vw, fw = make_manifold(mesh, res_f=res_f)
-        v, f, v_c, f_c = pcu.decimate_triangle_mesh(vw, fw, res_f)
-        mesh = trimesh.Trimesh(v, f)
+        mesh = decimate_mesh(mesh, res_f=10000)
     else:
         pass
         # bg
         # TODO: isotropic remeshing
     return mesh
 
+
+def decimate_mesh(mesh, res_f=10000):
+    vw, fw = make_manifold(mesh, res_f=res_f)
+    v, f, v_c, f_c = pcu.decimate_triangle_mesh(vw, fw, res_f)
+    mesh = trimesh.Trimesh(v, f)
+    return mesh
 
 def make_manifold(mesh, res_f=10000):
     """
