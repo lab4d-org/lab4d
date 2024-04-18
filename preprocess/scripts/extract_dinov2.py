@@ -116,7 +116,7 @@ def extract_dinov2_seq(seqname, use_full, component_id, pca_save):
         prefix = "full"
     else:
         prefix = "crop"
-    save_path_dp = "%s/%s-dinov2-%02d.npy" % (
+    save_path_dp = "%s/%s-dinov2c16-%02d.npy" % (
         save_path_dp,
         prefix,
         component_id,
@@ -174,7 +174,8 @@ def extract_dinov2(seqname, component_id=1, gpulist=[0], ndim=16):
         args.append((seqname, True, component_id, pca_save))
         args.append((seqname, False, component_id, pca_save))
 
-    gpu_map(extract_dinov2_seq, args, gpus=gpulist)
+    # gpu_map(extract_dinov2_seq, args, gpus=gpulist)
+    gpu_map(extract_dinov2_seq, args)
 
 
 if __name__ == "__main__":

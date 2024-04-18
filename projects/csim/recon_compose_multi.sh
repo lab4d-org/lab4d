@@ -10,9 +10,8 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
   --pixels_per_image 12 --bg_vid 0 \
   --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5 \
-  --feature_channels 384 --imgs_per_gpu 384 
-  # --load_path logdir-old/home-2023-11-curated-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
-  # --feature_type cse  --imgs_per_gpu 512
+  --imgs_per_gpu 512 --feature_type cse \
+  --load_path logdir-old/home-2023-11-curated-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
 
 # fine-tune
 logname=compose-ft
@@ -24,8 +23,7 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 \
   --pixels_per_image 12 --bg_vid 0 \
   --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 \
-  --imgs_per_gpu 384 --feature_channels 384 
-  # --feature_type cse --imgs_per_gpu 512
+  --imgs_per_gpu 512 --feature_type cse
 
 
 
