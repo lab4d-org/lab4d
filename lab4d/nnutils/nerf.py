@@ -858,6 +858,8 @@ class NeRF(nn.Module):
             xyz, xyz_t, frame_id, inst_id, samples_dict=samples_dict
         )
         for k in cyc_dict.keys():
+            if k == "dual_quat":
+                    continue
             if k in backwarp_dict.keys():
                 # 'skin_entropy', 'delta_skin'
                 feat_dict[k] = (cyc_dict[k] + backwarp_dict[k]) / 2

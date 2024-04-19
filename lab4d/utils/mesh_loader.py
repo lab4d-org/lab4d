@@ -163,7 +163,7 @@ class MeshLoader:
 
                     # pts traj
                     kps_all = np.asarray(list(kps_dict.values()))
-                    pts_traj_dict[frame_idx] = get_pts_traj(kps_all, frame_idx)
+                    pts_traj_dict[frame_idx] = get_pts_traj(kps_all, counter)
 
                 if ghosting:
                     total_ghost = 10

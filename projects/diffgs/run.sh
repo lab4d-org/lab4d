@@ -12,7 +12,7 @@ bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname
   --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --eval_res 256 \
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
   --feature_type cse --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
-  --use_init_cam --lab4d_path $lab4d_path \
+  --use_init_cam --lab4d_path $lab4d_path --num_pts 20000 \
   --flow_wt 0.0
   # --bg_vid 0 # --guidance_zero123_wt 2e-4
   # --flow_wt 0.1 --reg_arap_wt 1.0 \
