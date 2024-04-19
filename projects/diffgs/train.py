@@ -6,7 +6,7 @@ from absl import app
 
 sys.path.insert(0, os.getcwd())
 from lab4d.train import train_ddp
-from projects.gsplat.trainer import GSplatTrainer
+from projects.diffgs.trainer import GSplatTrainer
 
 
 def main(_):

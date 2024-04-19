@@ -38,13 +38,13 @@ from lab4d.utils.quat_transform import (
 )
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
-from projects.gsplat.gs_renderer import (
+from projects.diffgs.gs_renderer import (
     GaussianModel,
     BasicPointCloud,
     getProjectionMatrix_K,
 )
-from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
-from projects.gsplat.cam_utils import orbit_camera
+from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
+from projects.diffgs.cam_utils import orbit_camera
 from projects.predictor.predictor import CameraPredictor, TrajPredictor
 
 from flowutils.flowlib import point_vec, warp_flow
@@ -309,6 +309,71 @@ class GSplatModel(nn.Module):
             out_dict[k] = torch.stack([d[k] for d in out_dicts], 0)
         return out_dict
 
+    @staticmethod
+    def gsplat_render(means3D, scales, quats, viewmat, Kmat, camera_dict, rgbs, opacities, background, B_SIZE=16):
+        from gsplat.project_gaussians import project_gaussians
+        from gsplat.rasterize import rasterize_gaussians
+        res = camera_dict["render_resolution"]
+        fx = Kmat[...,0,0] * res/2
+        fy = Kmat[...,1,1] * res/2
+        cx = Kmat[...,0,2] * res/2 + res / 2
+        cy = Kmat[...,1,2] * res/2 + res / 2
+        (
+            xys,
+            depths,
+            radii,
+            conics,
+            compensation,
+            num_tiles_hit,
+            cov3d,
+        ) = project_gaussians(
+            means3D,
+            scales,
+            1,
+            quats / quats.norm(dim=-1, keepdim=True),
+            viewmat,
+            fx,
+            fy,
+            cx,
+            cy,
+            res,
+            res,
+            B_SIZE,
+        )
+        rendered_image, rendered_alpha = rasterize_gaussians(
+            xys,
+            depths,
+            radii,
+            conics,
+            num_tiles_hit,
+            torch.sigmoid(rgbs),
+            torch.sigmoid(opacities),
+            camera_dict["render_resolution"],
+            camera_dict["render_resolution"],
+            B_SIZE,
+            background,
+            return_alpha=True,
+        )
+        rendered_depth = rasterize_gaussians(
+            xys,
+            depths,
+            radii,
+            conics,
+            num_tiles_hit,
+            depths[...,None].repeat(1,3),
+            torch.sigmoid(opacities),
+            res,
+            res,
+            B_SIZE,
+            background,
+        )[...,0]
+
+        rendered_image = rendered_image.permute(2,0,1)
+        rendered_depth = rendered_depth[None]
+        rendered_alpha = rendered_alpha[None]
+
+        return rendered_image, radii, rendered_depth, rendered_alpha
+
     def render(
         self,
         camera_dict,
@@ -352,6 +417,12 @@ class GSplatModel(nn.Module):
             rotations=rotations,
             cov3D_precomp=cov3D_precomp,
         )
+
+        # identity_viewmat = torch.eye(4, dtype=torch.float32, device="cuda")
+        # rendered_image, radii, rendered_depth, rendered_alpha = self.gsplat_render(
+        #     means3D, scales, rotations, identity_viewmat, Kmat, camera_dict,
+        #     shs[:,0], opacity, self.bg_color,
+        # )
 
         with torch.no_grad():
             field_vals = self.gaussians.get_xyz()

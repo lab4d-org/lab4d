@@ -9,7 +9,7 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 
 from lab4d.render import render, get_config, construct_batch_from_opts
-from projects.gsplat.trainer import GSplatTrainer as Trainer
+from projects.diffgs.trainer import GSplatTrainer as Trainer
 
 
 def main(_):

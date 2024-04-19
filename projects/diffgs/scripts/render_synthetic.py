@@ -21,7 +21,7 @@ from lab4d.utils.geom_utils import (
 from preprocess.scripts.write_config import write_config
 from preprocess.scripts.crop import extract_crop
 
-from projects.gsplat.render_utils import render_color, render_flow
+from projects.diffgs.render_utils import render_color, render_flow
 
 sys.path.insert(0, "preprocess/third_party/vcnplus/")
 from flowutils.flowlib import flow_to_image

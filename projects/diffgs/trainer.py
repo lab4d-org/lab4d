@@ -15,8 +15,8 @@ from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
 from lab4d.dataloader import data_utils
 from lab4d.utils.torch_utils import get_nested_attr, set_nested_attr
 
-from projects.gsplat.gsplat import GSplatModel
-from projects.gsplat import config
+from projects.diffgs.gs_model import GSplatModel
+from projects.diffgs import config
 
 
 class AdaHessian(torch.optim.Optimizer):
@@ -416,6 +416,7 @@ class GSplatTrainer(Trainer):
                 "module.gaussians.bg_color": lr_base * 5,
                 "module.gaussians.camera_mlp": camera_lr,
                 "module.guidance_sd": 0.0,
+                "module.gaussians.lab4d_model": lr_base * 0.02,
             }
 
         param_lr_with = {}

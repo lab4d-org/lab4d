@@ -29,7 +29,7 @@ def knn_cuda(pts, k):
 
 def test_knn(pts):
     """Test quaternion to matrix operation"""
-    from projects.gsplat.gs_renderer import o3d_knn
+    from projects.diffgs.gs_renderer import o3d_knn
 
     o3d_knn_cpu = lambda pts, k: o3d_knn(pts.cpu(), k)[0]
 

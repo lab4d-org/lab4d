@@ -16,7 +16,7 @@ from torch.nn import functional as F
 from simple_knn._C import distCUDA2
 
 sys.path.insert(0, os.getcwd())
-from projects.gsplat.sh_utils import eval_sh, SH2RGB, RGB2SH
+from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.predictor.predictor import CameraPredictor, TrajPredictor
 from lab4d.nnutils.pose import CameraConst, CameraExplicit
 from lab4d.utils.quat_transform import (

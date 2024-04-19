@@ -16,7 +16,7 @@ if cwd not in sys.path:
 from lab4d.export import get_config, MotionParamsExpl
 from lab4d.utils.io import make_save_dir, save_rendered
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
-from projects.gsplat.trainer import GSplatTrainer as Trainer
+from projects.diffgs.trainer import GSplatTrainer as Trainer
 
 
 def extract_deformation(field, inst_id):
