@@ -29,7 +29,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
     quaternion_conjugate,
 )
-from lab4d.utils.geom_utils import rot_angle
+from lab4d.utils.geom_utils import rot_angle, decimate_mesh
 from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 
 colormap = get_colormap()
@@ -221,7 +221,7 @@ class GaussianModel(nn.Module):
 
         self.rotation_activation = normalize_quaternion
 
-    def __init__(self, sh_degree: int):
+    def __init__(self, sh_degree: int, config: dict, data_info: dict):
         super().__init__()
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree
@@ -239,6 +239,76 @@ class GaussianModel(nn.Module):
         self.is_inc_mode = False
         self.ratio_knn = 1.0
         self.setup_functions()
+
+        # load lab4d model
+        self.load_lab4d(config["lab4d_path"])
+
+        # load geometry
+        num_pts = config["num_pts"] if "num_pts" in config else 5000
+        if self.lab4d_model is None:
+            mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
+            self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
+        else:
+            mesh = self.lab4d_model.fields.extract_canonical_meshes(grid_size=256)["fg"]
+            mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
+            scale_fg = self.lab4d_model.fields.field_params["fg"]
+            self.scale_fg = scale_fg.logscale.exp()
+            pcd = BasicPointCloud(
+                mesh.vertices / self.scale_fg.detach().cpu().numpy(),
+                mesh.visual.vertex_colors[:, :3] / 255,
+                np.zeros((mesh.vertices.shape[0], 3)),
+            )
+            self.initialize(input=pcd)
+
+        # # DEBUG
+        # mesh = trimesh.load("tmp/0.obj")
+        # pcd = BasicPointCloud(
+        #     mesh.vertices,
+        #     mesh.visual.vertex_colors[:, :3] / 255,
+        #     np.zeros((mesh.vertices.shape[0], 3)),
+        # )
+        # self.initialize(input=pcd)
+
+        # initialize temporal part: (dx,dy,dz)t
+        if not config["fg_motion"] == "rigid":
+            total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
+            if config["use_timesync"]:
+                num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
+                total_frames = total_frames // num_vids
+                self.use_timesync = True
+            else:
+                self.use_timesync = False
+            self.init_trajectory(total_frames)
+        else:
+            self.use_timesync = False
+
+        self.init_background(config["train_res"])
+
+        self.construct_stat_vars()
+
+        # extrinsics
+        self.construct_extrinsics(config, data_info)
+
+    def initialize(self, input=None, num_pts=5000, radius=0.5):
+        # load checkpoint
+        if input is None:
+            # init from random point cloud
+            phis = np.random.random((num_pts,)) * 2 * np.pi
+            costheta = np.random.random((num_pts,)) * 2 - 1
+            thetas = np.arccos(costheta)
+            mu = np.random.random((num_pts,))
+            radius_rand = radius * np.cbrt(mu)
+            x = radius_rand * np.sin(thetas) * np.cos(phis)
+            y = radius_rand * np.sin(thetas) * np.sin(phis)
+            z = radius_rand * np.cos(thetas)
+            xyz = np.stack((x, y, z), axis=1)
+            scales = np.log(np.ones_like(xyz) * radius * 0.1)
+            self.init_gaussians(xyz, scales=scales)
+        elif isinstance(input, BasicPointCloud):
+            # load from a provided pcd
+            self.create_from_pcd(input)
+        else:
+            raise NotImplementedError
 
     def get_extrinsics(self, frameid=None):
         quat, trans = self.camera_mlp.get_vals(frameid)

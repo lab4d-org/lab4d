@@ -39,7 +39,7 @@ def extract_deformation(field, inst_id):
         # get field2cam
         se3_mat = field.gaussians.get_extrinsics(frame_id).cpu().numpy()
 
-        if field.use_timesync:
+        if field.gaussians.use_timesync:
             mesh_t = field.gaussians.create_mesh_visualization(frame_id_sub)
         else:
             mesh_t = field.gaussians.create_mesh_visualization(frame_id)

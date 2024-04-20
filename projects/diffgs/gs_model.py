@@ -28,7 +28,6 @@ from lab4d.utils.geom_utils import (
     K2inv,
     pinhole_projection,
     rot_angle,
-    decimate_mesh,
 )
 from lab4d.utils.camera_utils import get_rotating_cam
 from lab4d.utils.quat_transform import (
@@ -92,12 +91,11 @@ class GSplatModel(nn.Module):
         white_background = (
             config["white_background"] if "white_background" in config else True
         )
-        num_pts = config["num_pts"] if "num_pts" in config else 5000
 
         self.sh_degree = sh_degree
         self.white_background = white_background
 
-        self.gaussians = GaussianModel(sh_degree)
+        self.gaussians = GaussianModel(sh_degree, config, data_info)
 
         self.bg_color = torch.tensor(
             [1, 1, 1] if white_background else [0, 0, 0],
@@ -105,52 +103,8 @@ class GSplatModel(nn.Module):
             device="cuda",
         )
 
-        # load lab4d model
-        self.gaussians.load_lab4d(config["lab4d_path"])
-        if self.gaussians.lab4d_model is None:
-            mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
-            self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
-        else:
-            mesh = self.gaussians.lab4d_model.fields.extract_canonical_meshes(grid_size=256)["fg"]
-            mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
-            scale_fg = self.gaussians.lab4d_model.fields.field_params["fg"]
-            self.gaussians.scale_fg = scale_fg.logscale.exp()
-            pcd = BasicPointCloud(
-                mesh.vertices / self.gaussians.scale_fg.detach().cpu().numpy(),
-                mesh.visual.vertex_colors[:, :3] / 255,
-                np.zeros((mesh.vertices.shape[0], 3)),
-            )
-            self.initialize(input=pcd)
-
-        # # DEBUG
-        # mesh = trimesh.load("tmp/0.obj")
-        # pcd = BasicPointCloud(
-        #     mesh.vertices,
-        #     mesh.visual.vertex_colors[:, :3] / 255,
-        #     np.zeros((mesh.vertices.shape[0], 3)),
-        # )
-        # self.initialize(input=pcd)
-
-        # initialize temporal part: (dx,dy,dz)t
-        if not config["fg_motion"] == "rigid":
-            total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
-            if config["use_timesync"]:
-                num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
-                total_frames = total_frames // num_vids
-                self.use_timesync = True
-            else:
-                self.use_timesync = False
-            self.gaussians.init_trajectory(total_frames)
-        else:
-            self.use_timesync = False
-
-        self.gaussians.init_background(config["train_res"])
-
-        self.gaussians.construct_stat_vars()
-
-        # intrinsics and extrinsics
+        # intrinsics
         self.construct_intrinsics()
-        self.gaussians.construct_extrinsics(config, data_info)
 
         # diffusion
         if config["guidance_sd_wt"] > 0:
@@ -172,27 +126,6 @@ class GSplatModel(nn.Module):
                 self.data_info["intrinsics"],
                 frame_info=self.data_info["frame_info"],
             )
-        else:
-            raise NotImplementedError
-
-    def initialize(self, input=None, num_pts=5000, radius=0.5):
-        # load checkpoint
-        if input is None:
-            # init from random point cloud
-            phis = np.random.random((num_pts,)) * 2 * np.pi
-            costheta = np.random.random((num_pts,)) * 2 - 1
-            thetas = np.arccos(costheta)
-            mu = np.random.random((num_pts,))
-            radius_rand = radius * np.cbrt(mu)
-            x = radius_rand * np.sin(thetas) * np.cos(phis)
-            y = radius_rand * np.sin(thetas) * np.sin(phis)
-            z = radius_rand * np.cos(thetas)
-            xyz = np.stack((x, y, z), axis=1)
-            scales = np.log(np.ones_like(xyz) * radius * 0.1)
-            self.gaussians.init_gaussians(xyz, scales=scales)
-        elif isinstance(input, BasicPointCloud):
-            # load from a provided pcd
-            self.gaussians.create_from_pcd(input)
         else:
             raise NotImplementedError
 
