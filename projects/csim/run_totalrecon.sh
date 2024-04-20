@@ -4,20 +4,20 @@
 seqname=$1
 dev=$2
 
-# logname2=fg-urdf
-# bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2 \
-#   --fg_motion urdf-quad --num_rounds 120 --depth_wt 1e-2 --feature_type cse --freeze_scale 
+logname2=fg-urdf
+bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2 \
+  --fg_motion urdf-quad --num_rounds 120 --depth_wt 1e-3 --feature_type cse --freeze_scale --intrinsics_type const
 
 logname1=bg
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname1 \
   --field_type bg --data_prefix full --num_rounds 120 --alter_flow --mask_wt 0.01 \
-  --normal_wt 1e-2 --reg_eikonal_wt 0.001 --depth_wt 0.01 --feature_wt 0.0 --feat_reproj_wt 0.0 --feature_type cse --freeze_scale 
+  --depth_wt 1e-3 --normal_wt 1e-2 --reg_eikonal_wt 0.001 --feature_wt 0.0 --feat_reproj_wt 0.0 --feature_type cse --freeze_scale --intrinsics_type const
 
 logname=comp
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --pixels_per_image 12 \
   --field_type comp --fg_motion urdf-quad --num_rounds 20 --learning_rate 1e-4 --noreset_steps  --noabsorb_base \
   --load_path logdir/$seqname-$logname2/ckpt_latest.pth --load_path_bg logdir/$seqname-$logname1/ckpt_latest.pth \
-#   --depth_wt 1e-2 --feature_type cse --freeze_scale --feat_reproj_wt 0.0 --feature_wt 0.0
+  --depth_wt 1e-3 --feat_reproj_wt 0.0 --feature_wt 0.0 --feature_type cse --freeze_scale --freeze_field_bg
 
 # logname=ppr
 # bash scripts/train.sh projects/ppr/train.py $dev --seqname $seqname --logname $logname --pixels_per_image 12 \

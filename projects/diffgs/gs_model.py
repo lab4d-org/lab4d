@@ -42,6 +42,7 @@ from projects.diffgs.gs_renderer import (
     GaussianModel,
     BasicPointCloud,
     getProjectionMatrix_K,
+    gs_transform,
 )
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.diffgs.cam_utils import orbit_camera
@@ -110,7 +111,7 @@ class GSplatModel(nn.Module):
             mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
             self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
         else:
-            mesh = self.gaussians.lab4d_model.fields.extract_canonical_meshes()["fg"]
+            mesh = self.gaussians.lab4d_model.fields.extract_canonical_meshes(grid_size=256)["fg"]
             mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
             scale_fg = self.gaussians.lab4d_model.fields.field_params["fg"]
             self.gaussians.scale_fg = scale_fg.logscale.exp()
@@ -397,7 +398,7 @@ class GSplatModel(nn.Module):
         rotations = self.gaussians.get_rotation(frameid)
 
         if w2c is not None:
-            means3D, rotations = self.gaussians.transform(means3D, rotations, w2c)
+            means3D, rotations = gs_transform(means3D, rotations, w2c)
             xy_1 = pinhole_projection(Kmat, means3D[None])[0]
         else:
             raise NotImplementedError
@@ -465,7 +466,7 @@ class GSplatModel(nn.Module):
             )
             means3D_2 = self.gaussians.get_xyz(frameid_2)
             rotations_2 = self.gaussians.get_rotation(frameid_2)
-            means3D_2, rotations_2 = self.gaussians.transform(
+            means3D_2, rotations_2 = gs_transform(
                 means3D_2, rotations_2, w2c_2
             )
             xy_2 = pinhole_projection(Kmat_2[None], means3D_2[None])[0]

@@ -35,6 +35,34 @@ from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 colormap = get_colormap()
 
 
+def gs_transform(center, rotations, w2c):
+    """
+    center: [N, 3]
+    rotations: [N, 4]
+    w2c: [4, 4]
+    """
+    if not torch.is_tensor(w2c):
+        w2c = torch.tensor(w2c, dtype=torch.float, device=center.device)
+    center = center @ w2c[:3, :3].T + w2c[:3, 3][None]
+    rmat = w2c[:3, :3][None].repeat(len(center), 1, 1)
+    # gaussian space to world then to camera
+    rotations = quaternion_mul(matrix_to_quaternion(rmat), rotations)  # wxyz
+    return center, rotations
+
+def getProjectionMatrix_K(znear, zfar, Kmat):
+    if torch.is_tensor(Kmat):
+        P = torch.zeros(4, 4)
+    else:
+        P = np.zeros((4, 4))
+
+    z_sign = 1.0
+
+    P[:2, :3] = Kmat[:2, :3]
+    P[3, 2] = z_sign
+    P[2, 2] = z_sign * zfar / (zfar - znear)
+    P[2, 3] = -(zfar * znear) / (zfar - znear)
+    return P
+
 def knn_cuda(pts, k):
     pts = o3c.Tensor.from_dlpack(torch.utils.dlpack.to_dlpack(pts))
     nns = o3c.nns.NearestNeighborSearch(pts)
@@ -204,12 +232,10 @@ class GaussianModel(nn.Module):
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
         self.bg_color = torch.empty(0)
-        self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         self.xyz_vis_accum = torch.empty(0)
         self.vis_denom = torch.empty(0)
-        self.optimizer = None
         self.is_inc_mode = False
         self.ratio_knn = 1.0
         self.setup_functions()
@@ -497,15 +523,7 @@ class GaussianModel(nn.Module):
         self.denom = torch.zeros((self.get_num_pts, 1), device="cuda")
         self.xyz_vis_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
         self.vis_denom = torch.zeros((self.get_num_pts, 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_num_pts), device="cuda")
 
-    def update_learning_rate(self, iteration):
-        """Learning rate scheduling per step"""
-        for param_group in self.optimizer.param_groups:
-            if param_group["name"] == "xyz":
-                lr = self.xyz_scheduler_args(iteration)
-                param_group["lr"] = lr
-                return lr
 
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]
@@ -520,15 +538,6 @@ class GaussianModel(nn.Module):
         for i in range(self._rotation.shape[1]):
             l.append("rot_{}".format(i))
         return l
-
-    def reset_opacity(self):
-        if self.optimizer is None:
-            return
-        opacities_new = self.inverse_opacity_activation(
-            torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * 0.01)
-        )
-        optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
-        self._opacity = optimizable_tensors["opacity"]
 
     def update_point_stats(self, prune_mask, clone_mask):
         dev = prune_mask.device
@@ -547,23 +556,18 @@ class GaussianModel(nn.Module):
             [self.xyz_vis_accum, self.xyz_vis_accum[clone_mask]], 0
         )
         self.vis_denom = torch.cat([self.vis_denom, self.vis_denom[clone_mask]], 0)
-        self.max_radii2D = torch.cat(
-            [self.max_radii2D, self.max_radii2D[clone_mask]], 0
-        )
 
         # then prune
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_mask]
         self.denom = self.denom[valid_mask]
         self.xyz_vis_accum = self.xyz_vis_accum[valid_mask]
         self.vis_denom = self.vis_denom[valid_mask]
-        self.max_radii2D = self.max_radii2D[valid_mask]
 
         # reset
         self.xyz_gradient_accum[:] = 0
         self.denom[:] = 0
         self.xyz_vis_accum[:] = 0
         self.vis_denom[:] = 0
-        self.max_radii2D[:] = 0
 
     def densify_and_prune(
         self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-8, min_vis=0.5
@@ -606,21 +610,6 @@ class GaussianModel(nn.Module):
         """
         self.xyz_vis_accum[update_filter] += xyz_vis
         self.vis_denom[update_filter] += 1
-
-    @staticmethod
-    def transform(center, rotations, w2c):
-        """
-        center: [N, 3]
-        rotations: [N, 4]
-        w2c: [4, 4]
-        """
-        if not torch.is_tensor(w2c):
-            w2c = torch.tensor(w2c, dtype=torch.float, device=center.device)
-        center = center @ w2c[:3, :3].T + w2c[:3, 3][None]
-        rmat = w2c[:3, :3][None].repeat(len(center), 1, 1)
-        # gaussian space to world then to camera
-        rotations = quaternion_mul(matrix_to_quaternion(rmat), rotations)  # wxyz
-        return center, rotations
 
     @torch.no_grad()
     def get_aabb(self):
@@ -859,34 +848,3 @@ class GaussianModel(nn.Module):
         xyz_t_gt = xyz_t_gt.permute(1, 0, 2)  # N, bs, 3
         xyz_t_gt = xyz_t_gt.to(dev_xyz)
         return xyz_t_gt
-
-
-def getProjectionMatrix(znear, zfar, fovX, fovY):
-    tanHalfFovY = math.tan((fovY / 2))
-    tanHalfFovX = math.tan((fovX / 2))
-
-    P = torch.zeros(4, 4)
-
-    z_sign = 1.0
-
-    P[0, 0] = 1 / tanHalfFovX
-    P[1, 1] = 1 / tanHalfFovY
-    P[3, 2] = z_sign
-    P[2, 2] = z_sign * zfar / (zfar - znear)
-    P[2, 3] = -(zfar * znear) / (zfar - znear)
-    return P
-
-
-def getProjectionMatrix_K(znear, zfar, Kmat):
-    if torch.is_tensor(Kmat):
-        P = torch.zeros(4, 4)
-    else:
-        P = np.zeros((4, 4))
-
-    z_sign = 1.0
-
-    P[:2, :3] = Kmat[:2, :3]
-    P[3, 2] = z_sign
-    P[2, 2] = z_sign * zfar / (zfar - znear)
-    P[2, 3] = -(zfar * znear) / (zfar - znear)
-    return P
