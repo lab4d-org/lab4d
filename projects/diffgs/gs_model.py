@@ -88,20 +88,26 @@ class GSplatModel(nn.Module):
 
         # 3DGS
         sh_degree = config["sh_degree"] if "sh_degree" in config else 3
-        white_background = (
-            config["white_background"] if "white_background" in config else True
-        )
 
         self.sh_degree = sh_degree
-        self.white_background = white_background
+        self.active_sh_degree = 0
 
-        self.gaussians = GaussianModel(sh_degree, config, data_info)
+        if config["field_type"] == "comp":
+            parent_list=[-1,0,0]
+            mode_list=["","bg","fg"]
+        elif config["field_type"] == "bg":
+            parent_list=[-1]
+            mode_list=["bg"]
+        elif config["field_type"] == "fg":
+            parent_list=[-1]
+            mode_list=["fg"]
+        else:
+            raise NotImplementedError
+        self.gaussians = GaussianModel(sh_degree, config, data_info, 
+                                       parent_list=parent_list, index=0, mode_list=mode_list)
 
-        self.bg_color = torch.tensor(
-            [1, 1, 1] if white_background else [0, 0, 0],
-            dtype=torch.float32,
-            device="cuda",
-        )
+        self.init_background(config["train_res"])
+
 
         # intrinsics
         self.construct_intrinsics()
@@ -118,6 +124,13 @@ class GSplatModel(nn.Module):
             #     self.device, model_key="ashawkey/stable-zero123-diffusers"
             # )
 
+    def init_background(self, resolution):
+        bg_color = torch.ones((3, resolution, resolution), dtype=torch.float)
+        self.bg_color = nn.Parameter(bg_color)
+
+    def get_bg_color(self):
+        return self.bg_color
+
     def construct_intrinsics(self):
         """Construct camera intrinsics module"""
         config = self.config
@@ -129,12 +142,13 @@ class GSplatModel(nn.Module):
         else:
             raise NotImplementedError
 
-    def get_screenspace_pts_placeholder(self):
+    @staticmethod
+    def get_screenspace_pts_placeholder(gaussians):
         # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
         screenspace_points = (
             torch.zeros(
-                (self.gaussians.get_num_pts, 3),
-                dtype=self.gaussians._xyz.dtype,
+                (gaussians.get_num_pts, 3),
+                dtype=torch.float32,
                 requires_grad=True,
                 device="cuda",
             )
@@ -178,11 +192,11 @@ class GSplatModel(nn.Module):
             image_width=image_width,
             tanfovx=tanfovx,
             tanfovy=tanfovy,
-            bg=self.bg_color if bg_color is None else bg_color,
+            bg=torch.tensor([1, 1, 1],dtype=torch.float32,device="cuda") if bg_color is None else bg_color,
             scale_modifier=1.0,
             viewmatrix=viewmatrix,
             projmatrix=projmatrix,
-            sh_degree=self.gaussians.active_sh_degree,
+            sh_degree=self.active_sh_degree,
             campos=campos,
             prefiltered=False,
             debug=False,
@@ -321,10 +335,10 @@ class GSplatModel(nn.Module):
     ):
         rasterizer = self.get_rasterizer(camera_dict, Kmat, bg_color)
 
-        screenspace_points = self.get_screenspace_pts_placeholder()
+        screenspace_points = self.get_screenspace_pts_placeholder(self.gaussians)
         means3D = self.gaussians.get_xyz(frameid)
         means2D = screenspace_points
-        means2D_tmp = self.get_screenspace_pts_placeholder()
+        means2D_tmp = self.get_screenspace_pts_placeholder(self.gaussians)
         opacity = self.gaussians.get_opacity
         cov3D_precomp = None
         scales = self.gaussians.get_scaling
@@ -391,6 +405,31 @@ class GSplatModel(nn.Module):
         out_dict["depth"] = out_dict["depth"][None]
         out_dict["alpha"] = out_dict["alpha"][None]
         out_dict["xyz"] = render_vals[None]
+
+        if self.config["field_type"] == "comp":
+            # render mask_fg
+            gaussians_fg = self.gaussians.gaussians[1]
+            means3D_fg = gaussians_fg.get_xyz(frameid)
+            means2D_fg = self.get_screenspace_pts_placeholder(gaussians_fg)
+            opacity_fg = gaussians_fg.get_opacity
+            scales_fg = gaussians_fg.get_scaling
+            rotations_fg = gaussians_fg.get_rotation(frameid)
+            shs_fg = gaussians_fg.get_features
+
+            w2c_fg = gaussians_fg.get_extrinsics(frameid)
+            means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
+
+            _, _, _, rendered_alpha_fg = rasterizer(
+                means3D=means3D_fg,
+                means2D=means2D_fg,
+                shs=shs_fg,
+                colors_precomp=None,
+                opacities=opacity_fg,
+                scales=scales_fg,
+                rotations=rotations_fg,
+                cov3D_precomp=None,
+            )
+            out_dict["mask_fg"] = rendered_alpha_fg[None]
 
         # render flow
         if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
@@ -475,7 +514,14 @@ class GSplatModel(nn.Module):
     def compute_recon_losses(self, loss_dict, rendered, batch):
         # reference view loss
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
-        loss_dict["mask"] = (rendered["alpha"] - batch["mask"].float()).pow(2)
+        if self.config["field_type"]=="bg":
+            loss_dict["mask"] = (rendered["alpha"] - 1).pow(2)
+        elif self.config["field_type"]=="fg":
+            loss_dict["mask"] = (rendered["alpha"] - batch["mask"].float()).pow(2)
+        elif self.config["field_type"]=="comp":
+            rendered_fg_mask = rendered["mask_fg"]
+            loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
+            loss_dict["mask"] += (rendered["alpha"] - 1).pow(2)
         loss_dict["flow"] = (rendered["flow"] - batch["flow"]).norm(2, 1, keepdim=True)
         loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
         # mask_balance_wt = get_mask_balance_wt(
@@ -674,7 +720,7 @@ class GSplatModel(nn.Module):
         )
         rendered = self.render(cam_dict, Kmat_nv, w2c=w2c_nv, frameid=frameid)
         rgb_nv = rendered["rgb"]
-        bg_color = F.interpolate(self.gaussians.get_bg_color()[None], render_size)
+        bg_color = F.interpolate(self.get_bg_color()[None], render_size)
         rgb_nv = rgb_nv * rendered["alpha"] + bg_color * (1 - rendered["alpha"])
 
         # compute loss
@@ -941,7 +987,7 @@ class GSplatModel(nn.Module):
             rendered[k] = torch.cat([rendered[k], v], 0)
 
     @torch.no_grad()
-    def evaluate(self, batch, is_pair=True):
+    def evaluate(self, batch, is_pair=True, augment_nv=True, render_flow=True):
         """Evaluate model on a batch of data"""
         self.process_frameid(batch)
         if not is_pair:
@@ -962,7 +1008,8 @@ class GSplatModel(nn.Module):
         self.gaussians.update_trajectory(frameid)
 
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
-        self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
+        if augment_nv:
+            self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
 
         # if is_pair:
         #     self.reshape_batch(rendered)
@@ -971,11 +1018,11 @@ class GSplatModel(nn.Module):
             rendered[k] = v[:, 0]
 
         scalars = {}
-        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": []}
+        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": []}
         for k, v in rendered.items():
             if k in out_dict.keys():
                 out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()
-        bg_color = self.gaussians.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
+        bg_color = self.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
         out_dict["bg_color"] = bg_color
         bg_color = cv2.resize(bg_color[0], (crop_size,) * 2)[None]
         out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
@@ -1187,8 +1234,7 @@ class GSplatModel(nn.Module):
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics for all neural fields from external priors
         """
-        if isinstance(self.gaussians.camera_mlp, CameraPredictor):
-            self.gaussians.camera_mlp.init_weights()
+        self.gaussians.init_camera_mlp()
 
 
 if __name__ == "__main__":

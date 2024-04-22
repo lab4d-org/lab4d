@@ -276,7 +276,7 @@ class GSplatTrainer(Trainer):
             # "module.gaussians._rotation": 5,
             # "module.gaussians._opacity": 5,
             # "module.gaussians._trajectory": 5,
-            # "module.gaussians.camera_mlp": 5,
+            # "module.gaussians.gs_camera_mlp": 5,
         }
 
     def load_checkpoint_train(self):
@@ -392,11 +392,13 @@ class GSplatTrainer(Trainer):
 
         if use_warmup_param:
             param_lr_startwith = {
-                "module.gaussians._features_dc": lr_base,
-                "module.gaussians._features_rest": lr_base * 0.05,
-                "module.gaussians._trajectory": lr_base,
-                "module.gaussians.bg_color": lr_base * 5,
-                "module.gaussians.camera_mlp": lr_base * 2,
+                "module.bg_color": lr_base * 5,
+            }
+            param_lr_with = {
+                "._features_dc": lr_base,
+                "._features_rest": lr_base * 0.05,
+                "._trajectory": lr_base,
+                ".gs_camera_mlp": lr_base * 2,
             }
         else:
             if opts["extrinsics_type"] == "image":
@@ -406,20 +408,20 @@ class GSplatTrainer(Trainer):
                 camera_lr = lr_base * 2
                 xyz_lr = lr_base
             param_lr_startwith = {
-                "module.gaussians._xyz": xyz_lr,
-                "module.gaussians._features_dc": lr_base,
-                "module.gaussians._features_rest": lr_base * 0.05,
-                "module.gaussians._scaling": lr_base * 0.5,
-                "module.gaussians._rotation": lr_base * 0.5,
-                "module.gaussians._opacity": lr_base * 5,
-                "module.gaussians._trajectory": lr_base * 0.5,
-                "module.gaussians.bg_color": lr_base * 5,
-                "module.gaussians.camera_mlp": camera_lr,
+                "module.bg_color": lr_base * 5,
                 "module.guidance_sd": 0.0,
-                "module.gaussians.lab4d_model": lr_base * 0.02,
             }
-
-        param_lr_with = {}
+            param_lr_with = {
+                "._xyz": xyz_lr,
+                "._features_dc": lr_base,
+                "._features_rest": lr_base * 0.05,
+                "._scaling": lr_base * 0.5 * 1e-9,
+                "._rotation": lr_base * 0.5 * 1e-9,
+                "._opacity": lr_base * 5,
+                "._trajectory": lr_base * 0.5,
+                ".gs_camera_mlp": camera_lr * 1e-9,
+                ".lab4d_model": lr_base * 0.02,
+            }
 
         return param_lr_startwith, param_lr_with
 
@@ -556,8 +558,8 @@ class GSplatTrainer(Trainer):
             "%s/%03d-all" % (self.save_dir, self.current_round)
         )
 
-        if self.model.progress > self.opts["inc_warmup_ratio"]:
-            self.densify_and_prune()
+        # if self.model.progress > self.opts["inc_warmup_ratio"]:
+        #     self.densify_and_prune()
 
     def densify_and_prune(self):
         # densify and prune
@@ -603,7 +605,7 @@ class GSplatTrainer(Trainer):
 
         for param_dict in self.params_ref_list:
             ((name, _),) = param_dict.items()
-            if not name.startswith("module.gaussians._"):
+            if not "._" in name: # pts related params
                 continue
             param = get_nested_attr(self.model, name)
             stored_state = self.optimizer.state.get(param, None)

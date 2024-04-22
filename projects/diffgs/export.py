@@ -13,23 +13,14 @@ cwd = os.getcwd()
 if cwd not in sys.path:
     sys.path.insert(0, cwd)
 
-from lab4d.export import get_config, MotionParamsExpl
+from lab4d.export import get_config, MotionParamsExpl, save_motion_params
 from lab4d.utils.io import make_save_dir, save_rendered
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from projects.diffgs.trainer import GSplatTrainer as Trainer
 
 
-def extract_deformation(field, inst_id):
-    device = next(field.parameters()).device
-    # get corresponding frame ids
-    frame_mapping = torch.tensor(field.frame_mapping, device=device)
-    frame_offset = field.frame_offset
-    frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
+def extract_deformation(field, frame_ids, use_timesync=False):
     start_id = frame_ids[0]
-    print("Extracting motion parameters for inst id:", inst_id)
-    print("Frame ids with the video:", frame_ids - start_id)
-
-    inst_id = torch.tensor([inst_id], dtype=torch.long, device=device)
 
     motion_tuples = {}
     for frame_id in frame_ids:
@@ -37,12 +28,12 @@ def extract_deformation(field, inst_id):
         frame_id_sub = frame_id - start_id
 
         # get field2cam
-        se3_mat = field.gaussians.get_extrinsics(frame_id).cpu().numpy()
+        se3_mat = field.get_extrinsics(frame_id).cpu().numpy()
 
-        if field.gaussians.use_timesync:
-            mesh_t = field.gaussians.create_mesh_visualization(frame_id_sub)
+        if use_timesync:
+            mesh_t = field.create_mesh_visualization(frame_id_sub)
         else:
-            mesh_t = field.gaussians.create_mesh_visualization(frame_id)
+            mesh_t = field.create_mesh_visualization(frame_id)
 
         t_articulation = None
         so3 = None
@@ -63,49 +54,24 @@ def extract_deformation(field, inst_id):
 
 @torch.no_grad()
 def extract_motion_params(model, opts):
+    device = next(model.parameters()).device
+    inst_id = torch.tensor([opts["inst_id"]], dtype=torch.long, device=device)
+    # get corresponding frame ids
+    frame_mapping = torch.tensor(model.frame_mapping, device=device)
+    frame_offset = model.frame_offset
+    frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
+    print("Extracting motion parameters for inst id:", inst_id)
+    print("Frame ids with the video:", frame_ids - frame_ids[0])
+
     # get rest mesh
-    model.gaussians.update_geometry_aux()
-    meshes_rest = {"fg": model.gaussians.proxy_geometry}
-
-    # get deformation
-    motion_tuples = {"fg": extract_deformation(model, inst_id=opts["inst_id"])}
+    meshes_rest = {}
+    motion_tuples = {}
+    for field, cate in model.gaussians.get_all_children():
+        if cate == "": continue
+        field.update_geometry_aux()
+        meshes_rest[cate] = field.proxy_geometry
+        motion_tuples[cate] = extract_deformation(field, frame_ids, use_timesync=opts["use_timesync"])
     return meshes_rest, motion_tuples
-
-
-def save_motion_params(meshes_rest, motion_tuples, save_dir):
-    for cate, mesh_rest in meshes_rest.items():
-        motion_params = {"field2cam": {}, "t_articulation": {}, "joint_so3": {}}
-        os.makedirs("%s/fg/mesh/" % save_dir, exist_ok=True)
-        os.makedirs("%s/bg/mesh/" % save_dir, exist_ok=True)
-        os.makedirs("%s/fg/bone/" % save_dir, exist_ok=True)
-        for frame_id, motion_expl in motion_tuples[cate].items():
-            frame_id = int(frame_id)
-            # save motion params
-            motion_params["field2cam"][frame_id] = motion_expl.field2cam.tolist()
-
-            if motion_expl.t_articulation is not None:
-                motion_params["t_articulation"][
-                    frame_id
-                ] = motion_expl.t_articulation.tolist()
-
-            if motion_expl.so3 is not None:
-                motion_params["joint_so3"][frame_id] = motion_expl.so3.tolist()  # K,3
-            # save mesh
-            if cate == "bg" and frame_id != 0:
-                continue
-            motion_expl.mesh_t.export(
-                "%s/%s/mesh/%05d.obj" % (save_dir, cate, frame_id)
-            )
-            if motion_expl.bone_t is not None:
-                motion_expl.bone_t.export(
-                    "%s/%s/bone/%05d.obj" % (save_dir, cate, frame_id)
-                )
-
-        with open("%s/%s/motion.json" % (save_dir, cate), "w") as fp:
-            json.dump(motion_params, fp)
-
-        # save camera mesh
-        mesh_rest.export("%s/%s-mesh.obj" % (save_dir, cate))
 
 
 @torch.no_grad()

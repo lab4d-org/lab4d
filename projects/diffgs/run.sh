@@ -4,16 +4,18 @@ dev=$2
 # dev=0
 #seqname=cat-pikachu-0
 # seqname=home-2023-curated3
-logname=gsplat-ref-lab4d
+logname=gsplat-ref-lab4d-comp5
 # lab4d_path=logdir/home-2023-curated3-compose-ft/opts.log
-lab4d_path=logdir/cat-pikachu-0-fg-skel/opts.log
+# lab4d_path=logdir/cat-pikachu-0-fg-skel/opts.log
+lab4d_path=logdir/cat-pikachu-0-comp/opts.log
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname $logname \
-  --pixels_per_image -1 --imgs_per_gpu 1 --field_type fg --eval_res 256 \
+  --pixels_per_image -1 --imgs_per_gpu 2 --field_type comp --data_prefix full --eval_res 256 \
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
   --feature_type cse --intrinsics_type const --extrinsics_type explicit --fg_motion dynamic \
   --use_init_cam --lab4d_path $lab4d_path --num_pts 20000 \
-  --flow_wt 0.0
+  # --load_path logdir/$seqname-gsplat-ref-lab4d-comp3/ckpt_latest.pth
+  # --flow_wt 0.0 \
   # --bg_vid 0 # --guidance_zero123_wt 2e-4
   # --flow_wt 0.1 --reg_arap_wt 1.0 \
   # --extrinsics_type image --fg_motion image --reg_lab4d_wt 1.0

@@ -27,6 +27,7 @@ from lab4d.utils.quat_transform import (
     quaternion_conjugate,
     matrix_to_quaternion,
     dual_quaternion_to_quaternion_translation,
+    quaternion_translation_apply,
     quaternion_conjugate,
 )
 from lab4d.utils.geom_utils import rot_angle, decimate_mesh
@@ -34,6 +35,18 @@ from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 
 colormap = get_colormap()
 
+def load_lab4d(flags_path):
+    from lab4d.config import load_flags_from_file
+    from lab4d.engine.trainer import Trainer
+
+    # load lab4d model
+    if len(flags_path) == 0:
+        return None
+
+    opts = load_flags_from_file(flags_path)
+    opts["load_suffix"] = "latest"
+    model, data_info, _ = Trainer.construct_test_model(opts)
+    return model
 
 def gs_transform(center, rotations, w2c):
     """
@@ -204,6 +217,119 @@ class BasicPointCloud(NamedTuple):
 
 
 class GaussianModel(nn.Module):
+    """
+    each node stores transformation to parent node
+    only leaf nodes store the actual points
+    """
+    def is_leaf(self):
+        """
+        parent_list: [N]
+        index: int
+        
+        return: bool
+        whether the index is a leaf node
+        """
+        return self.index not in self.parent_list
+
+    def get_children_idx(self):
+        """
+        return: [N]
+        children indices of the current node
+        """
+        children = []
+        for i, parent in enumerate(self.parent_list):
+            if parent == self.index:
+                children.append(i)
+        return children
+    
+    def get_all_children(self):
+        """
+        get all children incuding self
+        """
+        children = [(self, self.mode)]
+        for gaussians in self.gaussians:
+            children += gaussians.get_all_children()
+        return children
+        
+
+    def __init__(self, sh_degree: int, config: dict, data_info: dict, 
+                 parent_list: list, index: int, mode_list: list):
+        """
+        only store pts in the leaf node
+        for non-leaf nodes: recursively call and aggregate the pts in the children
+        """
+        super().__init__()
+        self.parent_list = parent_list
+        self.index = index
+        self.mode = mode_list[index]
+        self.is_inc_mode = False
+        self.ratio_knn = 1.0
+        self.setup_functions()
+        self.gaussians = torch.nn.ModuleList()
+
+
+        # load lab4d model
+        self.lab4d_model = load_lab4d(config["lab4d_path"])
+
+        if self.is_leaf():
+            self.max_sh_degree = sh_degree
+            self._xyz = torch.empty(0)
+            self._features_dc = torch.empty(0)
+            self._features_rest = torch.empty(0)
+            self._scaling = torch.empty(0)
+            self._rotation = torch.empty(0)
+            self._opacity = torch.empty(0)
+            self.xyz_gradient_accum = torch.empty(0)
+            self.denom = torch.empty(0)
+            self.xyz_vis_accum = torch.empty(0)
+            self.vis_denom = torch.empty(0)
+
+            # load geometry
+            num_pts = config["num_pts"] if "num_pts" in config else 5000
+            if self.lab4d_model is None:
+                mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
+                self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
+            else:
+                mesh = self.lab4d_model.fields.extract_canonical_meshes(grid_size=256)[self.mode]
+                mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
+                scale_field = self.lab4d_model.fields.field_params[self.mode]
+                self.scale_field = scale_field.logscale.exp()
+                pcd = BasicPointCloud(
+                    mesh.vertices / self.scale_field.detach().cpu().numpy(),
+                    mesh.visual.vertex_colors[:, :3] / 255,
+                    np.zeros((mesh.vertices.shape[0], 3)),
+                )
+                self.initialize(input=pcd)
+
+            # # DEBUG
+            # mesh = trimesh.load("tmp/0.obj")
+            # pcd = BasicPointCloud(
+            #     mesh.vertices,
+            #     mesh.visual.vertex_colors[:, :3] / 255,
+            #     np.zeros((mesh.vertices.shape[0], 3)),
+            # )
+            # self.initialize(input=pcd)
+
+            # initialize temporal part: (dx,dy,dz)t
+            if not config["fg_motion"] == "rigid":
+                total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
+                if config["use_timesync"]:
+                    num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
+                    total_frames = total_frames // num_vids
+                self.init_trajectory(total_frames)
+
+        else:
+            for idx in self.get_children_idx():
+                gaussians = GaussianModel(sh_degree, config, data_info, parent_list, idx, mode_list)
+                self.gaussians.append(gaussians)
+
+        if self.parent_list[self.index] == -1:
+            # aux stats
+            self.construct_stat_vars()
+
+        # extrinsics
+        self.construct_extrinsics(config, data_info)
+
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
@@ -220,74 +346,6 @@ class GaussianModel(nn.Module):
         self.inverse_opacity_activation = inverse_sigmoid
 
         self.rotation_activation = normalize_quaternion
-
-    def __init__(self, sh_degree: int, config: dict, data_info: dict):
-        super().__init__()
-        self.active_sh_degree = 0
-        self.max_sh_degree = sh_degree
-        self._xyz = torch.empty(0)
-        self._features_dc = torch.empty(0)
-        self._features_rest = torch.empty(0)
-        self._scaling = torch.empty(0)
-        self._rotation = torch.empty(0)
-        self._opacity = torch.empty(0)
-        self.bg_color = torch.empty(0)
-        self.xyz_gradient_accum = torch.empty(0)
-        self.denom = torch.empty(0)
-        self.xyz_vis_accum = torch.empty(0)
-        self.vis_denom = torch.empty(0)
-        self.is_inc_mode = False
-        self.ratio_knn = 1.0
-        self.setup_functions()
-
-        # load lab4d model
-        self.load_lab4d(config["lab4d_path"])
-
-        # load geometry
-        num_pts = config["num_pts"] if "num_pts" in config else 5000
-        if self.lab4d_model is None:
-            mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
-            self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
-        else:
-            mesh = self.lab4d_model.fields.extract_canonical_meshes(grid_size=256)["fg"]
-            mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
-            scale_fg = self.lab4d_model.fields.field_params["fg"]
-            self.scale_fg = scale_fg.logscale.exp()
-            pcd = BasicPointCloud(
-                mesh.vertices / self.scale_fg.detach().cpu().numpy(),
-                mesh.visual.vertex_colors[:, :3] / 255,
-                np.zeros((mesh.vertices.shape[0], 3)),
-            )
-            self.initialize(input=pcd)
-
-        # # DEBUG
-        # mesh = trimesh.load("tmp/0.obj")
-        # pcd = BasicPointCloud(
-        #     mesh.vertices,
-        #     mesh.visual.vertex_colors[:, :3] / 255,
-        #     np.zeros((mesh.vertices.shape[0], 3)),
-        # )
-        # self.initialize(input=pcd)
-
-        # initialize temporal part: (dx,dy,dz)t
-        if not config["fg_motion"] == "rigid":
-            total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
-            if config["use_timesync"]:
-                num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
-                total_frames = total_frames // num_vids
-                self.use_timesync = True
-            else:
-                self.use_timesync = False
-            self.init_trajectory(total_frames)
-        else:
-            self.use_timesync = False
-
-        self.init_background(config["train_res"])
-
-        self.construct_stat_vars()
-
-        # extrinsics
-        self.construct_extrinsics(config, data_info)
 
     def initialize(self, input=None, num_pts=5000, radius=0.5):
         # load checkpoint
@@ -310,118 +368,128 @@ class GaussianModel(nn.Module):
         else:
             raise NotImplementedError
 
-    def get_extrinsics(self, frameid=None):
-        quat, trans = self.camera_mlp.get_vals(frameid)
-        w2c = quaternion_translation_to_se3(quat, trans)
-        return w2c
+    def init_camera_mlp(self):
+        if isinstance(self.gs_camera_mlp, CameraPredictor):
+            self.gs_camera_mlp.init_weights()
+        for gaussians in self.gaussians:
+            gaussians.init_camera_mlp()
+
+    def get_extrinsics(self, frameid=None, return_qt=False):
+        """
+        transormation from current node to parent node
+        """
+        quat, trans = self.gs_camera_mlp.get_vals(frameid)
+        if return_qt:
+            return (quat, trans)
+        else:
+            w2c = quaternion_translation_to_se3(quat, trans)
+            return w2c
 
     @property
     def get_scaling(self):
-        return self.scaling_activation(self._scaling)
+        if self.is_leaf():
+            return self.scaling_activation(self._scaling)
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_scaling)
+            return torch.cat(rt_tensor, dim=0)
 
     def get_rotation(self, frameid=None):
-        rot = self.rotation_activation(self._rotation)
-        if hasattr(self, "_trajectory"):
-            if frameid is None:
-                delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
-            else:
-                delta_rot = self.rotation_activation(self._trajectory[:, frameid, :4])
-            return quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
-        return rot
-
-    def update_trajectory(self, frameid):
-        if isinstance(self.camera_mlp, TrajPredictor):
-            # image-based motion
-            _, _, motion = self.camera_mlp.get_vals(frameid, xyz=self._xyz)  # N, bs, 3
-            self._trajectory.data[:, frameid, 4:] = motion
-            #TODO add delta quat
-        else:
-            # lab4d model (fourier basis motion)
-            field = self.lab4d_model.fields.field_params["fg"]
-            scale_fg = self.scale_fg.detach()
-            frameid = frameid.reshape(-1)
-            inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
-            xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
-            xyz_repeated_in = xyz_repeated[:,None] * scale_fg
-            xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)
-            xyz_t = xyz_t[:, 0] / scale_fg
-            motion = (xyz_t - xyz_repeated).transpose(0, 1).contiguous()
-
-            # rotataion and translation of each gaussian
-            quat, _ = dual_quaternion_to_quaternion_translation(warp_dict["dual_quat"])
-            quat = quat.transpose(0, 1).contiguous()
+        if self.is_leaf():
             rot = self.rotation_activation(self._rotation)
-            quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
-            self._trajectory.data[:, frameid, :4] = quat_delta
-            self._trajectory.data[:, frameid, 4:] = motion
-        
-        # to prop grad to motion
-        self._trajectory_pred = torch.zeros_like(self._trajectory)
-        self._trajectory_pred = self._trajectory_pred + self._trajectory
-        self._trajectory_pred[:, frameid, 4:] = motion
-        self._trajectory_pred[:, frameid, :4] = quat_delta
+            if hasattr(self, "_trajectory"):
+                if frameid is None:
+                    delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
+                else:
+                    delta_rot = self.rotation_activation(self._trajectory[:, frameid, :4])
+                return quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
+            return rot
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                if frameid is None:
+                    rot = gaussians.get_rotation(frameid)
+                else:
+                    # apply rotation of camera
+                    shape = frameid.shape
+                    frameid_reshape = frameid.reshape(-1)
+                    rot = gaussians.get_rotation(frameid_reshape)
+                    quat = gaussians.get_extrinsics(frameid_reshape, return_qt=True)[0]
+                    # N, T, 4
+                    quat = quat[None].repeat(rot.shape[0], 1, 1)
+                    rot = quaternion_mul(quat, rot)
+                    rot = rot.view(rot.shape[:1] + shape + rot.shape[-1:])
+                rt_tensor.append(rot)
+            return torch.cat(rt_tensor, dim=0)
 
     def get_xyz(self, frameid=None):
-        if hasattr(self, "_trajectory"):
-            if frameid is None:
-                return self._xyz + self._trajectory[:, 0, 4:]
-            else:
-                shape = frameid.shape
-                frameid = frameid.reshape(-1)
-                # to prop grad to motion
-                if hasattr(self, "_trajectory_pred"):
-                    traj_pred = self._trajectory_pred[:, frameid, 4:]
-                    assert (traj_pred.abs().sum(0).sum(-1) == 0).sum() == 0
+        if self.is_leaf(): 
+            if hasattr(self, "_trajectory"):
+                if frameid is None:
+                    return self._xyz + self._trajectory[:, 0, 4:]
                 else:
-                    traj_pred = self._trajectory[:, frameid, 4:]
-                # N,xyz,3
-                xyz_t = self._xyz[:, None] + traj_pred
-                return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
-        return self._xyz
+                    shape = frameid.shape
+                    frameid = frameid.reshape(-1)
+                    # to prop grad to motion
+                    if hasattr(self, "_trajectory_pred"):
+                        traj_pred = self._trajectory_pred[:, frameid, 4:]
+                        # assert (traj_pred.abs().sum(0).sum(-1) == 0).sum() == 0
+                    else:
+                        traj_pred = self._trajectory[:, frameid, 4:]
+                    # N,xyz,3
+                    xyz_t = self._xyz[:, None] + traj_pred
+                    return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
+            return self._xyz
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                if frameid is None:
+                    xyz = gaussians.get_xyz(frameid)
+                else:
+                    shape = frameid.shape
+                    frameid_reshape = frameid.reshape(-1)
+                    xyz = gaussians.get_xyz(frameid_reshape)
+                    quat, trans = gaussians.get_extrinsics(frameid_reshape, return_qt=True)
+                    quat = quat[None].repeat(xyz.shape[0], 1,1)
+                    trans = trans[None].repeat(xyz.shape[0], 1,1)
+                    # N, T, 3
+                    xyz = quaternion_translation_apply(quat, trans, xyz)
+                    xyz = xyz.view(xyz.shape[:1] + shape + xyz.shape[-1:])
+                rt_tensor.append(xyz)
+            return torch.cat(rt_tensor, dim=0)
 
     @property
     def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
-        return torch.cat((features_dc, features_rest), dim=1)
+        if self.is_leaf():
+            features_dc = self._features_dc
+            features_rest = self._features_rest
+            return torch.cat((features_dc, features_rest), dim=1)
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_features)
+            return torch.cat(rt_tensor, dim=0)
 
     @property
     def get_opacity(self):
-        return self.opacity_activation(self._opacity)
+        if self.is_leaf():
+            return self.opacity_activation(self._opacity)
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_opacity)
+            return torch.cat(rt_tensor, dim=0)
 
     @property
     def get_num_pts(self):
-        return self._xyz.shape[0]
-
-    def get_bg_color(self):
-        return self.bg_color
+        if self.is_leaf():
+            return self._xyz.shape[0]
+        else:
+            return sum([gaussians.get_num_pts for gaussians in self.gaussians])
 
     @torch.no_grad()
     def update_geometry_aux(self):
-        # xyz = self.get_xyz().detach().cpu().numpy()
-        # # xyz = []
-        # # for i in range(self.trajectory.shape[1]):
-        # #     xyz.append(self.get_xyz(i).detach().cpu().numpy())
-        # # xyz = np.concatenate(xyz, axis=0)
-
-        # # f_dc = (
-        # #     self._features_dc.detach()
-        # #     .transpose(1, 2)
-        # #     .flatten(start_dim=1)
-        # #     .contiguous()
-        # #     .cpu()
-        # #     .numpy()
-        # # )
-        # # f_rest = (
-        # #     self._features_rest.detach()
-        # #     .transpose(1, 2)
-        # #     .flatten(start_dim=1)
-        # #     .contiguous()
-        # #     .cpu()
-        # #     .numpy()
-        # # )
-        # self.proxy_geometry = trimesh.Trimesh(vertices=xyz)
-
         # add bone center / joints
         self.proxy_geometry = self.create_mesh_visualization(all_pts=False)
 
@@ -440,39 +508,41 @@ class GaussianModel(nn.Module):
 
     @torch.no_grad()
     def create_mesh_visualization(self, frameid=None, all_pts=True):
-        meshes = []
-        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
-        centers = self.get_xyz(frameid).cpu()
-        orientations = self.get_rotation(frameid).cpu()
-        scalings = self.get_scaling.cpu().numpy()
+        if self.is_leaf():
+            meshes = []
+            sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+            centers = self.get_xyz(frameid).cpu()
+            orientations = self.get_rotation(frameid).cpu()
+            scalings = self.get_scaling.cpu().numpy()
 
-        # subsample if too many gaussians
-        if not all_pts:
-            max_pts = 500
-            if len(scalings.shape) > max_pts:
-                rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
-                scalings = scalings[rand_idx]
-                centers = centers[rand_idx]
-                orientations = orientations[rand_idx]
+            # subsample if too many gaussians
+            if not all_pts:
+                max_pts = 500
+                if len(scalings.shape) > max_pts:
+                    rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
+                    scalings = scalings[rand_idx]
+                    centers = centers[rand_idx]
+                    orientations = orientations[rand_idx]
 
-        for k, gauss in enumerate(scalings):
-            ellips = sph.copy()
-            ellips.vertices *= gauss[None]
-            ellips.visual.vertex_colors = colormap[k % len(colormap)]
-            articulation = quaternion_translation_to_se3(orientations[k], centers[k])
-            ellips.apply_transform(articulation.numpy())
-            meshes.append(ellips)
-        meshes = trimesh.util.concatenate(meshes)
-        return meshes
+            for k, gauss in enumerate(scalings):
+                ellips = sph.copy()
+                ellips.vertices *= gauss[None]
+                ellips.visual.vertex_colors = colormap[k % len(colormap)]
+                articulation = quaternion_translation_to_se3(orientations[k], centers[k])
+                ellips.apply_transform(articulation.numpy())
+                meshes.append(ellips)
+            meshes = trimesh.util.concatenate(meshes)
+            return meshes
+        else:
+            meshes = []
+            for gaussians in self.gaussians:
+                mesh = gaussians.create_mesh_visualization(frameid, all_pts)
+                if frameid is not None:
+                    se3 = gaussians.get_extrinsics(frameid)
+                    mesh.apply_transform(se3.cpu().numpy())
+                meshes.append(mesh)
+            return trimesh.util.concatenate(meshes)
 
-    def get_covariance(self, scaling_modifier=1):
-        return self.covariance_activation(
-            self.get_scaling, scaling_modifier, self._rotation
-        )
-
-    def oneupSHdegree(self):
-        if self.active_sh_degree < self.max_sh_degree:
-            self.active_sh_degree += 1
 
     def create_from_pcd(self, pcd: BasicPointCloud):
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float()
@@ -524,67 +594,51 @@ class GaussianModel(nn.Module):
         )
         self._opacity = nn.Parameter(opacities)
 
-    def init_background(self, resolution):
-        bg_color = torch.ones((3, resolution, resolution), dtype=torch.float)
-        self.bg_color = nn.Parameter(bg_color)
-
-    @property
-    def get_num_frames(self):
-        if hasattr(self, "_trajectory"):
-            return self._trajectory.shape[1]
-        elif hasattr(self, "camera_mlp"):
-            return self.camera_mlp.quat.shape[0]
-        else:
-            return 0
-
-    @torch.no_grad()
-    def init_trajectory(self, total_frames):
-        trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
-        trajectory[:, :, 0] = 1.0
-
-        # update init traj if lab4d ckpt exists
-        if self.lab4d_model is not None:
-            dev = "cuda"
-            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
-            for inst_id in range(0, len(frame_offsets)-1):
-                inst_id = torch.tensor([inst_id], device=dev)
-                frameid = torch.arange(frame_offsets[inst_id], frame_offsets[inst_id+1], device=dev)
-
-                chunk_size = 64
-                xyz_t = torch.zeros((self.get_num_pts, len(frameid), 3), device="cpu")
-                for i in range(0, len(frameid), chunk_size):
-                    chunk_frameid = frameid[i : i + chunk_size]
-                    xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()         
-                trajectory[:, frameid, 4:] = xyz_t - self._xyz[:, None]
-
-        self._trajectory = nn.Parameter(trajectory)
+    # @property
+    # def get_num_frames(self):
+    #     if hasattr(self, "_trajectory"):
+    #         return self._trajectory.shape[1]
+    #     elif hasattr(self, "camera_mlp"):
+    #         return self.gs_camera_mlp.quat.shape[0]
+    #     else:
+    #         return 0
 
     def construct_extrinsics(self, config, data_info):
         """Construct camera extrinsics module"""
-        tracklet_id = 1
-        rtmat = data_info["rtmat"][tracklet_id]
-
         # update init camera if lab4d ckpt exists
-        if self.lab4d_model is not None:
-            rtmat = self.lab4d_model.get_cameras()["fg"]
+        if self.mode=="":
+            rtmat = np.eye(4)
+            rtmat = np.repeat(rtmat[None], len(data_info["rtmat"][0]), axis=0)
+        else:
+            if self.lab4d_model is not None:
+                cams = self.lab4d_model.get_cameras()
+                rtmat = cams[self.mode]
+            else:
+                if self.mode=="fg": 
+                    trajectory_id = 1
+                elif self.mode=="bg":
+                    trajectory_id = 0
+                else:
+                    raise NotImplementedError
+                rtmat = data_info["rtmat"][trajectory_id]
 
         frame_info = data_info["frame_info"]
         if config["extrinsics_type"] == "const":
-            self.camera_mlp = CameraConst(rtmat, frame_info)
+            self.gs_camera_mlp = CameraConst(rtmat, frame_info)
         elif config["extrinsics_type"] == "explicit":
             if not config["use_init_cam"]:
                 rtmat[:, :3, :3] = np.eye(3)
-            self.camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
+            self.gs_camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
         elif config["extrinsics_type"] == "image":
             if config["fg_motion"] == "image":
-                self.camera_mlp = TrajPredictor(
+                self.gs_camera_mlp = TrajPredictor(
                     rtmat,
                     self._xyz.clone(),
                     self._trajectory[..., 4:].clone(),
                     data_info,
                 )
             else:
-                self.camera_mlp = CameraPredictor(rtmat, data_info)
+                self.gs_camera_mlp = CameraPredictor(rtmat, data_info)
         else:
             raise NotImplementedError
 
@@ -594,20 +648,6 @@ class GaussianModel(nn.Module):
         self.xyz_vis_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
         self.vis_denom = torch.zeros((self.get_num_pts, 1), device="cuda")
 
-
-    def construct_list_of_attributes(self):
-        l = ["x", "y", "z", "nx", "ny", "nz"]
-        # All channels except the 3 DC
-        for i in range(self._features_dc.shape[1] * self._features_dc.shape[2]):
-            l.append("f_dc_{}".format(i))
-        for i in range(self._features_rest.shape[1] * self._features_rest.shape[2]):
-            l.append("f_rest_{}".format(i))
-        l.append("opacity")
-        for i in range(self._scaling.shape[1]):
-            l.append("scale_{}".format(i))
-        for i in range(self._rotation.shape[1]):
-            l.append("rot_{}".format(i))
-        return l
 
     def update_point_stats(self, prune_mask, clone_mask):
         dev = prune_mask.device
@@ -656,7 +696,7 @@ class GaussianModel(nn.Module):
         # selected_big_pts = self.get_scaling.max(dim=1).values > max_scale
         selected_oog_pts = torch.logical_and(grads < min_grad, self.denom[..., 0] > 0)
         selected_oom_pts = oom_ratio > min_vis  # 10% frames oom
-        print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
+        # print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
         # prune_mask = torch.logical_or(selected_trans_pts, selected_big_pts)
         prune_mask = selected_trans_pts
         prune_mask = torch.logical_or(prune_mask, selected_oog_pts)
@@ -815,92 +855,24 @@ class GaussianModel(nn.Module):
             last_pt = self._trajectory[:, last_opt_frameid : last_opt_frameid + 1, :]
             self._trajectory.data[:, last_opt_frameid + 1 :, :] = last_pt.data
 
-        if hasattr(self, "camera_mlp") and isinstance(self.camera_mlp, CameraExplicit):
+        if hasattr(self, "camera_mlp") and isinstance(self.gs_camera_mlp, CameraExplicit):
             print("set future time params to id: ", last_opt_frameid)
             # set future params for each sequence
-            frame_offset = self.camera_mlp.frame_info["frame_offset"]
+            frame_offset = self.gs_camera_mlp.frame_info["frame_offset"]
             for i in range(len(frame_offset) - 1):
                 start_frame = frame_offset[i]
                 end_frame = frame_offset[i + 1]
                 last_opt_frameid_abs = last_opt_frameid + start_frame
-                last_quat = self.camera_mlp.quat[last_opt_frameid_abs]
-                last_trans = self.camera_mlp.trans[last_opt_frameid_abs]
-                self.camera_mlp.quat.data[last_opt_frameid_abs + 1 : end_frame] = (
+                last_quat = self.gs_camera_mlp.quat[last_opt_frameid_abs]
+                last_trans = self.gs_camera_mlp.trans[last_opt_frameid_abs]
+                self.gs_camera_mlp.quat.data[last_opt_frameid_abs + 1 : end_frame] = (
                     last_quat.data
                 )
-                self.camera_mlp.trans.data[last_opt_frameid_abs + 1 : end_frame] = (
+                self.gs_camera_mlp.trans.data[last_opt_frameid_abs + 1 : end_frame] = (
                     last_trans.data
                 )
 
-    def load_lab4d(self, flags_path):
-        from lab4d.config import load_flags_from_file
-        from lab4d.engine.trainer import Trainer
 
-        # load lab4d model
-        if len(flags_path) == 0:
-            self.lab4d_model = None
-            return
-
-        opts = load_flags_from_file(flags_path)
-        opts["load_suffix"] = "latest"
-        model, data_info, _ = Trainer.construct_test_model(opts)
-        self.lab4d_model = model
-
-    def get_lab4d_loss(self, frameid):
-        dev = self._xyz.device
-        frameid = frameid.view(-1)
-        inst_id = 0
-        inst_id = torch.tensor([inst_id], device=dev)
-
-        # predicted pose
-        w2c = self.get_extrinsics(frameid)
-        xyz_t = self.get_xyz(frameid)  # N, bs, 3
-        xyz = self._xyz
-        # motion = self._trajectory[:, frameid, 4:]
-
-        # pseudo ground-truth
-        with torch.no_grad():
-            # motion_gt = self.camera_mlp.init_vals[2].to(dev)
-            # motion_gt = motion_gt[:, frameid]
-            # xyz_gt = self.camera_mlp.init_vals[1].to(dev).detach()
-
-            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
-            frameid = frameid + frame_offsets[inst_id]
-            w2c_gt = self.lab4d_model.get_cameras(frameid)["fg"]
-            w2c_gt = w2c_gt.view(*frameid.shape, 4, 4)
-
-            xyz_t_gt = self.get_lab4d_xyz_t(inst_id, frameid)
-
-        # loss for explicit params
-        loss_rot = rot_angle(w2c_gt[..., :3, :3] @ w2c[..., :3, :3].permute(0, 2, 1))
-        loss_trans = torch.norm(w2c_gt[..., :3, 3] - w2c[..., :3, 3], 2, -1)
-        loss_xyz = torch.norm(xyz_t_gt - xyz_t, 2, -1)
-        loss = loss_rot.mean() * 0.1 + loss_trans.mean() + loss_xyz.mean()
-
-        # # loss for image basis
-        # loss_root = F.mse_loss(w2c, w2c_gt)
-        # loss_traj = F.mse_loss(motion, motion_gt)
-        # loss = (loss_root + loss_traj) / 2
-
-        # from geomloss import SamplesLoss
-
-        # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002)
-        # loss = loss + samploss(xyz, xyz_gt).mean()
-
-        # sys.path.insert(
-        #     0,
-        #     "%s/../ppr/eval/third_party/ChamferDistancePytorch/"
-        #     % os.path.join(os.path.dirname(__file__)),
-        # )
-        # from chamfer3D.dist_chamfer_3D import chamfer_3DDist
-
-        # chamLoss = chamfer_3DDist()
-        # loss_xyz_fw, loss_xyz_bw, _, _ = chamLoss(xyz_gt[None], xyz[None])
-        # loss_xyz = (loss_xyz_fw.mean() + loss_xyz_bw.mean()) / 2 * 1000
-        # print("loss_xyz: ", loss_xyz)
-        # loss = loss + loss_xyz
-
-        return loss
 
     def get_lab4d_xyz_t(self, inst_id, frameid=None):
         dev_xyz = self._xyz.device
@@ -912,9 +884,129 @@ class GaussianModel(nn.Module):
             samples_dict["rest_articulation"],
         ) = field.warp.articulation.get_vals_and_mean(frame_id=frameid)
         xyz = self._xyz.to(dev_lab4d)
-        xyz = xyz[None, None].repeat(len(frameid), 1, 1, 1) * self.scale_fg
+        xyz = xyz[None, None].repeat(len(frameid), 1, 1, 1) * self.scale_field
         xyz_t_gt = field.warp(xyz, None, inst_id, samples_dict=samples_dict)
-        xyz_t_gt = xyz_t_gt[:, 0] / self.scale_fg  # bs, N, 3
+        xyz_t_gt = xyz_t_gt[:, 0] / self.scale_field  # bs, N, 3
         xyz_t_gt = xyz_t_gt.permute(1, 0, 2)  # N, bs, 3
         xyz_t_gt = xyz_t_gt.to(dev_xyz)
         return xyz_t_gt
+    
+    @torch.no_grad()
+    def init_trajectory(self, total_frames):
+        trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
+        trajectory[:, :, 0] = 1.0
+
+        # update init traj if lab4d ckpt exists
+        if self.lab4d_model is not None and self.mode=="fg":
+            dev = "cuda"
+            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
+            for inst_id in range(0, len(frame_offsets)-1):
+                inst_id = torch.tensor([inst_id], device=dev)
+                frameid = torch.arange(frame_offsets[inst_id], frame_offsets[inst_id+1], device=dev)
+
+                chunk_size = 64
+                xyz_t = torch.zeros((self.get_num_pts, len(frameid), 3), device="cpu")
+                for i in range(0, len(frameid), chunk_size):
+                    chunk_frameid = frameid[i : i + chunk_size]
+                    xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()         
+                trajectory[:, frameid, 4:] = xyz_t - self._xyz[:, None]
+
+        self._trajectory = nn.Parameter(trajectory)
+
+    def update_trajectory(self, frameid):
+        if self.is_leaf():
+            if isinstance(self.gs_camera_mlp, TrajPredictor):
+                raise NotImplementedError
+                # # image-based motion
+                # _, _, motion = self.gs_camera_mlp.get_vals(frameid, xyz=self._xyz)  # N, bs, 3
+                # self._trajectory.data[:, frameid, 4:] = motion
+                # #TODO add delta quat
+            elif self.mode=="fg":
+                # lab4d model (fourier basis motion)
+                field = self.lab4d_model.fields.field_params["fg"]
+                scale_fg = self.scale_field.detach()
+                frameid = frameid.reshape(-1)
+                inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
+                xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
+                xyz_repeated_in = xyz_repeated[:,None] * scale_fg
+                xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)
+                xyz_t = xyz_t[:, 0] / scale_fg
+                motion = (xyz_t - xyz_repeated).transpose(0, 1).contiguous()
+
+                # rotataion and translation of each gaussian
+                quat, _ = dual_quaternion_to_quaternion_translation(warp_dict["dual_quat"])
+                quat = quat.transpose(0, 1).contiguous()
+                rot = self.rotation_activation(self._rotation)
+                quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
+            else:
+                frameid = frameid.reshape(-1)
+                motion = torch.zeros(self.get_num_pts, len(frameid), 3, device="cuda")
+                quat_delta = torch.zeros(self.get_num_pts, len(frameid), 4, device="cuda")
+                quat_delta[:, :, 0] = 1.0
+            
+            self._trajectory.data[:, frameid, :4] = quat_delta
+            self._trajectory.data[:, frameid, 4:] = motion
+            # to prop grad to motion
+            self._trajectory_pred = torch.zeros_like(self._trajectory)
+            self._trajectory_pred = self._trajectory_pred + self._trajectory
+            self._trajectory_pred[:, frameid, 4:] = motion
+            self._trajectory_pred[:, frameid, :4] = quat_delta
+        else:
+            for gaussians in self.gaussians:
+                gaussians.update_trajectory(frameid)
+
+    # def get_lab4d_loss(self, frameid):
+    #     dev = self._xyz.device
+    #     frameid = frameid.view(-1)
+    #     inst_id = 0
+    #     inst_id = torch.tensor([inst_id], device=dev)
+
+    #     # predicted pose
+    #     w2c = self.get_extrinsics(frameid)
+    #     xyz_t = self.get_xyz(frameid)  # N, bs, 3
+    #     xyz = self._xyz
+    #     # motion = self._trajectory[:, frameid, 4:]
+
+    #     # pseudo ground-truth
+    #     with torch.no_grad():
+    #         # motion_gt = self.gs_camera_mlp.init_vals[2].to(dev)
+    #         # motion_gt = motion_gt[:, frameid]
+    #         # xyz_gt = self.gs_camera_mlp.init_vals[1].to(dev).detach()
+
+    #         frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
+    #         frameid = frameid + frame_offsets[inst_id]
+    #         w2c_gt = self.lab4d_model.get_cameras(frameid)["fg"]
+    #         w2c_gt = w2c_gt.view(*frameid.shape, 4, 4)
+
+    #         xyz_t_gt = self.get_lab4d_xyz_t(inst_id, frameid)
+
+    #     # loss for explicit params
+    #     loss_rot = rot_angle(w2c_gt[..., :3, :3] @ w2c[..., :3, :3].permute(0, 2, 1))
+    #     loss_trans = torch.norm(w2c_gt[..., :3, 3] - w2c[..., :3, 3], 2, -1)
+    #     loss_xyz = torch.norm(xyz_t_gt - xyz_t, 2, -1)
+    #     loss = loss_rot.mean() * 0.1 + loss_trans.mean() + loss_xyz.mean()
+
+    #     # # loss for image basis
+    #     # loss_root = F.mse_loss(w2c, w2c_gt)
+    #     # loss_traj = F.mse_loss(motion, motion_gt)
+    #     # loss = (loss_root + loss_traj) / 2
+
+    #     # from geomloss import SamplesLoss
+
+    #     # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002)
+    #     # loss = loss + samploss(xyz, xyz_gt).mean()
+
+    #     # sys.path.insert(
+    #     #     0,
+    #     #     "%s/../ppr/eval/third_party/ChamferDistancePytorch/"
+    #     #     % os.path.join(os.path.dirname(__file__)),
+    #     # )
+    #     # from chamfer3D.dist_chamfer_3D import chamfer_3DDist
+
+    #     # chamLoss = chamfer_3DDist()
+    #     # loss_xyz_fw, loss_xyz_bw, _, _ = chamLoss(xyz_gt[None], xyz[None])
+    #     # loss_xyz = (loss_xyz_fw.mean() + loss_xyz_bw.mean()) / 2 * 1000
+    #     # print("loss_xyz: ", loss_xyz)
+    #     # loss = loss + loss_xyz
+
+    #     return loss
