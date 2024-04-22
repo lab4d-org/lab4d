@@ -32,7 +32,7 @@ def symmetric_orthogonalization(x):
     Output has size [batch_size, 3, 3], where each inner 3x3 matrix is in SO(3).
     """
     shape = x.shape
-    m = x.view(-1, 3, 3)
+    m = x.reshape(-1, 3, 3)
     u, s, v = torch.svd(m)
     vt = torch.transpose(v, 1, 2)
     det = torch.det(torch.matmul(u, vt))

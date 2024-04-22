@@ -30,8 +30,8 @@ def main():
     # load flags from file with absl
     opts = load_flags_from_file("%s/opts.log" % args.logdir)
     opts["load_suffix"] = "latest"
-    opts["logroot"] = "logdir-12-05"
-    opts["inst_id"] = 0
+    opts["logroot"] = "logdir"
+    opts["inst_id"] = 1
     opts["grid_size"] = 128
     opts["level"] = 0
     opts["vis_thresh"] = -10
