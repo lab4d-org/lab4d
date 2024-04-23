@@ -214,7 +214,7 @@ def load_config(config, dataname, current_dict=None):
     return config_dict
 
 
-def get_data_info(loader):
+def get_data_info(loader, load_imgs=False):
     """Extract dataset metadata from a dataloader
 
     Args:
@@ -257,8 +257,9 @@ def get_data_info(loader):
                 num_skip = max(1, len(feature_array) // 1000)
                 feature_pxs.append(feature_array[::num_skip])
 
-            mask = dataset.mmap_list["mask"][..., :1].astype(np.float16)
-            rgb_imgs.append(dataset.mmap_list["rgb"] * mask)
+            if load_imgs:
+                mask = dataset.mmap_list["mask"][..., :1].astype(np.float16)
+                rgb_imgs.append(dataset.mmap_list["rgb"] * mask)
 
     # compute PCA on non-zero features
     if len(feature_pxs) > 0:
@@ -283,7 +284,8 @@ def get_data_info(loader):
     data_info["intrinsics"] = np.asarray(intrinsics)  # N,4
     data_info["raw_size"] = np.asarray(raw_size)  # M,2
 
-    data_info["rgb_imgs"] = np.concatenate(rgb_imgs, 0)  # N, H, W, 3
+    if load_imgs:
+        data_info["rgb_imgs"] = np.concatenate(rgb_imgs, 0)  # N, H, W, 3
 
     data_path_dict = merge_dict_list(loader)
     data_info.update(load_small_files(data_path_dict))

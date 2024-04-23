@@ -412,15 +412,15 @@ class GSplatTrainer(Trainer):
                 "module.guidance_sd": 0.0,
             }
             param_lr_with = {
-                "._xyz": xyz_lr,
+                "._xyz": xyz_lr * 0.1,
                 "._features_dc": lr_base,
                 "._features_rest": lr_base * 0.05,
-                "._scaling": lr_base * 0.5 * 1e-9,
-                "._rotation": lr_base * 0.5 * 1e-9,
+                # "._scaling": lr_base * 0.5,
+                # "._rotation": lr_base * 0.5,
                 "._opacity": lr_base * 5,
-                "._trajectory": lr_base * 0.5,
+                # "._trajectory": lr_base * 0.5,
                 ".gs_camera_mlp": camera_lr * 1e-9,
-                ".lab4d_model": lr_base * 0.02,
+                ".lab4d_model": lr_base * 0.1,
             }
 
         return param_lr_startwith, param_lr_with

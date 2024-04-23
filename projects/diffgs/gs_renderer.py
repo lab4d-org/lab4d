@@ -35,19 +35,6 @@ from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 
 colormap = get_colormap()
 
-def load_lab4d(flags_path):
-    from lab4d.config import load_flags_from_file
-    from lab4d.engine.trainer import Trainer
-
-    # load lab4d model
-    if len(flags_path) == 0:
-        return None
-
-    opts = load_flags_from_file(flags_path)
-    opts["load_suffix"] = "latest"
-    model, data_info, _ = Trainer.construct_test_model(opts)
-    return model
-
 def gs_transform(center, rotations, w2c):
     """
     center: [N, 3]
@@ -253,12 +240,13 @@ class GaussianModel(nn.Module):
         
 
     def __init__(self, sh_degree: int, config: dict, data_info: dict, 
-                 parent_list: list, index: int, mode_list: list):
+                 parent_list: list, index: int, mode_list: list, lab4d_model, lab4d_meshes):
         """
         only store pts in the leaf node
         for non-leaf nodes: recursively call and aggregate the pts in the children
         """
         super().__init__()
+        self.config = config
         self.parent_list = parent_list
         self.index = index
         self.mode = mode_list[index]
@@ -269,7 +257,7 @@ class GaussianModel(nn.Module):
 
 
         # load lab4d model
-        self.lab4d_model = load_lab4d(config["lab4d_path"])
+        self.lab4d_model = lab4d_model
 
         if self.is_leaf():
             self.max_sh_degree = sh_degree
@@ -285,12 +273,14 @@ class GaussianModel(nn.Module):
             self.vis_denom = torch.empty(0)
 
             # load geometry
-            num_pts = config["num_pts"] if "num_pts" in config else 5000
+            num_pts = config["num_pts"]
+            if self.mode == "bg":
+                num_pts *= 10
             if self.lab4d_model is None:
                 mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
                 self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
             else:
-                mesh = self.lab4d_model.fields.extract_canonical_meshes(grid_size=256)[self.mode]
+                mesh = lab4d_meshes[self.mode]
                 mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
                 scale_field = self.lab4d_model.fields.field_params[self.mode]
                 self.scale_field = scale_field.logscale.exp()
@@ -320,7 +310,7 @@ class GaussianModel(nn.Module):
 
         else:
             for idx in self.get_children_idx():
-                gaussians = GaussianModel(sh_degree, config, data_info, parent_list, idx, mode_list)
+                gaussians = GaussianModel(sh_degree, config, data_info, parent_list, idx, mode_list, lab4d_model, lab4d_meshes)
                 self.gaussians.append(gaussians)
 
         if self.parent_list[self.index] == -1:
@@ -401,9 +391,16 @@ class GaussianModel(nn.Module):
             if hasattr(self, "_trajectory"):
                 if frameid is None:
                     delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
+                    rot = quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
                 else:
-                    delta_rot = self.rotation_activation(self._trajectory[:, frameid, :4])
-                return quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
+                    shape = frameid.shape
+                    frameid = frameid.reshape(-1)
+                    delta_rot = []
+                    for key in frameid.cpu().numpy():
+                        delta_rot.append(self.rotation_activation(self.trajectory_cache[key][:,:4]))
+                    delta_rot = torch.stack(delta_rot, dim=1) # N,T,4
+                    rot = quaternion_mul(delta_rot, rot[:, None])  # w2c @ delta @ rest gaussian
+                    rot = rot.view(rot.shape[:1] + shape + rot.shape[-1:])
             return rot
         else:
             rt_tensor = []
@@ -432,11 +429,11 @@ class GaussianModel(nn.Module):
                     shape = frameid.shape
                     frameid = frameid.reshape(-1)
                     # to prop grad to motion
-                    if hasattr(self, "_trajectory_pred"):
-                        traj_pred = self._trajectory_pred[:, frameid, 4:]
-                        # assert (traj_pred.abs().sum(0).sum(-1) == 0).sum() == 0
-                    else:
-                        traj_pred = self._trajectory[:, frameid, 4:]
+                    frameid = frameid.view(-1)
+                    traj_pred = []
+                    for key in frameid.cpu().numpy():
+                        traj_pred.append(self.trajectory_cache[key][:,4:])
+                    traj_pred = torch.stack(traj_pred, dim=1) 
                     # N,xyz,3
                     xyz_t = self._xyz[:, None] + traj_pred
                     return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
@@ -518,7 +515,7 @@ class GaussianModel(nn.Module):
             # subsample if too many gaussians
             if not all_pts:
                 max_pts = 500
-                if len(scalings.shape) > max_pts:
+                if len(scalings) > max_pts:
                     rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
                     scalings = scalings[rand_idx]
                     centers = centers[rand_idx]
@@ -893,27 +890,29 @@ class GaussianModel(nn.Module):
     
     @torch.no_grad()
     def init_trajectory(self, total_frames):
-        trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
-        trajectory[:, :, 0] = 1.0
+        if self.mode=="fg":
+            trajectory = torch.zeros(self.get_num_pts, total_frames, 7)  # quat, trans
+            trajectory[:, :, 0] = 1.0
 
-        # update init traj if lab4d ckpt exists
-        if self.lab4d_model is not None and self.mode=="fg":
-            dev = "cuda"
-            frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
-            for inst_id in range(0, len(frame_offsets)-1):
-                inst_id = torch.tensor([inst_id], device=dev)
-                frameid = torch.arange(frame_offsets[inst_id], frame_offsets[inst_id+1], device=dev)
+            # update init traj if lab4d ckpt exists
+            if self.lab4d_model is not None:
+                dev = "cuda"
+                frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
+                for inst_id in range(0, len(frame_offsets)-1):
+                    inst_id = torch.tensor([inst_id], device=dev)
+                    frameid = torch.arange(frame_offsets[inst_id], frame_offsets[inst_id+1], device=dev)
 
-                chunk_size = 64
-                xyz_t = torch.zeros((self.get_num_pts, len(frameid), 3), device="cpu")
-                for i in range(0, len(frameid), chunk_size):
-                    chunk_frameid = frameid[i : i + chunk_size]
-                    xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()         
-                trajectory[:, frameid, 4:] = xyz_t - self._xyz[:, None]
+                    chunk_size = 64
+                    xyz_t = torch.zeros((self.get_num_pts, len(frameid), 3), device="cpu")
+                    for i in range(0, len(frameid), chunk_size):
+                        chunk_frameid = frameid[i : i + chunk_size]
+                        xyz_t[:, i : i + chunk_size] = self.get_lab4d_xyz_t(inst_id, chunk_frameid).cpu()         
+                    trajectory[:, frameid, 4:] = xyz_t - self._xyz[:, None]
 
-        self._trajectory = nn.Parameter(trajectory)
+            self._trajectory = nn.Parameter(trajectory)
 
     def update_trajectory(self, frameid):
+        if self.config["fg_motion"] == "rigid" or self.mode=="bg": return
         if self.is_leaf():
             if isinstance(self.gs_camera_mlp, TrajPredictor):
                 raise NotImplementedError
@@ -946,11 +945,15 @@ class GaussianModel(nn.Module):
             
             self._trajectory.data[:, frameid, :4] = quat_delta
             self._trajectory.data[:, frameid, 4:] = motion
-            # to prop grad to motion
-            self._trajectory_pred = torch.zeros_like(self._trajectory)
-            self._trajectory_pred = self._trajectory_pred + self._trajectory
-            self._trajectory_pred[:, frameid, 4:] = motion
-            self._trajectory_pred[:, frameid, :4] = quat_delta
+            # # to prop grad to motion
+            # self._trajectory_pred = torch.zeros_like(self._trajectory)
+            # self._trajectory_pred = self._trajectory_pred + self._trajectory
+            # self._trajectory_pred[:, frameid, 4:] = motion
+            # self._trajectory_pred[:, frameid, :4] = quat_delta
+            trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
+            self.trajectory_cache = {}
+            for it, key in enumerate(frameid.cpu().numpy()):
+                self.trajectory_cache[key] = trajectory_pred[:, it]
         else:
             for gaussians in self.gaussians:
                 gaussians.update_trajectory(frameid)
