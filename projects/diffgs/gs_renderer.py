@@ -281,13 +281,13 @@ class GaussianModel(nn.Module):
                 self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
             else:
                 mesh = lab4d_meshes[self.mode]
-                mesh = decimate_mesh(mesh, res_f=num_pts*2) # roughly #faces = num_pts*2
+                pts, _, colors = trimesh.sample.sample_surface(mesh, num_pts, sample_color=True)
                 scale_field = self.lab4d_model.fields.field_params[self.mode]
                 self.scale_field = scale_field.logscale.exp()
                 pcd = BasicPointCloud(
-                    mesh.vertices / self.scale_field.detach().cpu().numpy(),
-                    mesh.visual.vertex_colors[:, :3] / 255,
-                    np.zeros((mesh.vertices.shape[0], 3)),
+                    pts / self.scale_field.detach().cpu().numpy(),
+                    colors[:, :3] / 255,
+                    np.zeros((pts.shape[0], 3)),
                 )
                 self.initialize(input=pcd)
 
