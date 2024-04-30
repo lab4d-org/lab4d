@@ -169,39 +169,6 @@ class ArticulationLoader(MeshLoader):
         self.aabb_min = bounds[0, [0, 2]]
         self.aabb_max = bounds[1, [0, 2]]
 
-    def get_following_camera(self, frame_idx, dist=2):
-        root_to_world = self.root_to_world[frame_idx]
-        root_to_observer = np.eye(4)
-        root_to_observer[:3, 3] = np.array([0, 0, dist])
-        root_to_observer[:3, :3] = cv2.Rodrigues(np.array([0, np.pi, 0]))[0]
-        world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
-        return world_to_observer
-
-    def get_selfie_camera(self, frame_idx, dist=1):
-        root_to_world = self.root_to_world[frame_idx]
-        root_to_observer = np.eye(4)
-        root_to_observer[:3, 3] = np.array([0, 0, dist])
-        world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
-        return world_to_observer
-
-    def get_body_camera(self, frame_idx, part_name="head"):
-        if part_name == "head":
-            part_idx = 3
-            delta_mat = np.eye(4)
-            delta_mat[:3, :3] = (
-                cv2.Rodrigues(np.array([-np.pi / 4, 0, 0]))[0]
-                @ cv2.Rodrigues(np.array([0, 0, np.pi]))[0]
-            )
-
-        observer_to_root = self.t_articulation_dict[frame_idx][part_idx]
-        root_to_world = self.root_to_world[frame_idx]
-        observer_to_world = root_to_world @ observer_to_root
-        world_to_observer = delta_mat @ np.linalg.inv(observer_to_world)
-        return world_to_observer
-
-    def get_identity_camera(self):
-        return np.eye(4)
-
     def get_max_extend_abs(self):
         return max(max(np.abs(self.aabb_max)), max(np.abs(self.aabb_min)))
 

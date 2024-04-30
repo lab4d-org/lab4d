@@ -22,7 +22,7 @@ parser.add_argument("--fps", default=10, type=int, help="fps of the video")
 parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
 parser.add_argument("--ghosting", action="store_true", help="ghosting")
-parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
+parser.add_argument("--view", default="bev", type=str, help="{ref, bev, front}")
 args = parser.parse_args()
 
 
@@ -54,12 +54,21 @@ def main():
             # input dict
             input_dict = loader.query_frame(frame_idx)
 
-            # bev
-            renderer.set_camera_bev(depth=loader.get_max_extend_abs())
-            # world_to_observer = loader.get_body_camera(frame_idx)
-            # world_to_observer = loader.get_selfie_camera(frame_idx)
-            # world_to_observer = loader.get_following_camera(frame_idx)
-            # renderer.set_camera(world_to_observer)
+            if args.view == "bev":
+                # bev
+                renderer.set_camera_bev(depth=loader.get_max_extend_abs())
+            elif args.view == "body":
+                world_to_observer = loader.get_body_camera(frame_idx)
+                renderer.set_camera(world_to_observer)
+            elif args.view == "selfie":
+                world_to_observer = loader.get_selfie_camera(frame_idx)
+                renderer.set_camera(world_to_observer)
+            elif args.view == "following":
+                world_to_observer = loader.get_following_camera(frame_idx)
+                renderer.set_camera(world_to_observer)
+            else:
+                raise ValueError("Unknown view")
+
             # set camera intrinsics
             fl = max(raw_size)
             intr = np.asarray([fl, fl, raw_size[1] / 2, raw_size[0] / 2])

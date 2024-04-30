@@ -12,6 +12,7 @@ import configparser
 import matplotlib
 
 from lab4d.utils.vis_utils import draw_cams, get_pts_traj
+from lab4d.utils.quat_transform import dual_quaternion_to_se3
 
 
 class MeshLoader:
@@ -97,6 +98,8 @@ class MeshLoader:
         ghost_dict = {}
         kps_dict = {}
         pts_traj_dict = {}
+        root_to_world = {}
+        t_articulation_dict = {}
         aabb_min = np.asarray([np.inf, np.inf])
         aabb_max = np.asarray([-np.inf, -np.inf])
         for counter in range(self.__len__()):
@@ -153,17 +156,21 @@ class MeshLoader:
                     np.linalg.inv(field2cam_bg_dict[fid_str]) @ field2cam_fg
                 )
                 mesh_dict[frame_idx].apply_transform(object_to_scene)
+
+                t_articulation = np.asarray(self.t_articulation[fid_str])
                 if mode == "bone":
                     bone_dict[frame_idx].apply_transform(object_to_scene)
 
                     # world space keypoints
-                    kps = np.asarray(self.t_articulation[fid_str])[:, :3, 3]
+                    kps = t_articulation[:, :3, 3]
                     kps = kps @ object_to_scene[:3, :3].T + object_to_scene[:3, 3]
                     kps_dict[frame_idx] = kps
 
                     # pts traj
                     kps_all = np.asarray(list(kps_dict.values()))
                     pts_traj_dict[frame_idx] = get_pts_traj(kps_all, counter)
+                root_to_world[frame_idx] = object_to_scene
+                t_articulation_dict[frame_idx] = t_articulation
 
                 if ghosting:
                     total_ghost = 10
@@ -191,6 +198,8 @@ class MeshLoader:
         self.scene_dict = scene_dict
         self.ghost_dict = ghost_dict
         self.pts_traj_dict = pts_traj_dict
+        self.root_to_world = root_to_world
+        self.t_articulation_dict = t_articulation_dict
         self.aabb_min = aabb_min
         self.aabb_max = aabb_max
 
@@ -205,10 +214,10 @@ class MeshLoader:
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
             # scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
-            # # XYZ color
-            # xyz = scene_mesh.vertices
-            # xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
-            # scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
+            # XYZ color
+            xyz = scene_mesh.vertices
+            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
             input_dict["scene"] = scene_mesh
         if len(self.ghost_dict) > 0:
             ghost_mesh = trimesh.util.concatenate(self.ghost_dict[frame_idx])
@@ -315,3 +324,36 @@ class MeshLoader:
             rgb[::downsample_factor, ::downsample_factor, ::-1] for rgb in rgb_list
         ]
         return rgb_list
+
+    def get_following_camera(self, frame_idx, dist=2):
+        root_to_world = self.root_to_world[frame_idx]
+        root_to_observer = np.eye(4)
+        root_to_observer[:3, 3] = np.array([0, 0, dist])
+        root_to_observer[:3, :3] = cv2.Rodrigues(np.array([0, np.pi, 0]))[0]
+        world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
+        return world_to_observer
+
+    def get_selfie_camera(self, frame_idx, dist=1):
+        root_to_world = self.root_to_world[frame_idx]
+        root_to_observer = np.eye(4)
+        root_to_observer[:3, 3] = np.array([0, 0, dist])
+        world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
+        return world_to_observer
+
+    def get_body_camera(self, frame_idx, part_name="head"):
+        if part_name == "head":
+            part_idx = 3
+            delta_mat = np.eye(4)
+            delta_mat[:3, :3] = (
+                cv2.Rodrigues(np.array([-np.pi / 4, 0, 0]))[0]
+                @ cv2.Rodrigues(np.array([0, 0, np.pi]))[0]
+            )
+
+        observer_to_root = self.t_articulation_dict[frame_idx][part_idx]
+        root_to_world = self.root_to_world[frame_idx]
+        observer_to_world = root_to_world @ observer_to_root
+        world_to_observer = delta_mat @ np.linalg.inv(observer_to_world)
+        return world_to_observer
+
+    def get_identity_camera(self):
+        return np.eye(4)

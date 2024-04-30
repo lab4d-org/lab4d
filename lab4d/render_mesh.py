@@ -55,6 +55,11 @@ def main():
         elif args.view == "bev":
             # bev
             renderer.set_camera_bev(depth=20)
+            # world_to_observer = loader.get_body_camera(frame_idx)
+            # # world_to_observer = loader.get_selfie_camera(frame_idx)
+            # # world_to_observer = loader.get_following_camera(frame_idx)
+            # renderer.set_camera(world_to_observer)
+
             # renderer.set_camera_bev(depth=2 * max(loader.aabb_max - loader.aabb_min))
             # set camera intrinsics
             fl = max(raw_size)
