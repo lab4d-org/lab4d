@@ -205,10 +205,10 @@ class MeshLoader:
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
             # scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
-            # XYZ color
-            xyz = scene_mesh.vertices
-            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
-            scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
+            # # XYZ color
+            # xyz = scene_mesh.vertices
+            # xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            # scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
             input_dict["scene"] = scene_mesh
         if len(self.ghost_dict) > 0:
             ghost_mesh = trimesh.util.concatenate(self.ghost_dict[frame_idx])

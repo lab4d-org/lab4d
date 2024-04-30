@@ -246,9 +246,9 @@ class NeRF(nn.Module):
             dir_embed = self.dir_embedding(dir)
             if self.appr_channels > 0:
                 appr_embed = self.appr_embedding.get_vals(frame_id)
-                appr_embed = appr_embed[:, None, None].expand(
-                    dir_embed.shape[:-1] + (appr_embed.shape[-1],)
-                )
+                extra_dims = len(dir_embed.shape) - len(appr_embed.shape)
+                appr_embed = appr_embed.reshape(appr_embed.shape[:1] + (1,)*extra_dims + appr_embed.shape[1:])
+                appr_embed = appr_embed.expand(dir_embed.shape[:-1] + (appr_embed.shape[-1],))
                 appr_embed = torch.cat([dir_embed, appr_embed], -1)
             else:
                 appr_embed = dir_embed
@@ -461,7 +461,8 @@ class NeRF(nn.Module):
         device = next(self.parameters()).device
         verts = torch.tensor(mesh.vertices, dtype=torch.float32, device=device)
         dir = torch.zeros_like(verts)
-        color = self.forward(verts, dir=dir)[0]
+        frame_id = torch.tensor([0], device=device)
+        color = self.forward(verts, dir=dir, frame_id=frame_id)[0]
         return color.cpu().numpy()
 
     def get_aabb(self, inst_id=None):

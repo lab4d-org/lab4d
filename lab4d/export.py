@@ -119,10 +119,13 @@ def extract_deformation(field, mesh_rest, inst_id):
         else:
             mesh_t = mesh_rest.copy()
 
+        # color
+        color = field.extract_canonical_color(mesh_t)
+        mesh_t.visual.vertex_colors[:,:3] = color * 255
         # XYZ color
-        xyz_color = mesh_rest.vertices
-        xyz_color = (xyz_color - xyz_color.min(0)) / (xyz_color.max(0) - xyz_color.min(0))
-        mesh_t.visual.vertex_colors[:, :3] = xyz_color * 255
+        #xyz_color = mesh_rest.vertices
+        #xyz_color = (xyz_color - xyz_color.min(0)) / (xyz_color.max(0) - xyz_color.min(0))
+        #mesh_t.visual.vertex_colors[:, :3] = xyz_color * 255
 
         motion_expl = MotionParamsExpl(
             field2cam=se3_mat,
@@ -226,6 +229,9 @@ def extract_motion_params(model, opts, data_info):
         meshes_rest[cate], motion_tuples[cate] = extract_deformation(
             field, meshes_rest[cate], opts["inst_id"]
         )
+        # color
+        color = field.extract_canonical_color(meshes_rest[cate])
+        meshes_rest[cate].visual.vertex_colors[:,:3] = color * 255
 
     # scale
     if "bg" in model.fields.field_params.keys():
