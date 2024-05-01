@@ -45,11 +45,13 @@ class MeshViewer:
         server = viser.ViserServer(share=share, port=args.port)
 
         # load canonical data
-        testdirs = [
-            i
-            for i in glob.glob("logdir/home-2023-curated3-compose-ft/export_*/")
-            if "0000" not in i
-        ]
+        testdirs = sorted(
+            [
+                i
+                for i in glob.glob("logdir/home-2023-curated3-compose-ft/export_*/")
+                if "0000" not in i
+            ]
+        )
 
         # add fg root poses
         self.root_trajs = []

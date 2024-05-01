@@ -247,8 +247,12 @@ class NeRF(nn.Module):
             if self.appr_channels > 0:
                 appr_embed = self.appr_embedding.get_vals(frame_id)
                 extra_dims = len(dir_embed.shape) - len(appr_embed.shape)
-                appr_embed = appr_embed.reshape(appr_embed.shape[:1] + (1,)*extra_dims + appr_embed.shape[1:])
-                appr_embed = appr_embed.expand(dir_embed.shape[:-1] + (appr_embed.shape[-1],))
+                appr_embed = appr_embed.reshape(
+                    appr_embed.shape[:1] + (1,) * extra_dims + appr_embed.shape[1:]
+                )
+                appr_embed = appr_embed.expand(
+                    dir_embed.shape[:-1] + (appr_embed.shape[-1],)
+                )
                 appr_embed = torch.cat([dir_embed, appr_embed], -1)
             else:
                 appr_embed = dir_embed
@@ -464,6 +468,20 @@ class NeRF(nn.Module):
         frame_id = torch.tensor([0], device=device)
         color = self.forward(verts, dir=dir, frame_id=frame_id)[0]
         return color.cpu().numpy()
+
+    @torch.no_grad()
+    def extract_canonical_sdf(self, pts):
+        """Extract signed distance function on canonical pts
+
+        Args:
+            pts (np.ndarray): Points in canonical space
+        Returns:
+            sdf (np.ndarray): Signed distance function
+        """
+        device = next(self.parameters()).device
+        pts = torch.tensor(pts, dtype=torch.float32, device=device)
+        sdf = self.forward_sdf(pts)[0]
+        return sdf.cpu().numpy()
 
     def get_aabb(self, inst_id=None):
         """Get axis-aligned bounding box
@@ -860,7 +878,7 @@ class NeRF(nn.Module):
         )
         for k in cyc_dict.keys():
             if k == "dual_quat":
-                    continue
+                continue
             if k in backwarp_dict.keys():
                 # 'skin_entropy', 'delta_skin'
                 feat_dict[k] = (cyc_dict[k] + backwarp_dict[k]) / 2

@@ -20,6 +20,7 @@ import viser
 import glob
 import viser.transforms as tf
 import pickle as pkl
+import scipy
 
 sys.path.insert(0, os.getcwd())
 try:
@@ -83,7 +84,7 @@ class BGField:
                 bg_voxel = pkl.load(open(bgvoxel_path, "rb"))
             else:
                 print("extracting voxel from %s" % dirpath)
-                bg_voxel = VoxelGrid(bg_mesh, res=0.1)
+                bg_voxel = VoxelGrid(bg_mesh)
                 pkl.dump(bg_voxel, open(bgvoxel_path, "wb"))
 
             # save to dict
@@ -126,20 +127,21 @@ class BGField:
             use_extend_aabb=opts["extend_aabb"],
         )
 
-        # dino
+        # # rgb
         # color = bg_field.extract_canonical_color(meshes_rest["bg"])
         # meshes_rest["bg"].visual.vertex_colors = color * 255
-        # get dino feature
-        bg_feature = bg_field.extract_canonical_feature(meshes_rest["bg"], None)
-        # visualize the feature
-        # pca_fn = data_info["apply_pca_fn"]
-        # from lab4d.utils.numpy_utils import pca_numpy
 
-        # pdb.set_trace()
-        # pca_fn = pca_numpy(bg_feature, n_components=3)
-        bg_feature_vis = pca_fn(bg_feature, normalize=True)
-        meshes_rest["bg"].visual.vertex_colors = bg_feature_vis * 255
-        # self.bg_feature = bg_feature
+        # # get dino feature
+        # bg_feature = bg_field.extract_canonical_feature(meshes_rest["bg"], None)
+        # # visualize the feature
+        # # pca_fn = data_info["apply_pca_fn"]
+        # # from lab4d.utils.numpy_utils import pca_numpy
+
+        # # pdb.set_trace()
+        # # pca_fn = pca_numpy(bg_feature, n_components=3)
+        # bg_feature_vis = pca_fn(bg_feature, normalize=True)
+        # meshes_rest["bg"].visual.vertex_colors = bg_feature_vis * 255
+        # # self.bg_feature = bg_feature
 
         scale_bg = bg_field.logscale.exp().cpu().numpy()
         meshes_rest["bg"].apply_scale(1.0 / scale_bg)
@@ -221,21 +223,31 @@ class VoxelGrid:
 
         return tensor, origin
 
-    def to_boxes(self, mode="occupancy"):
+    def get_data(self, mode="occupancy", opaticy=1.0):
         if mode == "occupancy":
             data = self.data
-            color = np.array([0.0, 1.0, 0.0, 1.0])
+            color = np.array([0.0, 1.0, 0.0, opaticy])
         elif mode == "root_visitation":
             data = self.root_visitation
-            color = np.array([1.0, 0.0, 0.0, 1.0])
+            color = np.array([1.0, 0.0, 0.0, opaticy])
         elif mode == "cam_visitation":
             data = self.cam_visitation
-            color = np.array([0.0, 0.0, 1.0, 1.0])
+            color = np.array([0.0, 0.0, 1.0, opaticy])
         elif mode == "root_visitation_gradient":
             data = np.linalg.norm(self.root_visitation_gradient, 2, axis=-1)
-            color = np.array([1.0, 1.0, 0.0, 1.0])
+            color = np.array([1.0, 1.0, 0.0, opaticy])
+        elif mode == "root_visitation_edt":
+            data = self.root_visitation_edt
+            color = np.array([1.0, 1.0, 1.0, opaticy])
+        elif mode == "root_visitation_edt_gradient":
+            data = np.linalg.norm(self.root_visitation_edt_gradient, 2, axis=-1)
+            color = np.array([1.0, 1.0, 1.0, opaticy])
         else:
             raise ValueError("mode not recognized")
+        return data, color
+
+    def to_boxes(self, mode="occupancy", opaticy=1.0):
+        data, color = self.get_data(mode, opaticy)
         if data.sum() == 0:
             return trimesh.Trimesh(vertices=np.zeros((0, 3)), faces=np.zeros((0, 3)))
         boxes = []
@@ -257,6 +269,16 @@ class VoxelGrid:
         boxes = trimesh.util.concatenate(boxes)
         boxes.apply_translation(self.origin)
         return boxes
+
+    def to_pts(self):
+        data, _ = self.get_data()
+        grid_size = data.shape
+        pts = []
+        for i in range(grid_size[0]):
+            for j in range(grid_size[1]):
+                for k in range(grid_size[2]):
+                    pts.append([i * self.res, j * self.res, k * self.res])
+        return np.array(pts) + self.origin
 
     def run_viser(self):
         # visualizations
@@ -332,12 +354,36 @@ class VoxelGrid:
         gradient = np.stack([gradient_x, gradient_y, gradient_z], axis=-1)
         return gradient
 
+    def compute_penetration_gradients(self, pts):
+        """
+        compute the penetration gradients at the points
+        pts: N,3
+        """
+        # readout the voxel values at the points
+        # gradients = self.readout_voxel(pts, mode="root_visitation_gradient")
+        gradients = self.readout_voxel(pts, mode="root_visitation_edt_gradient")
+        loss = self.readout_voxel(pts, mode="root_visitation")
+        return loss, gradients
+
     def count_root_visitation(self, trajectory, splat_radius=0.2):
         # trajectory[..., 1] += 0.2  # center to foot
         self.root_visitation = self.splat_trajectory_counts(trajectory, splat_radius)
         self.root_visitation = self.root_visitation / self.root_visitation.max()
-        self.root_visitation_gradient = self.spatial_gradient(
-            (self.root_visitation > 0).astype(float)
+        smoothed_root_visitation = (self.root_visitation > 0).astype(float)
+        # # use a gaussian kernel
+        # smoothed_root_visitation = scipy.ndimage.gaussian_filter(
+        #     smoothed_root_visitation, sigma=1
+        # )
+        # self.root_visitation_gradient = self.spatial_gradient(smoothed_root_visitation)
+
+        self.root_visitation_edt = scipy.ndimage.distance_transform_edt(
+            1 - smoothed_root_visitation
+        )
+        self.root_visitation_edt = 1 - (
+            self.root_visitation_edt / self.root_visitation_edt.max()
+        )
+        self.root_visitation_edt_gradient = self.spatial_gradient(
+            self.root_visitation_edt
         )
 
     def count_cam_visitation(self, trajectory, splat_radius=0.2):
@@ -428,10 +474,19 @@ class VoxelGrid:
             data = self.cam_visitation
         elif mode == "root_visitation_gradient":
             data = self.root_visitation_gradient
+        elif mode == "root_visitation_edt":
+            data = self.root_visitation_edt
+        elif mode == "root_visitation_edt_gradient":
+            data = self.root_visitation_edt_gradient
 
-        data = data[None]  # 1,H,W,D
-        value = readout_voxel_fn(data, pts, self.res, self.origin)
-        value = value[0]  # N
+        if len(data.shape) == 3:
+            data = data[None]  # 1,H,W,D
+            value = readout_voxel_fn(data, pts, self.res, self.origin)
+            value = value[0]  # N
+        elif len(data.shape) == 4:
+            data = data.transpose((3, 0, 1, 2))  # C,H,W,D
+            value = readout_voxel_fn(data, pts, self.res, self.origin)
+            value = value.T
         return value
 
     def readout_in_world(self, feature_vol, x_ego, ego_to_world):
@@ -543,14 +598,16 @@ def readout_voxel_fn(data, pts, res, origin):
 
 
 if __name__ == "__main__":
-    mesh_path = "../vid2sim/logdir/home-2023-11-bg-adapt3/export_0001/bg-mesh.obj"
-    mesh = trimesh.load(mesh_path)
+    bg_field = BGField()
+    bg_field.voxel_grid.run_viser()
+    # mesh_path = "../vid2sim/logdir/home-2023-11-bg-adapt3/export_0001/bg-mesh.obj"
+    # mesh = trimesh.load(mesh_path)
 
-    # get a coordinate frame
+    # # get a coordinate frame
 
-    voxel_grid = VoxelGrid(mesh)
+    # voxel_grid = VoxelGrid(mesh)
 
-    pts_score = voxel_grid.readout_voxel(mesh.vertices)
-    trimesh.Trimesh(mesh.vertices[pts_score > 0]).export("tmp/pts_score.obj")
+    # pts_score = voxel_grid.readout_voxel(mesh.vertices)
+    # trimesh.Trimesh(mesh.vertices[pts_score > 0]).export("tmp/pts_score.obj")
 
-    voxel_grid.run_viser()
+    # voxel_grid.run_viser()
