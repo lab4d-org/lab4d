@@ -62,7 +62,6 @@ class ViserViewer:
 
         self.render_times = deque(maxlen=3)
         self.server = viser.ViserServer(port=self.port)
-        self.reset_view_button = self.server.add_gui_button("Reset View")
 
         self.need_update = False
 
@@ -134,14 +133,6 @@ class ViserViewer:
                 "Resume Training" if self.pause_training else "Pause Training"
             )
 
-        @self.reset_view_button.on_click
-        def _(_):
-            self.need_update = True
-            for client in self.server.get_clients().values():
-                client.camera.up_direction = tf.SO3(client.camera.wxyz) @ np.array(
-                    [0.0, -1.0, 0.0]
-                )
-
         self.c2ws = []
         self.camera_infos = []
 
@@ -154,6 +145,10 @@ class ViserViewer:
             @client.camera.on_update
             def _(_):
                 self.need_update = True
+            # # initialize cameras
+            # for client in self.server.get_clients().values():
+            #     client.camera.wxyz = np.array([1.0, 0.0, 0.0, 0.0])
+            #     print(client.camera.wxyz)
 
         self.debug_idx = 0
 
@@ -163,10 +158,11 @@ class ViserViewer:
     @torch.no_grad()
     def update(self):
         if self.need_update:
-            start = time.time()
             for client in self.server.get_clients().values():
                 camera = client.camera
                 w2c = get_w2c(camera)
+                # rot_offset = np.asarray([ 0.9624857, 2.3236458, -1.2028077])
+                # w2c[:3,:3] = w2c[:3,:3] @ cv2.Rodrigues(rot_offset)[0].T
                 try:
                     W = self.resolution_slider.value
                     H = int(self.resolution_slider.value/camera.aspect)
@@ -211,9 +207,9 @@ class ViserViewer:
                 #         cv2.cvtColor(out * 255, cv2.COLOR_RGB2BGR),
                 #     )
 
-            self.render_times.append(interval)
-            self.fps.value = f"{1.0 / np.mean(self.render_times):.3g}"
-            # print(f"Update time: {end - start:.3g}")
+                self.render_times.append(interval)
+                self.fps.value = f"{1.0 / np.mean(self.render_times):.3g}"
+                # print(f"Update time: {end - start:.3g}")
 
 
 def main(_):

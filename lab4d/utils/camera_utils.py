@@ -187,7 +187,8 @@ def construct_batch(
         batch["field2cam"] = field2cam
 
     if camera_int is not None:
-        camera_int = torch.tensor(camera_int, dtype=torch.float32, device=device)
+        if not torch.is_tensor(camera_int):
+            camera_int = torch.tensor(camera_int, dtype=torch.float32, device=device)
         batch["Kinv"] = K2inv(camera_int)
 
     return batch

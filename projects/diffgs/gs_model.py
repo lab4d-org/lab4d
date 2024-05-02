@@ -366,7 +366,7 @@ class GSplatModel(nn.Module):
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
-        shs = self.gaussians.get_features
+        shs = self.gaussians.get_features(frameid)
 
         # Rasterize visible Gaussians to image, obtain their radii (on screen).
         rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
@@ -410,10 +410,10 @@ class GSplatModel(nn.Module):
             "rgb": rendered_image.clamp(0, 1),
             "depth": rendered_depth,
             "alpha": rendered_alpha,
-            "viewspace_points": screenspace_points,
-            "visibility_mask": radii > 0,
-            "radii": radii,
-            "reproj_xy": xy_1[None, ..., :2],
+            # "viewspace_points": screenspace_points,
+            # "visibility_mask": radii > 0,
+            # "radii": radii,
+            # "reproj_xy": xy_1[None, ..., :2],
         }
         out_dict["rgb"] = out_dict["rgb"][None]
         out_dict["depth"] = out_dict["depth"][None]
@@ -428,7 +428,7 @@ class GSplatModel(nn.Module):
             opacity_fg = gaussians_fg.get_opacity
             scales_fg = gaussians_fg.get_scaling
             rotations_fg = gaussians_fg.get_rotation(frameid)
-            shs_fg = gaussians_fg.get_features
+            shs_fg = gaussians_fg.get_features(frameid)
 
             w2c_fg = gaussians_fg.get_extrinsics(frameid)
             means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
@@ -467,7 +467,7 @@ class GSplatModel(nn.Module):
                 cov3D_precomp=cov3D_precomp,
             )
             out_dict["flow"] = flow[None, :2] * camera_dict["render_resolution"] / 2
-            out_dict["means2D_tmp"] = means2D_tmp
+            # out_dict["means2D_tmp"] = means2D_tmp
 
         # save aux for densification
         if self.training:
@@ -620,7 +620,7 @@ class GSplatModel(nn.Module):
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
 
-        self.update_visibility_stats(rendered, batch)
+        # self.update_visibility_stats(rendered, batch)
         return loss_dict
 
     @staticmethod
@@ -1241,8 +1241,6 @@ class GSplatModel(nn.Module):
         for grad, vis_mask in zip(grads, vis_masks):
             # d(L1+L2)/dx = dL1/dx + dL2/dx
             self.gaussians.add_xyz_grad_stats(grad * len_grads, vis_mask)
-        # delete after update
-        del self.rendered_aux
 
     def mlp_init(self):
         """Initialize camera transforms, geometry, articulations, and camera

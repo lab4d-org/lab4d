@@ -18,6 +18,8 @@ from simple_knn._C import distCUDA2
 sys.path.insert(0, os.getcwd())
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.predictor.predictor import CameraPredictor, TrajPredictor
+from lab4d.nnutils.base import CondMLP, ScaleLayer
+from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
 from lab4d.nnutils.pose import CameraConst, CameraExplicit
 from lab4d.utils.quat_transform import (
     quaternion_translation_to_se3,
@@ -300,13 +302,25 @@ class GaussianModel(nn.Module):
             # )
             # self.initialize(input=pcd)
 
-            # initialize temporal part: (dx,dy,dz)t
-            if not config["fg_motion"] == "rigid":
-                total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
-                if config["use_timesync"]:
-                    num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
-                    total_frames = total_frames // num_vids
-                self.init_trajectory(total_frames)
+            # # initialize temporal part: (dx,dy,dz)t
+            # if not config["fg_motion"] == "rigid" and not self.mode=="bg":
+            #     total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
+            #     if config["use_timesync"]:
+            #         num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
+            #         total_frames = total_frames // num_vids
+            #     self.init_trajectory(total_frames)
+                    
+            # shadow field
+            num_freq_xyz = 6
+            num_freq_t = 6
+            num_inst = len(lab4d_model.data_info["frame_info"]["frame_offset"]) - 1
+            self.pos_embedding = PosEmbedding(3, num_freq_xyz)
+            self.time_embedding = TimeEmbedding(num_freq_t, lab4d_model.data_info["frame_info"])
+            self.shadow_field = CondMLP(num_inst=num_inst, 
+                                        D=1,
+                                        W=256,             
+                                        in_channels=self.pos_embedding.out_channels+ self.time_embedding.out_channels,
+                                        out_channels=1)
 
         else:
             for idx in self.get_children_idx():
@@ -388,19 +402,20 @@ class GaussianModel(nn.Module):
     def get_rotation(self, frameid=None):
         if self.is_leaf():
             rot = self.rotation_activation(self._rotation)
-            if hasattr(self, "_trajectory"):
-                if frameid is None:
-                    delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
-                    rot = quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
-                else:
-                    shape = frameid.shape
-                    frameid = frameid.reshape(-1)
-                    delta_rot = []
-                    for key in frameid.cpu().numpy():
-                        delta_rot.append(self.rotation_activation(self.trajectory_cache[key][:,:4]))
-                    delta_rot = torch.stack(delta_rot, dim=1) # N,T,4
-                    rot = quaternion_mul(delta_rot, rot[:, None])  # w2c @ delta @ rest gaussian
-                    rot = rot.view(rot.shape[:1] + shape + rot.shape[-1:])
+            # if hasattr(self, "_trajectory"):
+            if frameid is None or self.mode=="bg":
+                pass
+                # delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
+                # rot = quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
+            else:
+                shape = frameid.shape
+                frameid = frameid.reshape(-1)
+                delta_rot = []
+                for key in frameid.cpu().numpy():
+                    delta_rot.append(self.rotation_activation(self.trajectory_cache[key][:,:4]))
+                delta_rot = torch.stack(delta_rot, dim=1) # N,T,4
+                rot = quaternion_mul(delta_rot, rot[:, None])  # w2c @ delta @ rest gaussian
+                rot = rot.view(rot.shape[:1] + shape + rot.shape[-1:])
             return rot
         else:
             rt_tensor = []
@@ -422,21 +437,21 @@ class GaussianModel(nn.Module):
 
     def get_xyz(self, frameid=None):
         if self.is_leaf(): 
-            if hasattr(self, "_trajectory"):
-                if frameid is None:
-                    return self._xyz + self._trajectory[:, 0, 4:]
-                else:
-                    shape = frameid.shape
-                    frameid = frameid.reshape(-1)
-                    # to prop grad to motion
-                    frameid = frameid.view(-1)
-                    traj_pred = []
-                    for key in frameid.cpu().numpy():
-                        traj_pred.append(self.trajectory_cache[key][:,4:])
-                    traj_pred = torch.stack(traj_pred, dim=1) 
-                    # N,xyz,3
-                    xyz_t = self._xyz[:, None] + traj_pred
-                    return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
+            # if hasattr(self, "_trajectory"):
+            if frameid is None or self.mode=="bg":
+                # return self._xyz + self._trajectory[:, 0, 4:]
+                return self._xyz
+            else:
+                shape = frameid.shape
+                frameid = frameid.reshape(-1)
+                # to prop grad to motion
+                traj_pred = []
+                for key in frameid.cpu().numpy():
+                    traj_pred.append(self.trajectory_cache[key][:,4:])
+                traj_pred = torch.stack(traj_pred, dim=1) 
+                # N,xyz,3
+                xyz_t = self._xyz[:, None] + traj_pred
+                return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
             return self._xyz
         else:
             rt_tensor = []
@@ -456,16 +471,32 @@ class GaussianModel(nn.Module):
                 rt_tensor.append(xyz)
             return torch.cat(rt_tensor, dim=0)
 
-    @property
-    def get_features(self):
+    def get_features(self, frameid=None):
         if self.is_leaf():
+            # N, k, 3
             features_dc = self._features_dc
             features_rest = self._features_rest
-            return torch.cat((features_dc, features_rest), dim=1)
+            shs = torch.cat((features_dc, features_rest), dim=1)
+
+            if frameid is None:
+                return shs
+            else:
+                shape = frameid.shape
+                frameid = frameid.reshape(-1)
+                shadow_pred = []
+                for key in frameid.cpu().numpy():
+                    shadow_pred.append(self.shadow_cache[key])
+                shadow_pred = torch.stack(shadow_pred, dim=1) # N,T,1
+                # N,T,1,1
+                rgb = SH2RGB(shs)
+                rgb_t = (rgb[:, None] * shadow_pred[...,None])
+                rgb_t = rgb_t.clamp(0,1)
+                shs_t = RGB2SH(rgb_t)
+                return shs_t.reshape(shs_t.shape[:1] + shape + shs_t.shape[-2:])
         else:
             rt_tensor = []
             for gaussians in self.gaussians:
-                rt_tensor.append(gaussians.get_features)
+                rt_tensor.append(gaussians.get_features(frameid))
             return torch.cat(rt_tensor, dim=0)
 
     @property
@@ -912,8 +943,31 @@ class GaussianModel(nn.Module):
             self._trajectory = nn.Parameter(trajectory)
 
     def update_trajectory(self, frameid):
-        if self.config["fg_motion"] == "rigid" or self.mode=="bg": return
         if self.is_leaf():
+            field = self.lab4d_model.fields.field_params[self.mode]
+            scale_fg = self.scale_field.detach()
+
+            # shadow
+            frameid = frameid.reshape(-1)
+            inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
+            xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
+            xyz_repeated_in = xyz_repeated[:,None] * scale_fg
+
+            xyz_embed = self.pos_embedding(xyz_repeated_in)
+            t_embed = self.time_embedding(frameid)
+            t_embed = t_embed.view(-1, 1, 1, t_embed.shape[-1])
+            t_embed = t_embed.expand(xyz_repeated_in.shape[:-1] + (-1,))
+            embed = torch.cat([xyz_embed, t_embed], dim=-1)
+            shadow_pred = self.shadow_field(embed, inst_id)[:,0] # T, N, 1
+            # process
+            shadow_pred = F.sigmoid(shadow_pred) * 2 # 0-2
+
+            self.shadow_cache = {}
+            for it, key in enumerate(frameid.cpu().numpy()):
+                self.shadow_cache[key] = shadow_pred[it]
+
+            # motion
+            if self.config["fg_motion"] == "rigid" or self.mode=="bg": return
             if isinstance(self.gs_camera_mlp, TrajPredictor):
                 raise NotImplementedError
                 # # image-based motion
@@ -922,18 +976,27 @@ class GaussianModel(nn.Module):
                 # #TODO add delta quat
             elif self.mode=="fg":
                 # lab4d model (fourier basis motion)
-                field = self.lab4d_model.fields.field_params["fg"]
-                scale_fg = self.scale_field.detach()
-                frameid = frameid.reshape(-1)
-                inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
-                xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
-                xyz_repeated_in = xyz_repeated[:,None] * scale_fg
-                xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)
+                # xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)
+                chunk_size = 64
+                xyz_t, dq_r, dq_t = [], [], []
+                for idx in range(0, len(frameid), chunk_size):
+                    frameid_chunk = frameid[idx : idx + chunk_size]
+                    xyz_in_chunk = xyz_repeated_in[idx : idx + chunk_size]
+                    inst_id_chunk = inst_id[idx : idx + chunk_size]
+                    xyz_t_chunk, warp_dict = field.warp(xyz_in_chunk, frameid_chunk, inst_id_chunk, return_aux=True)
+                    xyz_t.append(xyz_t_chunk)
+                    dq_r.append(warp_dict["dual_quat"][0])
+                    dq_t.append(warp_dict["dual_quat"][1])
+                xyz_t = torch.cat(xyz_t, 0)
+                dq_r = torch.cat(dq_r, 0)
+                dq_t = torch.cat(dq_t, 0)
+                dual_quat = (dq_r, dq_t)
+
                 xyz_t = xyz_t[:, 0] / scale_fg
                 motion = (xyz_t - xyz_repeated).transpose(0, 1).contiguous()
 
                 # rotataion and translation of each gaussian
-                quat, _ = dual_quaternion_to_quaternion_translation(warp_dict["dual_quat"])
+                quat, _ = dual_quaternion_to_quaternion_translation(dual_quat)
                 quat = quat.transpose(0, 1).contiguous()
                 rot = self.rotation_activation(self._rotation)
                 quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
@@ -943,13 +1006,6 @@ class GaussianModel(nn.Module):
                 quat_delta = torch.zeros(self.get_num_pts, len(frameid), 4, device="cuda")
                 quat_delta[:, :, 0] = 1.0
             
-            self._trajectory.data[:, frameid, :4] = quat_delta
-            self._trajectory.data[:, frameid, 4:] = motion
-            # # to prop grad to motion
-            # self._trajectory_pred = torch.zeros_like(self._trajectory)
-            # self._trajectory_pred = self._trajectory_pred + self._trajectory
-            # self._trajectory_pred[:, frameid, 4:] = motion
-            # self._trajectory_pred[:, frameid, :4] = quat_delta
             trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
             self.trajectory_cache = {}
             for it, key in enumerate(frameid.cpu().numpy()):

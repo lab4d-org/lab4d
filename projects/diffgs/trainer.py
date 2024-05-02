@@ -421,6 +421,7 @@ class GSplatTrainer(Trainer):
                 # "._trajectory": lr_base * 0.5,
                 ".gs_camera_mlp": camera_lr * 1e-9,
                 ".lab4d_model": lr_base * 0.1,
+                ".shadow_field": lr_base * 0.1,
             }
 
         return param_lr_startwith, param_lr_with
@@ -492,8 +493,10 @@ class GSplatTrainer(Trainer):
             self.scheduler.step(self.current_steps)
             self.optimizer.zero_grad()
 
-            # keep track of xyz spatial gradients for densification
-            self.model.update_densification_stats()
+            # # keep track of xyz spatial gradients for densification
+            # self.model.update_densification_stats()
+            # delete after update
+            del self.model.rendered_aux
 
             if get_local_rank() == 0:
                 # update scalar dict
