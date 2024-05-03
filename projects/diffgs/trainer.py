@@ -465,7 +465,7 @@ class GSplatTrainer(Trainer):
         opts = self.opts
         gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
-        o3c.cuda.release_cache()
+        # o3c.cuda.release_cache()
         self.model.train()
         self.optimizer.zero_grad()
 

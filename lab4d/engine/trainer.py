@@ -438,7 +438,7 @@ class Trainer:
             optimizer (torch.optim.Optimizer or None): If provided, load
                 learning rate from checkpoint
         """
-        checkpoint = torch.load(load_path)
+        checkpoint = torch.load(load_path, map_location="cpu")
         model_states = checkpoint["model"]
         if not isinstance(model, torch.nn.parallel.DistributedDataParallel):
             model_states = remove_ddp_prefix(model_states)

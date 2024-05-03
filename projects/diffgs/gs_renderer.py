@@ -949,7 +949,10 @@ class GaussianModel(nn.Module):
 
             # shadow
             frameid = frameid.reshape(-1)
-            inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
+            if hasattr(field.camera_mlp, "time_embedding"):
+                inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
+            else:
+                inst_id = field.camera_mlp.time_info.raw_fid_to_vid[frameid]
             xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
             xyz_repeated_in = xyz_repeated[:,None] * scale_fg
 
