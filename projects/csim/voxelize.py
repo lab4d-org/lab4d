@@ -260,7 +260,11 @@ class VoxelGrid:
                     box = trimesh.creation.box(
                         extents=[self.res, self.res, self.res],
                         transform=trimesh.transformations.translation_matrix(
-                            [i * self.res, j * self.res, k * self.res]
+                            [
+                                (i + 0.5) * self.res,
+                                (j + 0.5) * self.res,
+                                (k + 0.5) * self.res,
+                            ]
                         ),
                     )
                     colors = np.tile(color * data[i, j, k], (len(box.vertices), 1))
