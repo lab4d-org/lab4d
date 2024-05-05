@@ -17,12 +17,14 @@ from lab4d.utils.geom_utils import (
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
+    matrix_to_axis_angle,
     quaternion_mul,
     quaternion_translation_to_dual_quaternion,
     dual_quaternion_mul,
     quaternion_translation_to_se3,
     dual_quaternion_to_quaternion_translation,
     quaternion_translation_mul,
+    symmetric_orthogonalization,
 )
 from lab4d.utils.skel_utils import (
     fk_se3,
@@ -537,6 +539,30 @@ class CameraMLP(TimeMLP):
         base_quat = F.normalize(base_quat, dim=-1)
         quat = quaternion_mul(quat, base_quat)
         return quat, trans
+
+
+class SO3Layer(nn.Module):
+    def __init__(self, W=256, out_rots=1, out_type="mat"):
+        super().__init__()
+        self.fc = nn.Linear(W, 9 * out_rots)
+        self.out_rots = out_rots
+        self.out_type = out_type
+
+    def forward(self, x):
+        """
+        output: quaternion
+        """
+        x = self.fc(x)
+        x = x.reshape(x.shape[:-1] + (-1, 9))
+        x = symmetric_orthogonalization(x)
+        if self.out_type == "quat":
+            x = matrix_to_quaternion(x)
+        elif self.out_type == "mat":
+            pass
+        elif self.out_type == "so3":
+            x = matrix_to_axis_angle(x)
+        x = x.reshape(x.shape[:-2] + (-1,))
+        return x
 
 
 class CameraMLP_so3(TimeMLP):

@@ -39,7 +39,7 @@ def symmetric_orthogonalization(x):
     det = det.view(-1, 1, 1)
     vt = torch.cat((vt[:, :2, :], vt[:, -1:, :] * det), 1)
     r = torch.matmul(u, vt)
-    r = r.reshape(shape)
+    r = r.reshape(shape[:-1] + (3, 3))
     return r
 
 
