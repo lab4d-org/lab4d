@@ -497,7 +497,7 @@ class VoxelGrid:
         """
         x_ego: ...,KL
         ego_to_world: ...,L
-        feat: ..., K, F
+        feat: ..., KF
         """
         if isinstance(ego_to_world, tuple):
             ego_to_world_angle = ego_to_world[1]
