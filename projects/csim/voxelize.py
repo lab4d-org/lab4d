@@ -307,7 +307,7 @@ class VoxelGrid:
             vertex_colors=boxes.visual.vertex_colors[:, :3],
             faces=boxes.faces,
             color=None,
-            opacity=0.8,
+            opacity=0.5,
         )
 
         if hasattr(self, "root_visitation"):
@@ -318,7 +318,7 @@ class VoxelGrid:
                 vertex_colors=boxes.visual.vertex_colors[:, :3],
                 faces=boxes.faces,
                 color=None,
-                opacity=0.8,
+                opacity=0.5,
             )
 
         if hasattr(self, "cam_visitation"):
@@ -329,7 +329,7 @@ class VoxelGrid:
                 vertex_colors=boxes.visual.vertex_colors[:, :3],
                 faces=boxes.faces,
                 color=None,
-                opacity=0.8,
+                opacity=0.5,
             )
 
         if hasattr(self, "root_visitation_gradient"):
@@ -340,11 +340,12 @@ class VoxelGrid:
                 vertex_colors=boxes.visual.vertex_colors[:, :3],
                 faces=boxes.faces,
                 color=None,
-                opacity=0.8,
+                opacity=0.5,
             )
 
-        while True:
-            time.sleep(10.0)
+        # while True:
+        #     time.sleep(10.0)
+        return server
 
     @staticmethod
     def spatial_gradient(volume, eps=1):
@@ -497,7 +498,9 @@ class VoxelGrid:
         """
         x_ego: ...,KL
         ego_to_world: ...,L
-        feat: ..., KF
+        feat: C,H,W,D
+
+        out: ...,KC
         """
         if isinstance(ego_to_world, tuple):
             ego_to_world_angle = ego_to_world[1]
@@ -541,6 +544,7 @@ class VoxelGrid:
 
 def readout_features(feature_vol, x_world, res, origin):
     """
+    feature_vol: C,H,W,D
     x_world: ...,3
     """
     # 3D convs then query B1HWD => B3HWD
@@ -603,7 +607,23 @@ def readout_voxel_fn(data, pts, res, origin):
 
 if __name__ == "__main__":
     bg_field = BGField()
-    bg_field.voxel_grid.run_viser()
+    # test readout function
+    feature_vol = bg_field.voxel_grid.data[None]
+    x_ego = np.random.rand(100000, 3) * 5
+    # x_ego = x_ego * bg_field.voxel_grid.res + bg_field.voxel_grid.origin
+    x_ego = torch.tensor(x_ego, dtype=torch.float32)
+    ego_to_world = torch.zeros((1, 3)) + 1
+    values = bg_field.voxel_grid.readout_in_world(feature_vol, x_ego, ego_to_world)
+    x_ego = x_ego[values[:, 0] > 0]
+
+    server = bg_field.voxel_grid.run_viser()
+    server.add_point_cloud(
+        "/frames/pts",
+        x_ego.numpy(),
+        colors=np.zeros((len(x_ego), 3)),
+    )
+    pdb.set_trace()
+
     # mesh_path = "../vid2sim/logdir/home-2023-11-bg-adapt3/export_0001/bg-mesh.obj"
     # mesh = trimesh.load(mesh_path)
 
