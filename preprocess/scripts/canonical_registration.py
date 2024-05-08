@@ -119,11 +119,11 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1, mode="
             save_path_dp = save_path.replace("Cameras", "Features")
             os.makedirs(save_path_dp, exist_ok=True)
             np.save(
-                "%s/crop-%d-cse-%02d.npy" % (save_path_dp, crop_size, component_id),
+                "%s/crop-cse-%02d.npy" % (save_path_dp, component_id),
                 feats_crop.astype(np.float16),
             )
             np.save(
-                "%s/full-%d-cse-%02d.npy" % (save_path_dp, crop_size, component_id),
+                "%s/full-cse-%02d.npy" % (save_path_dp, component_id),
                 feats_full.astype(np.float16),
             )
             cams_canonical = {k: v for k, v in enumerate(cams_canonical)}

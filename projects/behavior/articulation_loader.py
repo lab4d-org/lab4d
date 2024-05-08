@@ -23,7 +23,8 @@ class ArticulationLoader(MeshLoader):
     @torch.no_grad()
     def __init__(self, opts):
         self.raw_size = (1024, 1024)
-        self.mode = "bone"
+        # self.mode = "bone"
+        self.mode = "shape"
         self.compose_mode = "compose"
         self.opts = opts
 
@@ -140,15 +141,13 @@ class ArticulationLoader(MeshLoader):
             mesh.apply_transform(root_to_world)
 
             # # TODO assign color based on segment id
-            # # 0-64, 64-64+160*1, 64+160*1-64+160*2
-            # # bucket = np.asarray([i * 160 for i in range(10)])
-            # bucket = np.asarray([64 + i * 160 for i in range(10)])
-            # bucket_id = np.digitize(frame_idx, bucket)
+            bucket = np.asarray([56 for i in range(20)])
+            bucket_id = np.digitize(frame_idx, bucket)
 
-            # colormap = get_colormap()[bucket_id]
-            # color = mesh.visual.vertex_colors
-            # color[:, :3] = colormap
-            # mesh.visual.vertex_colors = color
+            colormap = get_colormap()[bucket_id]
+            color = mesh.visual.vertex_colors
+            color[:, :3] = colormap
+            mesh.visual.vertex_colors = color
             self.mesh_dict[frame_idx] = mesh
 
             self.t_articulation_dict[frame_idx] = scaled_t_articulation[frame_idx]

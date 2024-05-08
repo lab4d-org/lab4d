@@ -350,10 +350,9 @@ class SkinningWarp(IdentityWarp):
             ) = self.articulation.get_vals_and_mean(frame_id)
 
         # compute per bone se3
-        M = t_articulation[0].shape[0]
         rest_articulation = (
-            rest_articulation[0].repeat(M, 1, 1),
-            rest_articulation[1].repeat(M, 1, 1),
+            rest_articulation[0].expand(t_articulation[0].shape),
+            rest_articulation[1].expand(t_articulation[0].shape),
         )
         if type == "backward":
             se3 = dual_quaternion_mul(
