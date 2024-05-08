@@ -5,6 +5,7 @@ import cv2
 import torch
 import trimesh
 import tqdm
+from scipy.spatial.transform import Rotation as R
 
 cwd = os.getcwd()
 if cwd not in sys.path:
@@ -55,8 +56,15 @@ class ArticulationLoader(MeshLoader):
         Args:
             sample: np.array, shape (n_frames, 6 + N_JOINTS)
         """
-        fake_frameid = torch.tensor([0], dtype=torch.long, device="cuda")
+        num_frames = len(sample)
+        fake_frameid = torch.tensor(
+            [self.field.frame_offset[self.opts["inst_id"]]],
+            dtype=torch.long,
+            device="cuda",
+        )
+        fake_frameid = fake_frameid.repeat(num_frames)
         inst_id = torch.tensor([self.opts["inst_id"]], dtype=torch.long, device="cuda")
+        inst_id = inst_id.repeat(num_frames)
         xyz = torch.tensor(
             self.meshes_rest["fg"].vertices, dtype=torch.float32, device="cuda"
         )  # before scaling
@@ -65,16 +73,40 @@ class ArticulationLoader(MeshLoader):
         meshes_rest = self.meshes_rest
         scale_fg = self.scale_fg
 
-        world_to_root_list = []
-        for frame_idx, fr_sample in tqdm.tqdm(enumerate(sample)):
-            root_to_world = np.eye(4)
-            root_to_world[:3, 3] = fr_sample[3:6]
-            root_to_world[:3, :3] = cv2.Rodrigues(fr_sample[:3])[0]
-            world_to_root_list.append(np.linalg.inv(root_to_world))
+        # world space keypoints
+        root_to_world_list = np.eye(4).reshape(1, 4, 4).repeat(len(sample), axis=0)
+        root_to_world_list[:, :3, 3] = sample[:, 3:6]
+        root_to_world_list[:, :3, :3] = R.from_rotvec(sample[:, :3]).as_matrix()
+        world_to_root_list = np.linalg.inv(root_to_world_list)
 
         mesh_roottraj = draw_cams(world_to_root_list, radius_base=0.005)
         mesh_roottraj.visual.vertex_colors = mesh_roottraj.visual.vertex_colors
         meshes_rest["bg"].visual.vertex_colors = meshes_rest["bg"].visual.vertex_colors
+
+        # joint angles to articulations
+        so3 = torch.tensor(sample[:, 6:], dtype=torch.float32, device="cuda")
+        so3 = so3.view(num_frames, -1, 3)
+        t_articulation = field.warp.articulation.get_vals(
+            frame_id=fake_frameid, return_so3=False, override_so3=so3
+        )
+        scaled_t_articulation = dual_quaternion_to_se3(t_articulation)
+        scaled_t_articulation = scaled_t_articulation.cpu().numpy()
+        scaled_t_articulation[:, :, :3, 3] /= scale_fg
+
+        # world space keypoints
+        _, kps = dual_quaternion_to_quaternion_translation(t_articulation)
+        kps = kps.cpu().numpy() / scale_fg
+        kps = kps @ root_to_world_list[:, :3, :3].transpose(0, 2, 1)
+        kps = kps + root_to_world_list[:, :3, 3][:, None]
+
+        # deform mesh
+        samples_dict["t_articulation"] = t_articulation
+        xyz_t = field.warp(
+            xyz[None, None].repeat(num_frames, 1, 1, 1),
+            None,
+            inst_id,
+            samples_dict=samples_dict,
+        )[:, 0]
 
         self.extr_dict = {}
         self.mesh_dict = {}
@@ -86,67 +118,52 @@ class ArticulationLoader(MeshLoader):
         self.kps_dict = {}
         self.root_to_world = {}
         for frame_idx, fr_sample in tqdm.tqdm(enumerate(sample)):
-            # joint angles to articulations
-            so3 = torch.tensor(fr_sample[6:], dtype=torch.float32, device="cuda")
-            so3 = so3.view(1, -1, 3)
-            t_articulation = field.warp.articulation.get_vals(
-                frame_id=fake_frameid, return_so3=False, override_so3=so3
-            )
-            mesh_bone = field.warp.skinning_model.draw_gaussian(
-                (t_articulation[0][0], t_articulation[1][0]),
-                field.warp.articulation.edges,
-            )
-            mesh_bone.apply_scale(1.0 / scale_fg)
+            root_to_world = np.linalg.inv(world_to_root_list[frame_idx])
+            self.root_to_world[frame_idx] = root_to_world
 
-            # deform mesh
-            samples_dict["t_articulation"] = t_articulation
-            xyz_t = field.warp(
-                xyz[None, None], None, inst_id, samples_dict=samples_dict
-            )[0, 0]
+            # # bone mesh
+            # mesh_bone = field.warp.skinning_model.draw_gaussian(
+            #     (t_articulation[0][frame_idx], t_articulation[1][frame_idx]),
+            #     field.warp.articulation.edges,
+            # )
+            # mesh_bone.apply_scale(1.0 / scale_fg)
+            # mesh_bone.apply_transform(root_to_world)
+            # self.bone_dict[frame_idx] = mesh_bone
+
+            # mesh
             mesh = trimesh.Trimesh(
-                vertices=xyz_t.cpu().numpy(),
+                vertices=xyz_t[frame_idx].cpu().numpy(),
                 faces=meshes_rest["fg"].faces,
                 process=False,
             )
             mesh.apply_scale(1.0 / scale_fg)
-
-            # root to world
-            root_to_world = np.linalg.inv(world_to_root_list[frame_idx])
             mesh.apply_transform(root_to_world)
-            mesh_bone.apply_transform(root_to_world)
 
-            # TODO assign color based on segment id
-            # 0-64, 64-64+160*1, 64+160*1-64+160*2
-            # bucket = np.asarray([i * 160 for i in range(10)])
-            bucket = np.asarray([64 + i * 160 for i in range(10)])
-            bucket_id = np.digitize(frame_idx, bucket)
+            # # TODO assign color based on segment id
+            # # 0-64, 64-64+160*1, 64+160*1-64+160*2
+            # # bucket = np.asarray([i * 160 for i in range(10)])
+            # bucket = np.asarray([64 + i * 160 for i in range(10)])
+            # bucket_id = np.digitize(frame_idx, bucket)
 
-            colormap = get_colormap()[bucket_id]
-            color = mesh.visual.vertex_colors
-            color[:, :3] = colormap
-            mesh.visual.vertex_colors = color
-
-            # save fg/bg meshes
+            # colormap = get_colormap()[bucket_id]
+            # color = mesh.visual.vertex_colors
+            # color[:, :3] = colormap
+            # mesh.visual.vertex_colors = color
             self.mesh_dict[frame_idx] = mesh
-            self.bone_dict[frame_idx] = mesh_bone
-            self.root_to_world[frame_idx] = root_to_world
-            scaled_t_articulation = dual_quaternion_to_se3(t_articulation)[0]
-            scaled_t_articulation = scaled_t_articulation.cpu().numpy()
-            scaled_t_articulation[:, :3, 3] /= scale_fg
-            self.t_articulation_dict[frame_idx] = scaled_t_articulation
+
+            self.t_articulation_dict[frame_idx] = scaled_t_articulation[frame_idx]
 
             if self.compose_mode == "compose":
-                mesh_bg = trimesh.util.concatenate([meshes_rest["bg"], mesh_roottraj])
+                if "mesh_bg" not in locals():
+                    mesh_bg = trimesh.util.concatenate(
+                        [meshes_rest["bg"], mesh_roottraj]
+                    )
                 self.scene_dict[frame_idx] = mesh_bg
 
-            # world space keypoints
-            _, kps = dual_quaternion_to_quaternion_translation(t_articulation)
-            kps = kps[0].cpu().numpy() / scale_fg
-            kps = kps @ root_to_world[:3, :3].T + root_to_world[:3, 3]
-            self.kps_dict[frame_idx] = kps
+            self.kps_dict[frame_idx] = kps[frame_idx]
 
             # pts traj
-            kps_all = np.asarray(list(self.kps_dict.values()))
+            kps_all = np.asarray(list(self.kps_dict.values())[: frame_idx + 1])
             self.pts_traj_dict[frame_idx] = get_pts_traj(kps_all, frame_idx)
 
             # extrinsics: observer
@@ -168,6 +185,41 @@ class ArticulationLoader(MeshLoader):
         bounds = self.meshes_rest["bg"].bounds
         self.aabb_min = bounds[0, [0, 2]]
         self.aabb_max = bounds[1, [0, 2]]
+
+    @torch.no_grad()
+    def load_files_simple(self, sample):
+        """
+        Args:
+            sample: np.array, shape (n_frames, 6 + N_JOINTS)
+        """
+        num_frames = len(sample)
+        field = self.field
+
+        fake_frameid = torch.tensor(
+            [field.frame_offset[self.opts["inst_id"]]],
+            dtype=torch.long,
+            device="cuda",
+        )
+        fake_frameid = fake_frameid.repeat(num_frames)
+        scale_fg = self.scale_fg
+
+        # joint angles to articulations
+        so3 = torch.tensor(sample[:, 6:], dtype=torch.float32, device="cuda")
+        so3 = so3.view(num_frames, -1, 3)
+        t_articulation = field.warp.articulation.get_vals(
+            frame_id=fake_frameid, return_so3=False, override_so3=so3
+        )
+        _, kps = dual_quaternion_to_quaternion_translation(t_articulation)
+        kps = kps[0].cpu().numpy() / scale_fg
+
+        # world space keypoints
+        root_to_world_list = np.eye(4).reshape(1, 4, 4).repeat(len(sample), axis=0)
+        root_to_world_list[:, :3, 3] = sample[:, 3:6]
+        root_to_world_list[:, :3, :3] = R.from_rotvec(sample[:, :3]).as_matrix()
+
+        kps = kps @ root_to_world_list[:, :3, :3].transpose(0, 2, 1)
+        kps = kps + root_to_world_list[:, :3, 3][:, None]
+        return kps
 
     def get_max_extend_abs(self):
         return max(max(np.abs(self.aabb_max)), max(np.abs(self.aabb_min)))
