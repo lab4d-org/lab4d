@@ -120,7 +120,7 @@ class VidDataset(Dataset):
             dict_list (Dict(str, List(str))): Maps each frame/annotation type
                 to a list of .npy/.txt paths for that type
         """
-        rgb_path = reflist[0].replace("00000.jpg", "%s.npy" % prefix)
+        rgb_path = os.path.join(reflist[0].rsplit("/", 1)[0], "%s.npy" % prefix)
         mask_path = rgb_path.replace("JPEGImages", "Annotations")
         flowfw_path = rgb_path.replace("JPEGImages", "FlowFW")
         flowbw_path = rgb_path.replace("JPEGImages", "FlowBW")

@@ -171,6 +171,7 @@ class Deformable(FeatureNeRF):
         xyz_t, dir = self.cam_to_field(xyz_cam, dir_cam, field2cam)
         if self.use_timesync:
             frame_id = self.frame_id_to_sub(frame_id, inst_id)
+            inst_id[:] = 0  # assume all videos capture the same instance
         xyz, warp_dict = self.warp(
             xyz_t,
             frame_id,
@@ -408,9 +409,9 @@ class Deformable(FeatureNeRF):
             frame_id = samples_dict["frame_id"]
             if "joint_so3" in batch.keys():
                 override_so3 = batch["joint_so3"]
-                samples_dict[
-                    "rest_articulation"
-                ] = self.warp.articulation.get_mean_vals()
+                samples_dict["rest_articulation"] = (
+                    self.warp.articulation.get_mean_vals()
+                )
                 samples_dict["t_articulation"] = self.warp.articulation.get_vals(
                     frame_id, override_so3=override_so3
                 )

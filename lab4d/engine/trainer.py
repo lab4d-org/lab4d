@@ -23,7 +23,11 @@ from lab4d.engine.train_utils import (
     match_param_name,
 )
 from lab4d.utils.profile_utils import torch_profile
-from lab4d.utils.torch_utils import remove_ddp_prefix, resolve_size_mismatch, remove_state_startwith
+from lab4d.utils.torch_utils import (
+    remove_ddp_prefix,
+    resolve_size_mismatch,
+    remove_state_startwith,
+)
 from lab4d.utils.vis_utils import img2color, make_image_grid
 
 
@@ -223,7 +227,7 @@ class Trainer:
         if opts["freeze_field_bg"]:
             param_lr_with.update(self.get_lr_freeze_field_bg())
         if opts["freeze_field_fg"]:
-            param_lr_with.update(self.get_lr_freeze_field_fg())   
+            param_lr_with.update(self.get_lr_freeze_field_fg())
         if opts["freeze_field_fgbg"]:
             param_lr_with.update(self.get_lr_freeze_field_fgbg())
         if opts["freeze_camera_bg"]:
@@ -444,7 +448,9 @@ class Trainer:
             model_states = remove_ddp_prefix(model_states)
 
         if not load_camera:
-            model_states = remove_state_startwith(model_states, "module.fields.field_params.fg.camera_mlp")
+            model_states = remove_state_startwith(
+                model_states, "module.fields.field_params.fg.camera_mlp"
+            )
 
         resolve_size_mismatch(model, model_states)
 
@@ -475,7 +481,10 @@ class Trainer:
         if self.opts["load_path"] != "":
             # training time
             checkpoint = self.load_checkpoint(
-                self.opts["load_path"], self.model, optimizer=self.optimizer, load_camera=self.opts["load_fg_camera"]
+                self.opts["load_path"],
+                self.model,
+                optimizer=self.optimizer,
+                load_camera=self.opts["load_fg_camera"],
             )
             if not self.opts["reset_steps"]:
                 self.current_steps = checkpoint["current_steps"]
@@ -725,6 +734,8 @@ class Trainer:
                 "eikonal" (M,H,W,1)
         """
         for k, v in rendered_seq.items():
+            if len(v) == 0:
+                continue
             img_grid = make_image_grid(v)
             self.add_image(self.log, k, img_grid, self.current_round)
 

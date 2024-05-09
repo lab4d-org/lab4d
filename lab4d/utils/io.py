@@ -95,6 +95,8 @@ def save_rendered(rendered, save_dir, raw_size, pca_fn):
     """
     # save rendered images
     for k, v in rendered.items():
+        if len(v) == 0:
+            continue
         n, h, w = v.shape[:3]
         img_grid = make_image_grid(v)
 
