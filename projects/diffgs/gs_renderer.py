@@ -956,12 +956,21 @@ class GaussianModel(nn.Module):
             xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
             xyz_repeated_in = xyz_repeated[:,None] * scale_fg
 
-            xyz_embed = self.pos_embedding(xyz_repeated_in)
-            t_embed = self.time_embedding(frameid)
-            t_embed = t_embed.view(-1, 1, 1, t_embed.shape[-1])
-            t_embed = t_embed.expand(xyz_repeated_in.shape[:-1] + (-1,))
-            embed = torch.cat([xyz_embed, t_embed], dim=-1)
-            shadow_pred = self.shadow_field(embed, inst_id)[:,0] # T, N, 1
+            chunk_size = 64
+            shadow_pred = []
+            for idx in range(0, len(frameid), chunk_size):
+                frameid_chunk = frameid[idx : idx + chunk_size]
+                inst_id_chunk = inst_id[idx : idx + chunk_size]
+                xyz_in_chunk = xyz_repeated_in[idx : idx + chunk_size]
+                xyz_embed_chunk = self.pos_embedding(xyz_in_chunk)
+                t_embed_chunk = self.time_embedding(frameid_chunk)
+                t_embed_chunk = t_embed_chunk.view(-1, 1,1, t_embed_chunk.shape[-1])
+                t_embed_chunk = t_embed_chunk.expand(xyz_in_chunk.shape[:-1] + (-1,))
+                embed_chunk = torch.cat([xyz_embed_chunk, t_embed_chunk], dim=-1)
+                shadow_pred_chunk = self.shadow_field(embed_chunk, inst_id_chunk)[:,0] # T, N, 1
+                shadow_pred.append(shadow_pred_chunk)
+            shadow_pred = torch.cat(shadow_pred, 0)
+
             # process
             shadow_pred = F.sigmoid(shadow_pred) * 2 # 0-2
 
