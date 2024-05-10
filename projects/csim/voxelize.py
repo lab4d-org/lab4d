@@ -32,10 +32,10 @@ except:
 
 
 class BGField:
-    def __init__(self):
+    def __init__(self, load_logname="home-2023-curated3"):
         # TODO delete this hack
         # load the model with good pca
-        logdir = "logdir/home-2023-11-bg-adapt1/"
+        logdir = "logdir/%s-bg-adapt1/"%load_logname
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
         opts["logroot"] = "logdir"
@@ -44,8 +44,9 @@ class BGField:
 
         # load flags from file with absl
         # logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
-        logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but bg is too similar
+        # logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but bg is too similar
         # logdir = "logdir/home-2023-curated3-compose-ft-old/"  # cse feature
+        logdir = "logdir/%s-compose-ft/"%load_logname
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
         opts["logroot"] = "logdir"
@@ -103,9 +104,7 @@ class BGField:
         # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
 
         # self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*" % logdir)
-        self.root_trajs, self.cam_trajs = get_trajs_from_log(
-            "logdir/home-2023-curated3-compose-ft/export_*"
-        )
+        self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*"%logdir)
         # voxel_grid.run_viser()
         self.voxel_grid.count_root_visitation(self.root_trajs[:, :3, 3])
         self.voxel_grid.count_cam_visitation(self.cam_trajs[:, :3, 3])
