@@ -19,6 +19,7 @@ from lab4d.utils.camera_utils import construct_batch
 from lab4d.utils.geom_utils import K2inv, K2mat, mat2K
 from projects.diffgs.trainer import GSplatTrainer as Trainer
 
+
 def qvec2rotmat(qvec):
     return np.array(
         [
@@ -40,25 +41,31 @@ def qvec2rotmat(qvec):
         ]
     )
 
+
 def get_c2w(camera):
     c2w = np.eye(4, dtype=np.float32)
     c2w[:3, :3] = qvec2rotmat(camera.wxyz)
     c2w[:3, 3] = camera.position
     return c2w
 
+
 def get_w2c(camera):
     c2w = get_c2w(camera)
     w2c = np.linalg.inv(c2w)
     return w2c
+
 
 class RenderThread(Thread):
     pass
 
 
 class ViserViewer:
-    def __init__(self, device, viewer_port):
+    def __init__(self, device, viewer_port, data_info):
         self.device = device
         self.port = viewer_port
+
+        frame_offset = data_info["frame_info"]["frame_offset"]
+        self.sublen = frame_offset[1:] - frame_offset[:-1]
 
         self.render_times = deque(maxlen=3)
         self.server = viser.ViserServer(port=self.port)
@@ -89,10 +96,11 @@ class ViserViewer:
             "Far", min=30.0, max=1000.0, step=10.0, initial_value=1000.0
         )
         self.inst_id_slider = self.server.add_gui_slider(
-            "Video ID", min=0, max=100, step=1, initial_value=0
+            "Video ID", min=0, max=len(self.sublen), step=1, initial_value=0
         )
+
         self.frameid_sub_slider = self.server.add_gui_slider(
-            "Frame ID", min=0, max=100, step=1, initial_value=0
+            "Frame ID", min=0, max=max(self.sublen), step=1, initial_value=0
         )
 
         self.show_train_camera = self.server.add_gui_checkbox(
@@ -145,6 +153,7 @@ class ViserViewer:
             @client.camera.on_update
             def _(_):
                 self.need_update = True
+
             # # initialize cameras
             # for client in self.server.get_clients().values():
             #     client.camera.wxyz = np.array([1.0, 0.0, 0.0, 0.0])
@@ -165,9 +174,9 @@ class ViserViewer:
                 # w2c[:3,:3] = w2c[:3,:3] @ cv2.Rodrigues(rot_offset)[0].T
                 try:
                     W = self.resolution_slider.value
-                    H = int(self.resolution_slider.value/camera.aspect)
-                    focal_x = W/2/np.tan(camera.fov/2)
-                    focal_y = H/2/np.tan(camera.fov/2)
+                    H = int(self.resolution_slider.value / camera.aspect)
+                    focal_x = W / 2 / np.tan(camera.fov / 2)
+                    focal_y = H / 2 / np.tan(camera.fov / 2)
 
                     start_cuda = torch.cuda.Event(enable_timing=True)
                     end_cuda = torch.cuda.Event(enable_timing=True)
@@ -175,7 +184,9 @@ class ViserViewer:
 
                     intrinsics = self.renderer.get_intrinsics(0)[None]
                     res = self.renderer.config["render_res"]
-                    raw_size = self.renderer.data_info["raw_size"][0]  # full range of pixels
+                    raw_size = self.renderer.data_info["raw_size"][
+                        0
+                    ]  # full range of pixels
                     crop2raw = torch.zeros((1, 4), device=self.device)
                     crop2raw[:, 0] = raw_size[1] / res
                     crop2raw[:, 1] = raw_size[0] / res
@@ -185,14 +196,26 @@ class ViserViewer:
                     # crop2raw=np.asarray([[focal_x, focal_y, W/2, H/2]])
                     crop2raw = None
                     inst_id = self.inst_id_slider.value
-                    frameid_sub = [self.frameid_sub_slider.value]
+                    frameid_sub = [
+                        min(self.frameid_sub_slider.value, self.sublen[inst_id])
+                    ]
 
-                    batch = construct_batch(inst_id, frameid_sub, res, field2cam, intrinsics, crop2raw, self.device)
+                    batch = construct_batch(
+                        inst_id,
+                        frameid_sub,
+                        res,
+                        field2cam,
+                        intrinsics,
+                        crop2raw,
+                        self.device,
+                    )
 
-                    outputs,_ = self.renderer.evaluate(batch, is_pair=False, augment_nv=False)
+                    outputs, _ = self.renderer.evaluate(
+                        batch, is_pair=False, augment_nv=False
+                    )
                     end_cuda.record()
                     torch.cuda.synchronize()
-                    interval = start_cuda.elapsed_time(end_cuda)/1000.
+                    interval = start_cuda.elapsed_time(end_cuda) / 1000.0
 
                     out = outputs["rgb"][0].astype(np.float32)
                 except RuntimeError as e:
@@ -218,10 +241,11 @@ def main(_):
     opts["logroot"] = sys.argv[1].split("=")[1].rsplit("/", 2)[0]
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
 
-    gui = ViserViewer(device=model.device, viewer_port=6789)
+    gui = ViserViewer(device=model.device, viewer_port=6789, data_info=data_info)
     gui.set_renderer(model)
-    while(True):
+    while True:
         gui.update()
+
 
 if __name__ == "__main__":
     app.run(main)

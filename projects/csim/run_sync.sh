@@ -13,8 +13,9 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2
 logname1=bg
 rm -rf logdir/$seqname-$logname1
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname1 \
+  --extrinsics_type mixse3 --reg_cam_prior_wt 0.0 --reg_cam_prior_relative_wt 10000.0 \
   --field_type bg --data_prefix full --num_rounds 120 --alter_flow --mask_wt 0.01 \
-  --depth_wt 1e-3 --normal_wt 1e-2 --reg_eikonal_wt 0.001 --feature_wt 0.0 --feat_reproj_wt 0.0 --feature_type cse --freeze_scale --intrinsics_type const
+  --depth_wt 1e-3 --normal_wt 1e-2 --reg_eikonal_wt 0.001 --feat_reproj_wt 0.0 --freeze_scale --intrinsics_type const \
 
 logname=comp
 rm -rf logdir/$seqname-$logname
@@ -32,8 +33,8 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
 #   --iters_per_round 100 --secs_per_wdw 2.4
 
 
-logdir=logdir/$seqname-$logname
-# visualization
-python projects/ppr/render_intermediate.py --testdir $logdir --data_class sim
-python projects/ppr/export.py --flagfile=$logdir/opts.log --load_suffix latest --inst_id 0 --vis_thresh -10 --extend_aabb
-python lab4d/render_mesh.py --testdir $logdir/export_0000/ --view bev --ghosting
+# logdir=logdir/$seqname-$logname
+# # visualization
+# python projects/ppr/render_intermediate.py --testdir $logdir --data_class sim
+# python projects/ppr/export.py --flagfile=$logdir/opts.log --load_suffix latest --inst_id 0 --vis_thresh -10 --extend_aabb
+# python lab4d/render_mesh.py --testdir $logdir/export_0000/ --view bev --ghosting
