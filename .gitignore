@@ -20,6 +20,7 @@ build/
 *.egg-info/
 *.so
 *.pth
+*.zip
 
 preprocess/third_party/vcnplus/vcn_rob.pth
 preprocess/third_party/viewpoint/human.pth
