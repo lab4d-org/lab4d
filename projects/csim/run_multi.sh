@@ -1,6 +1,7 @@
-envname=Oct5at10-49AM-poly
+# envname=Oct5at10-49AM-poly
 # envname=Feb26at10-02 PM-poly
 #envname=Feb14at5-55тАпPM-poly
+envname=Feb19at9-47 PM-poly
 seqname=$1
 dev=$2
 

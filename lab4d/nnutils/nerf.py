@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import trimesh
-from pysdf import SDF
 from torch import nn
 from torch.autograd.functional import jacobian
 
@@ -288,6 +287,7 @@ class NeRF(nn.Module):
         Returns:
             sdf_fn_torch (Function): Signed distance function
         """
+        from pysdf import SDF
         sdf_fn_numpy = SDF(self.proxy_geometry.vertices, self.proxy_geometry.faces)
 
         def sdf_fn_torch(pts):

@@ -109,7 +109,7 @@ def polycam_to_lab4d(vidname, target_dir="database/processed/"):
     res = 256
     extract_crop(seqname, res, 1)
     extract_crop(seqname, res, 0)
-    extract_dinov2(vidname, component_id=0, ndim=-1)
+    extract_dinov2(vidname, component_id=0)
 
 
 if __name__ == "__main__":

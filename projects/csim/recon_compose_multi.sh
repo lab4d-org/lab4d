@@ -1,10 +1,12 @@
 seqname=$1
 dev=$2
+# fg_motion=urdf-human
+fg_motion=urdf-quad
 
 # foregroud from scratch with composition
 logname=compose-fs
 rm -rf logdir/$seqname-$logname
-bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
+bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion $fg_motion \
   --intrinsics_type const --extrinsics_type mixse3 \
   --freeze_scale --freeze_camera_bg --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
@@ -16,7 +18,7 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
 # fine-tune
 logname=compose-ft
 rm -rf logdir/$seqname-$logname
-bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion urdf-quad \
+bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname --field_type comp --fg_motion $fg_motion \
   --intrinsics_type const --extrinsics_type mixse3 \
   --freeze_scale --freeze_camera_bg --freeze_field_fgbg --learning_rate 1e-4 --noreset_steps --noabsorb_base --nouse_freq_anneal --num_rounds 20 \
   --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --load_path logdir/$seqname-compose-fs/ckpt_latest.pth \
