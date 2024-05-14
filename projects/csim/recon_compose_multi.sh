@@ -1,7 +1,6 @@
 seqname=$1
 dev=$2
-# fg_motion=urdf-human
-fg_motion=urdf-quad
+fg_motion=$3
 
 # foregroud from scratch with composition
 logname=compose-fs

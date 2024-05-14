@@ -990,11 +990,12 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         self.register_buffer("rest_joints", rest_joints)  # K, 3
 
         # output layers
-        self.so3 = nn.Sequential(
-            nn.Linear(W, W // 2),
-            activation,
-            nn.Linear(W // 2, self.num_se3 * 3),
-        )
+        # self.so3 = nn.Sequential(
+        #     nn.Linear(W, W // 2),
+        #     activation,
+        #     nn.Linear(W // 2, self.num_se3 * 3),
+        # )
+        self.so3 = SO3Layer(out_rots=self.num_se3, out_type="so3")
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
@@ -1322,7 +1323,7 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
         if urdf_name == "human":
             offset = torch.tensor([0.0, 0.0, 0.0])
             orient = torch.tensor([0.0, -1.0, 0.0, 0.0])  # wxyz
-            scale_factor = torch.tensor([0.1])
+            scale_factor = torch.tensor([0.4])
         elif urdf_name == "quad":
             offset = torch.tensor([0.0, -0.02, 0.02])
             orient = torch.tensor([1.0, -0.8, 0.0, 0.0])

@@ -318,7 +318,7 @@ class NeRF(nn.Module):
             mesh = trimesh.load(geom_path[0])
             mesh.vertices = mesh.vertices * init_scale
         else:
-            mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
+            mesh = trimesh.creation.uv_sphere(radius=0.12 * init_scale / 0.2, count=[4, 4])
 
         self.proxy_geometry = mesh
 
