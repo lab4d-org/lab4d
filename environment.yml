@@ -9,8 +9,8 @@ dependencies:
   - pytorch==2.0.0=py3.9_cuda11.7_cudnn8.5.0_0
   - torchvision
   - cudatoolkit-dev=11.7
-  - gcc_linux-64=11
-  - gxx_linux-64=11
+  - gcc_linux-64=10
+  - gxx_linux-64=10
   - matplotlib
   - ninja
   - absl-py 
