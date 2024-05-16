@@ -126,7 +126,7 @@ def config_to_dataset(opts):
             video in the sequence `opts["seqname"]`
     """
     config = configparser.RawConfigParser()
-    config.read("database/configs/%s.config" % opts["seqname"])
+    config.read("database/configs/%s.config" % opts["seqname"], encoding='utf-8')
     numvid = len(config.sections()) - 1
     datalist = []
     for vidid in range(numvid):

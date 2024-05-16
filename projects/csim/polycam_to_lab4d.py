@@ -36,9 +36,9 @@ def polycam_to_lab4d_all(folder_path, target_dir="database/processed/"):
     for vidname in glob.glob(folder_path):
         print(vidname)
 
-def polycam_to_lab4d(vidname, target_dir="database/processed/"):
+def polycam_to_lab4d(folder_path, vidname, target_dir="database/processed/"):
     seqname = "%s-0000" % vidname
-    source_dir = "database/polycam/%s/keyframes" % vidname
+    source_dir = "%s/%s/keyframes" % (folder_path, vidname)
 
     for idx, imgpath in enumerate(
         tqdm.tqdm(sorted(glob.glob("%s/images/*.jpg" % source_dir)))
@@ -113,11 +113,12 @@ def polycam_to_lab4d(vidname, target_dir="database/processed/"):
 
 
 if __name__ == "__main__":
-    # vidname = sys.argv[1]
+    folder_path = sys.argv[1]
+    vidname = sys.argv[2]
     # vidname = "Oct25at8-48PM-poly"
     # vidname = "Oct5at10-49AM-poly"
     # vidname = "Oct31at1-13AM-poly"
     # vidname = "Feb14at5-55тАпPM-poly"
     # vidname = "Feb19at9-29 PM-poly"
-    vidname = "Feb26at10-02PM-poly"
-    polycam_to_lab4d(vidname)
+    # vidname = "Feb26at10-02PM-poly"
+    polycam_to_lab4d(folder_path, vidname)

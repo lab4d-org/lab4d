@@ -324,8 +324,8 @@ class Predictor(nn.Module):
 
         # self.data_generator = PolyGenerator()
         assert len(opts["poly_1"])>0
-        self.data_generator1 = PolyGenerator(poly_name=opts["poly_1"])
-        self.data_generator2 = PolyGenerator(poly_name=opts["poly_2"])
+        self.data_generator1 = PolyGenerator(poly_name=opts["poly_1"], inside_out = opts["inside_out"])
+        self.data_generator2 = PolyGenerator(poly_name=opts["poly_2"], inside_out = opts["inside_out"])
 
         # hyper params
         self.azimuth_limit = np.pi

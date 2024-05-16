@@ -7,11 +7,11 @@ from torch.utils.data import Dataset
 import torchvision.transforms as T
 
 from projects.csim.render_polycam import PolyCamRender
-from projects.csim.render_random import sample_extrinsics
+from projects.csim.render_random import sample_extrinsics, sample_extrinsics_outside_in
 
 
 class PolyGenerator:
-    def __init__(self, poly_name="Oct31at1-13AM-poly", img_scale=0.25):
+    def __init__(self, poly_name="Oct31at1-13AM-poly", img_scale=0.25, inside_out = True):
         image_size = (1024, 768)
         poly_path = "database/polycam/%s" % poly_name
 
@@ -21,6 +21,7 @@ class PolyGenerator:
 
         polycam_loader.renderer.set_ambient_light()
         self.polycam_loader = polycam_loader
+        self.inside_out = inside_out
 
     def sample(self, frame_indices):
         color_batch = []
@@ -57,11 +58,14 @@ class PolyGenerator:
         extrinsics_base = self.polycam_loader.extrinsics[frame_idx]
 
         # random xyz direction from -1,1
-        extrinsics = sample_extrinsics(
-            extrinsics_base,
-            azimuth_limit=azimuth_limit,
-            aabb=self.polycam_loader.aabb,
-        )
+        if self.inside_out:
+            extrinsics = sample_extrinsics(
+                extrinsics_base,
+                azimuth_limit=azimuth_limit,
+                aabb=self.polycam_loader.aabb,
+            )
+        else:
+            extrinsics = sample_extrinsics_outside_in(extrinsics_base)
         color, xyz = self.polycam_loader.render(
             frame_idx,
             extrinsics=extrinsics,
@@ -138,7 +142,7 @@ class CustomDataset(Dataset):
             ]
         )
 
-        self.data_generator = PolyGenerator()
+        # self.data_generator = PolyGenerator()
 
     def __len__(self):
         # for infinite data generation

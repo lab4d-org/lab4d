@@ -246,6 +246,11 @@ if __name__ == "__main__":
     folder_path = "database/record3d/human"
     flip = 0
     prompt = "human"
+
+    # home_path = "database/configs/May15at5-23PM-poly.config"
+    # folder_path = "database/record3d/hand-controller"
+    # flip = 90
+    # prompt = "hand"
     record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)
 
 

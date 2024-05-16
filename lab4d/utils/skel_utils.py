@@ -48,13 +48,13 @@ def rest_joints_to_local(rest_joints, edges):
     return local_rest_joints
 
 
-def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_coord=None):
+def fk_se3(local_rest_joints, exp, edges, to_dq=True, local_rest_coord=None):
     """Compute forward kinematics given joint angles on a skeleton.
     If local_rest_rmat is None, assuming identity rotation in zero configuration.
 
     Args:
         local_rest_joints: (B, 3) Translations from parent to current joints,
-        so3: (..., B, 3) Axis-angles at each joint
+        exp: (..., B, 3, 3) Axis-angles at each joint
         edges (Dict(int, int)): Maps each joint to its parent joint
         to_dq (bool): If True, output link rigid transforms as dual quaternions,
             otherwise output SE(3)
@@ -65,22 +65,22 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_coord=None):
             as (..., B, 4, 4) SE(3) matrices.
             link to global transforms X_global = T_1...T_k x X_k
     """
-    assert local_rest_joints.shape == so3.shape
-    shape = so3.shape
+    assert local_rest_joints.shape == exp.shape[:-1]
+    shape = exp.shape[:-1]
 
     # allocate global rtmat
-    identity_rt = torch.eye(4, device=so3.device)
+    identity_rt = torch.eye(4, device=exp.device)
     identity_rt = identity_rt.view((1,) * (len(shape) - 2) + (-1, 4, 4))
     identity_rt = identity_rt.expand(*shape[:-1], -1, -1).clone()
     identity_rt_slice = identity_rt[..., 0, :, :].clone()
     global_rt = identity_rt.clone()
 
     if local_rest_coord is None:
-        local_rmat = so3_to_exp_map(so3)
+        local_rmat = exp
     else:
         local_rmat = local_rest_coord[:, :3, :3]
         local_rmat = local_rmat.view((1,) * (len(shape) - 2) + (-1, 3, 3))
-        local_rmat = local_rmat @ so3_to_exp_map(so3)
+        local_rmat = local_rmat @ exp
 
     local_to_parent = torch.cat([local_rmat, local_rest_joints[..., None]], -1)
     local_to_parent = torch.cat([local_to_parent, identity_rt[..., -1:, :]], -2)
@@ -413,7 +413,7 @@ def adjust_human_rest_joints(HUMAN_REST_JOINTS, HUMAN_PARENT, leg_angle=np.pi / 
     local_js[7] = rot_rht @ local_js[7]
     HUMAN_REST_JOINTS[1:] = fk_se3(
         local_js[None],
-        torch.zeros(1, len(local_js), 3),
+        so3_to_exp_map(torch.zeros(1, len(local_js), 3)),
         HUMAN_PARENT,
         to_dq=False,
     )[0, :, :3, 3]

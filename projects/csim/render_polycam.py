@@ -96,16 +96,17 @@ class PolyCamRender:
 
 
 if __name__ == "__main__":
-    poly_name = "Oct5at10-49AM-poly"
-    # poly_name = "Oct25at8-48PM-poly"
+    # poly_name = "cat-pikachu/Oct5at10-49AM-poly"
+    poly_name = "hand-controller/May15at5-23PM-poly"
 
-    outdir = "projects/csim/zero123_data/home/%s" % poly_name
+    # outdir = "projects/csim/zero123_data/home/%s" % poly_name
+    outdir = "tmp/%s"%poly_name
     os.makedirs(outdir, exist_ok=True)
     poly_path = "database/polycam/%s" % poly_name
     polycam_loader = PolyCamRender(poly_path, image_size=(1024, 768))
     polycam_loader.renderer.set_ambient_light()
     for i in tqdm.tqdm(range(len(polycam_loader))):
-        color, xyz = polycam_loader.render(i)
+        color, xyz = polycam_loader.render(i, return_xyz=True)
         extrinsics = polycam_loader.extrinsics[i]
         xyz = xyz_to_canonical(xyz, extrinsics)
         # normlize to aabb
