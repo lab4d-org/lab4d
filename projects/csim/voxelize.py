@@ -35,7 +35,7 @@ class BGField:
     def __init__(self, load_logname="home-2023-curated3"):
         # TODO delete this hack
         # load the model with good pca
-        logdir = "logdir/%s-bg-adapt3/"%load_logname
+        logdir = "logdir/%s-bg-adapt1/"%load_logname
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
         opts["logroot"] = "logdir"

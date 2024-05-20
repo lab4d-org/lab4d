@@ -52,8 +52,10 @@ if __name__ == "__main__":
     # configpath = "database/configs/home-2023-curated3.config"
     #input_dir = "logdir/home-2024-02-26-compose-ft/"
     #configpath = "database/configs/home-2024-02-26.config"
-    input_dir = "logdir/home-2024-02-14--17-compose-ft/"
-    configpath = "database/configs/home-2024-02-14--17.config"
+    #input_dir = "logdir/home-2024-02-14--17-compose-ft/"
+    #configpath = "database/configs/home-2024-02-14--17.config"
+    input_dir = sys.argv[1]
+    configpath = sys.argv[2]
     outname = "index"
     vidlist = sorted(glob.glob("%s/*/render-shape-compose-ref.mp4" % (input_dir)))
 
@@ -76,7 +78,7 @@ if __name__ == "__main__":
         ref_concat = vidpath.replace("ref.mp4", "ref-concat.mp4")
         # read the two videos and resize height to 640
         os.system(
-            "ffmpeg -y -i %s -vf \"scale=-1:320\" %s"
+            "ffmpeg -y -i %s -vf \"scale=-2:320\" %s"
             % (vidpath, vidpath_down)
         )
 
@@ -91,7 +93,7 @@ if __name__ == "__main__":
             % (img_path, raw_path)
         )
         os.system(
-            "ffmpeg -y -i %s -vf \"scale=-1:320\" %s"
+            "ffmpeg -y -i %s -vf \"scale=-2:320\" %s"
             % (raw_path, raw_path_down)
         )
 
