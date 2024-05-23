@@ -168,6 +168,10 @@ class NeRF(nn.Module):
         self.logscale = nn.Parameter(scale.log())
         self.scale_const = 0.2  # "ideal" space for reconstruction to metric space
 
+        # # initialize with per-sequence pose
+        # for i in range(1, len(frame_offset) - 1):
+        #     rtmat[frame_offset[i] : frame_offset[i + 1]] = rtmat[frame_offset[i] : frame_offset[i + 1]] @ np.linalg.inv(rtmat[frame_offset[i] : frame_offset[i] + 1])
+
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
         self.construct_extrinsics(rtmat, frame_info, extrinsics_type)
@@ -451,6 +455,13 @@ class NeRF(nn.Module):
             level=level,
             apply_connected_component=True if self.category == "fg" else False,
         )
+        # cut bg
+        # if self.category == "bg":
+        #     # for bg
+        #     bounds = np.asarray(mesh.bounds.tolist())
+        #     bounds[0,1] = -0.05
+        #     box = trimesh.creation.box(bounds=bounds)
+        #     mesh = mesh.slice_plane(box.facets_origin, -box.facets_normal)
         return mesh
 
     @torch.no_grad()
