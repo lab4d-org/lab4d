@@ -25,6 +25,7 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
     quaternion_translation_mul,
     symmetric_orthogonalization,
+    quaternion_to_axis_angle,
 )
 from lab4d.utils.skel_utils import (
     fk_se3,
@@ -626,9 +627,10 @@ class CameraMLP_so3(TimeMLP):
         self.trans = nn.Sequential(
             nn.Linear(W, 3),
         )
-        self.so3 = nn.Sequential(
-            nn.Linear(W, 3),
-        )
+        # self.so3 = nn.Sequential(
+        #     nn.Linear(W, 3),
+        # )
+        self.so3 = SO3Layer(out_rots=1, out_type="quat")
 
         # camera pose: field to camera
         base_quat = torch.zeros(frame_info["frame_offset"][-1], 4)
@@ -708,8 +710,9 @@ class CameraMLP_so3(TimeMLP):
         """
         t_feat = super().forward(t_embed)
         trans = self.trans(t_feat)
-        so3 = self.so3(self.base_rot(t_embed_rot))
-        quat = axis_angle_to_quaternion(so3)
+        # so3 = self.so3(self.base_rot(t_embed_rot))
+        # quat = axis_angle_to_quaternion(so3)
+        quat = self.so3(self.base_rot(t_embed_rot))
         return quat, trans
 
     def get_vals(self, frame_id=None):
@@ -990,11 +993,12 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         self.register_buffer("rest_joints", rest_joints)  # K, 3
 
         # output layers
-        self.so3 = nn.Sequential(
-            nn.Linear(W, W // 2),
-            activation,
-            nn.Linear(W // 2, self.num_se3 * 3),
-        )
+        # self.so3 = nn.Sequential(
+        #     nn.Linear(W, W // 2),
+        #     activation,
+        #     nn.Linear(W // 2, self.num_se3 * 3),
+        # )
+        self.so3 = SO3Layer(out_rots=self.num_se3, out_type="mat")
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
@@ -1064,13 +1068,15 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         # compute so3
         if override_so3 is None:
             t_feat = super(ArticulationSkelMLP, self).forward(t_embed)
-            so3 = self.so3(t_feat).reshape(
-                *t_embed.shape[:-1], self.num_se3, 3
+            exp = self.so3(t_feat).reshape(
+                *t_embed.shape[:-1], self.num_se3, 3, 3
             )  # joint angles, so3 exp
         else:
             so3 = override_so3
+            exp = so3_to_exp_map(so3)
 
         if return_so3:
+            so3 = quaternion_to_axis_angle(matrix_to_quaternion(exp))
             return so3
 
         # get relative joints
@@ -1082,7 +1088,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             local_rest_joints = override_local_rest_joints
 
         # run forward kinematics
-        out = self.fk_se3(local_rest_joints, so3, self.edges)
+        out = self.fk_se3(local_rest_joints, exp, self.edges)
         out = self.shift_joints_to_bones(out)
         out = apply_root_offset(out, self.get_shift(), self.orient)
         return out
@@ -1129,9 +1135,9 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         rel_rest_joints = rel_rest_joints * bone_length[..., None]
         return rel_rest_joints
 
-    def fk_se3(self, local_rest_joints, so3, edges):
+    def fk_se3(self, local_rest_joints, exp, edges):
         """Forward kinematics for a skeleton"""
-        return fk_se3(local_rest_joints, so3, edges)
+        return fk_se3(local_rest_joints, exp, edges)
 
     def rest_joints_to_local(self, rest_joints, edges):
         """Convert rest joints to local coordinates"""
@@ -1322,7 +1328,7 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
         if urdf_name == "human":
             offset = torch.tensor([0.0, 0.0, 0.0])
             orient = torch.tensor([0.0, -1.0, 0.0, 0.0])  # wxyz
-            scale_factor = torch.tensor([0.1])
+            scale_factor = torch.tensor([0.4])
         elif urdf_name == "quad":
             offset = torch.tensor([0.0, -0.02, 0.02])
             orient = torch.tensor([1.0, -0.8, 0.0, 0.0])
@@ -1349,10 +1355,10 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
         bone_sizes = torch.stack(bone_sizes, dim=0)[1:]  # skip root
         return local_rest_coord, scale_factor, orient, offset, bone_centers, bone_sizes
 
-    def fk_se3(self, local_rest_joints, so3, edges):
+    def fk_se3(self, local_rest_joints, exp, edges):
         return fk_se3(
             local_rest_joints,
-            so3,
+            exp,
             edges,
             local_rest_coord=self.local_rest_coord.clone(),
         )

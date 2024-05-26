@@ -338,7 +338,7 @@ class MeshLoader:
         root_to_world = self.root_to_world[frame_idx]
         root_to_observer = np.eye(4)
         root_to_observer[:3, 3] = np.array([0, 0, dist])
-        root_to_observer[:3, :3] = cv2.Rodrigues(np.array([0, np.pi, 0]))[0]
+        root_to_observer[:3, :3] = cv2.Rodrigues(np.array([np.pi/4, 0, 0]))[0] @ cv2.Rodrigues(np.array([0, np.pi, 0]))[0]
         world_to_observer = root_to_observer @ np.linalg.inv(root_to_world)
         return world_to_observer
 

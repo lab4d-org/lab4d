@@ -5,7 +5,6 @@ from lab4d.nnutils.nerf import NeRF
 from lab4d.nnutils.feature import FeatureNeRF
 
 import trimesh
-from pysdf import SDF
 
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from lab4d.utils.geom_utils import get_near_far, extend_aabb

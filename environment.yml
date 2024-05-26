@@ -6,9 +6,8 @@ channels:
 dependencies:
   - python=3.9
   - pip
-  - pytorch=2.0.0
-  - pytorch-cuda=11.7
-  - torchvision=0.15.1
+  - pytorch==2.0.0=py3.9_cuda11.7_cudnn8.5.0_0
+  - torchvision=0.15.0
   - cudatoolkit-dev=11.7
   - gcc_linux-64=10
   - gxx_linux-64=10
@@ -30,13 +29,13 @@ dependencies:
   - imageio-ffmpeg
   - tqdm
   - pip:
-    - pysdf
-    - gradio==3.28.3
+    - gradio==3.49.0
     - timm==0.6.7
-    - detectron2 @ git+https://github.com/facebookresearch/detectron2.git
+    - detectron2 @ git+https://github.com/facebookresearch/detectron2.git@e9f7e2b
     - segment_anything @ git+https://github.com/facebookresearch/segment-anything.git
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
     - openmim
     - pyrender
     - open3d==0.17.0
     - geomloss==0.2.6
+    - point-cloud-utils==0.30.0

@@ -68,20 +68,21 @@ def extract_number(filename):
 
 
 def record3d_to_lab4d(
+    folder_path,
     vidname,
-    flip=True,
+    flip=0,
     home_path="database/configs/Oct5at10-49AM-poly.config",
     prompt="cat",
 ):
     seqname = "%s-0000" % vidname
     target_dir = "database/processed/"
-    source_dir = "database/record3d/%s/EXR_RGBD/" % vidname
+    source_dir = "%s/%s/EXR_RGBD/" % (folder_path, vidname)
     envname = home_path.split("/")[-1].split(".")[0]
 
     meta_path = "%s/metadata.json" % source_dir
     meta = json.load(open(meta_path))
     intrinsics = mat2K(np.asarray(meta["K"]).reshape(3, 3).T)
-    if flip:
+    if flip == 90 or flip == 270:
         intrinsics = intrinsics[[1, 0, 3, 2]]
     skip_ratio = int(meta["fps"] / 10)
     print("skipping every %d frames" % skip_ratio)
@@ -97,9 +98,19 @@ def record3d_to_lab4d(
         depth = np.frombuffer(depth.channel("R"), dtype=np.float16)
         depth = depth.reshape(256, 192).astype(np.float32)
 
-        if flip:
-            rgb = np.transpose(rgb, [1, 0, 2])[::-1]
+        if flip == 90:
+            rgb = np.transpose(rgb, [1, 0, 2])[::-1] # counter clockwise
             depth = np.transpose(depth, [1, 0])[::-1]
+        elif flip == 270:
+            rgb = np.transpose(rgb, [1, 0, 2]) # clockwise
+            depth = np.transpose(depth, [1, 0])
+        elif flip == 180:
+            rgb = rgb[::-1]
+            depth = depth[::-1]
+        elif flip == 0:
+            pass
+        else:
+            raise ValueError
 
         # save
         trg1 = "%s/JPEGImagesRaw/Full-Resolution/%s/%05d.jpg" % (
@@ -134,12 +145,20 @@ def record3d_to_lab4d(
     extrinsics = np.tile(np.eye(4)[None], (len(poses), 1, 1))
     extrinsics[:, :3, 3] = poses[:, 4:]
     extrinsics[:, :3, :3] = R.from_quat(poses[:, :4]).as_matrix()
-    if flip:
+    if flip == 90:
         # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
         transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
-    else:
+    elif flip == 270:
+        # from (x-down, y-right, z-inward) to (x-right, y-down, z-forward)
+        transformation_matrix = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]])
+    elif flip == 180:
+        # from (x-left, y-down, z-inward) to (x-right, y-down, z-forward)
+        transformation_matrix = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+    elif flip == 0:
         # from (x-right, y-up, z-inward) to (x-right, y-down, z-forward)
         transformation_matrix = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+    else:
+        raise ValueError
     extrinsics[:, :3, :3] = extrinsics[:, :3, :3] @ transformation_matrix[None]
     extrinsics = np.linalg.inv(extrinsics)
     gl_to_cv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
@@ -194,15 +213,16 @@ def record3d_to_lab4d(
 
 
 if __name__ == "__main__":
-    # vidname = sys.argv[1]
-    vidname = "2024-05-07--19-25-33-v0"
-    home_path = "database/configs/Oct5at10-49AM-poly.config"
-    flip = True
-    prompt = "cat"
-    record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
+    vidname = sys.argv[1]
 
-    vidname = "2024-05-07--19-25-33-v1"
-    record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
+    # vidname = "2024-05-07--19-25-33-v0"
+    # home_path = "database/configs/Oct5at10-49AM-poly.config"
+    # flip = True
+    # prompt = "cat"
+    # record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
+
+    # vidname = "2024-05-07--19-25-33-v1"
+    # record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
 
     # flip = False
     # home_path = "database/configs/Feb14at5-55тАпPM-poly.config"
@@ -214,4 +234,26 @@ if __name__ == "__main__":
     # home_path = "database/configs/Feb26at10-02 PM-poly.config"
     # prompt = "cat"
     # vidname = "2024-02-26--22-00-31"
-    record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
+    # record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
+
+    # home_path = "database/configs/Feb19at9-47 PM-poly.config"
+    # folder_path = "database/record3d/dog"
+    # flip = 270
+    # prompt = "dog"
+    # record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)
+
+    home_path = "database/configs/Oct5at10-49AM-poly.config"
+    folder_path = "database/record3d/human"
+    flip = 0
+    prompt = "human"
+
+    # home_path = "database/configs/May15at5-23PM-poly.config"
+    # folder_path = "database/record3d/hand-controller"
+    # flip = 90
+    # prompt = "hand"
+    record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)
+
+
+    # for vidname in sorted(glob.glob("%s/*" % folder_path)):
+    #     vidname = vidname.split("/")[-1]
+    #     record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)

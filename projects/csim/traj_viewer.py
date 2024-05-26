@@ -48,7 +48,7 @@ class MeshViewer:
         testdirs = sorted(
             [
                 i
-                for i in glob.glob("logdir/home-2023-curated3-compose-ft/export_*/")
+                for i in glob.glob("%s/export_*/"%args.testdir)
                 if "0000" not in i
             ]
         )

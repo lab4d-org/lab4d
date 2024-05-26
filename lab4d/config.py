@@ -132,7 +132,7 @@ def save_config():
 def load_flags_from_file(filename):
     """Load flags from file and convert to json"""
     opts = {}
-    with open(filename, "r") as file:
+    with open(filename, "r", encoding='utf-8') as file:
         lines = file.readlines()
         for line in lines:
             if "=" in line:

@@ -10,4 +10,5 @@ class PredictorConfig:
     # configs related to predictor
     flags.DEFINE_string("poly_1", "", "name of 1st polycam seq, e.g. Feb14at5-55тАпPM-poly")
     flags.DEFINE_string("poly_2", "", "name of 2nd polycam seq")
+    flags.DEFINE_bool("inside_out", True, "assume the video is captured with outward facing camera")
     # pass

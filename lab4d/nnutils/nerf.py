@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import trimesh
-from pysdf import SDF
 from torch import nn
 from torch.autograd.functional import jacobian
 
@@ -169,6 +168,10 @@ class NeRF(nn.Module):
         self.logscale = nn.Parameter(scale.log())
         self.scale_const = 0.2  # "ideal" space for reconstruction to metric space
 
+        # # initialize with per-sequence pose
+        # for i in range(1, len(frame_offset) - 1):
+        #     rtmat[frame_offset[i] : frame_offset[i + 1]] = rtmat[frame_offset[i] : frame_offset[i + 1]] @ np.linalg.inv(rtmat[frame_offset[i] : frame_offset[i] + 1])
+
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
         self.construct_extrinsics(rtmat, frame_info, extrinsics_type)
@@ -288,6 +291,7 @@ class NeRF(nn.Module):
         Returns:
             sdf_fn_torch (Function): Signed distance function
         """
+        from pysdf import SDF
         sdf_fn_numpy = SDF(self.proxy_geometry.vertices, self.proxy_geometry.faces)
 
         def sdf_fn_torch(pts):
@@ -318,7 +322,7 @@ class NeRF(nn.Module):
             mesh = trimesh.load(geom_path[0])
             mesh.vertices = mesh.vertices * init_scale
         else:
-            mesh = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
+            mesh = trimesh.creation.uv_sphere(radius=0.12 * init_scale / 0.2, count=[4, 4])
 
         self.proxy_geometry = mesh
 
@@ -451,6 +455,13 @@ class NeRF(nn.Module):
             level=level,
             apply_connected_component=True if self.category == "fg" else False,
         )
+        # cut bg
+        # if self.category == "bg":
+        #     # for bg
+        #     bounds = np.asarray(mesh.bounds.tolist())
+        #     bounds[0,1] = -0.05
+        #     box = trimesh.creation.box(bounds=bounds)
+        #     mesh = mesh.slice_plane(box.facets_origin, -box.facets_normal)
         return mesh
 
     @torch.no_grad()

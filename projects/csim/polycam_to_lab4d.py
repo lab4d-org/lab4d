@@ -32,10 +32,13 @@ from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
 from preprocess.scripts.fake_data import create_fake_masks
 
+def polycam_to_lab4d_all(folder_path, target_dir="database/processed/"):
+    for vidname in glob.glob(folder_path):
+        print(vidname)
 
-def polycam_to_lab4d(vidname, target_dir="database/processed/"):
+def polycam_to_lab4d(folder_path, vidname, target_dir="database/processed/"):
     seqname = "%s-0000" % vidname
-    source_dir = "database/polycam/%s/keyframes" % vidname
+    source_dir = "%s/%s/keyframes" % (folder_path, vidname)
 
     for idx, imgpath in enumerate(
         tqdm.tqdm(sorted(glob.glob("%s/images/*.jpg" % source_dir)))
@@ -106,15 +109,16 @@ def polycam_to_lab4d(vidname, target_dir="database/processed/"):
     res = 256
     extract_crop(seqname, res, 1)
     extract_crop(seqname, res, 0)
-    extract_dinov2(vidname, component_id=0, ndim=-1)
+    extract_dinov2(vidname, component_id=0)
 
 
 if __name__ == "__main__":
-    # vidname = sys.argv[1]
+    folder_path = sys.argv[1]
+    vidname = sys.argv[2]
     # vidname = "Oct25at8-48PM-poly"
     # vidname = "Oct5at10-49AM-poly"
     # vidname = "Oct31at1-13AM-poly"
     # vidname = "Feb14at5-55тАпPM-poly"
     # vidname = "Feb19at9-29 PM-poly"
-    vidname = "Feb26at10-02 PM-poly"
-    polycam_to_lab4d(vidname)
+    # vidname = "Feb26at10-02PM-poly"
+    polycam_to_lab4d(folder_path, vidname)

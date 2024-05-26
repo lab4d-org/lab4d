@@ -34,7 +34,7 @@ def main():
     opts["inst_id"] = 1
     opts["grid_size"] = 128
     opts["level"] = 0
-    opts["vis_thresh"] = -10
+    opts["vis_thresh"] = -20
     opts["extend_aabb"] = False
 
     loader = ArticulationLoader(opts)
