@@ -34,6 +34,7 @@ parser.add_argument("--ghosting", action="store_true", help="ghosting")
 parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
 parser.add_argument("--show_img", action="store_true", help="show image")
 parser.add_argument("--port", default=8080, type=int, help="port")
+parser.add_argument("--use_polycam_mesh", action="store_true", help="use poly mesh")
 args = parser.parse_args()
 
 
@@ -129,12 +130,15 @@ class MeshViewer:
             mesh_canonical.visual.vertex_colors = np.tile(
                 [255, 189, 227, 255], [len(mesh_canonical.vertices), 1]
             )
-            # # TODO: load polycam mesh, which is higher resolution
-            # # mesh_canonical = trimesh.load("database/polycam/Oct31at1-13AM-poly/raw.ply")
-            # mesh_canonical = trimesh.load("database/polycam/Oct5at10-49AM-poly/raw.ply")
-            # mesh_canonical.vertices = mesh_canonical.vertices * np.asarray(
-            #     [[1, -1, -1]]
-            # )
+            if args.use_polycam_mesh:
+                # TODO: load polycam mesh, which is higher resolution
+                # mesh_canonical = trimesh.load("database/polycam/Oct31at1-13AM-poly/raw.ply")
+                mesh_canonical = trimesh.load(
+                    "database/polycam/Oct5at10-49AM-poly/raw.ply"
+                )
+                mesh_canonical.vertices = mesh_canonical.vertices * np.asarray(
+                    [[1, -1, -1]]
+                )
 
             server.add_mesh_trimesh(name=f"/frames/canonical", mesh=mesh_canonical)
 
@@ -158,7 +162,7 @@ class MeshViewer:
 
     def run(self) -> None:
         # Start the server.
-        for i, (frame_idx,_) in enumerate(tqdm(self.loader.extr_dict.items())):
+        for i, (frame_idx, _) in enumerate(tqdm(self.loader.extr_dict.items())):
             # Add base frame.
             self.frame_nodes.append(
                 self.server.add_frame(f"/frames/t{i}", show_axes=False)

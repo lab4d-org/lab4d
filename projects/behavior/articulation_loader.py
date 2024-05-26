@@ -42,6 +42,11 @@ class ArticulationLoader(MeshLoader):
 
         meshes_rest["bg"].apply_scale(1.0 / scale_bg)
 
+        color = model.fields.field_params["fg"].extract_canonical_color(
+            meshes_rest["fg"]
+        )
+        meshes_rest["fg"].visual.vertex_colors[:, :3] = color * 255
+
         field = model.fields.field_params["fg"]
         samples_dict = {}
         samples_dict["rest_articulation"] = field.warp.articulation.get_mean_vals()
@@ -140,14 +145,20 @@ class ArticulationLoader(MeshLoader):
             mesh.apply_scale(1.0 / scale_fg)
             mesh.apply_transform(root_to_world)
 
-            # # TODO assign color based on segment id
-            bucket = np.asarray([56 for i in range(20)])
-            bucket_id = np.digitize(frame_idx, bucket)
+            # # # TODO assign color based on segment id
+            # bucket = np.asarray([56 for i in range(20)])
+            # bucket_id = np.digitize(frame_idx, bucket)
 
-            colormap = get_colormap()[bucket_id]
-            color = mesh.visual.vertex_colors
-            color[:, :3] = colormap
-            mesh.visual.vertex_colors = color
+            # colormap = get_colormap()[bucket_id]
+            # color = mesh.visual.vertex_colors
+            # color[:, :3] = colormap
+            # mesh.visual.vertex_colors = color
+            # queried color
+            # mesh.visual.vertex_colors = self.meshes_rest["fg"].visual.vertex_colors
+            # xyz color
+            xyz = self.meshes_rest["fg"].vertices
+            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            mesh.visual.vertex_colors[:, :3] = xyz * 255
             self.mesh_dict[frame_idx] = mesh
 
             self.t_articulation_dict[frame_idx] = scaled_t_articulation[frame_idx]

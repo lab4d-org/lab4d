@@ -80,6 +80,37 @@ def mesh_cat(mesh_a, mesh_b):
     return mesh
 
 
+def get_camera_mesh(radius, color=[255, 255, 255, 255]):
+    vertices = (
+        np.array(
+            [
+                [1.0, 1.0, 1],  # Vertex 0
+                [-1.0, 1.0, 1],  # Vertex 1
+                [-1.0, -1.0, 1],  # Vertex 2
+                [1.0, -1.0, 1],  # Vertex 3
+                [0.0, 0.0, 0.0],  # Vertex 4 (Focal point)
+            ]
+        )
+        * radius
+        * 2
+    )
+
+    faces = np.array(
+        [
+            [0, 1, 2],  # Triangle for half of the square base
+            [0, 2, 3],  # Triangle for the other half of the square base
+            [1, 0, 4],  # Triangle face connecting Vertex 0, 1 to Focal point
+            [2, 1, 4],  # Triangle face connecting Vertex 1, 2 to Focal point
+            [3, 2, 4],  # Triangle face connecting Vertex 2, 3 to Focal point
+            [0, 3, 4],  # Triangle face connecting Vertex 3, 0 to Focal point
+        ]
+    )
+    # vertices, faces = trimesh.remesh.subdivide(vertices, faces)
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+    mesh.visual.vertex_colors = np.tile(color, [len(vertices), 1])
+    return mesh
+
+
 def draw_cams(
     all_cam,
     color="cool",
@@ -99,8 +130,12 @@ def draw_cams(
     Returns:
         mesh_cam (Trimesh): Mesh of cameras
     """
-    # scale: the scene bound
-    cmap = cm.get_cmap(color)
+    # scale: the scene bound\
+    if isinstance(color, str):
+        cmap_raw = cm.get_cmap(color)
+        cmap = lambda x: np.concatenate([cmap_raw(x)[:3], [x]])
+    else:
+        cmap = lambda x: color
     all_cam = np.asarray(all_cam)
     trans_norm = np.linalg.norm(all_cam[:, :3, 3], 2, -1)
     valid_cams = trans_norm > 0
@@ -117,7 +152,6 @@ def draw_cams(
         cam_tran = -cam_rot.dot(all_cam[j][:3, 3:])[:, 0]
 
         radius = radius_base * scale
-        cam = trimesh.creation.uv_sphere(radius=radius, count=[2, 2])
 
         if axis:
             axis = trimesh_coarse_axis(
@@ -127,6 +161,8 @@ def draw_cams(
                 axis_length=radius * 5,
             )
             cam = axis
+        else:
+            cam = get_camera_mesh(radius, cmap(color_list[j]))
 
         cam.vertices = cam.vertices.dot(cam_rot.T) + cam_tran
         cam_list.append(cam)

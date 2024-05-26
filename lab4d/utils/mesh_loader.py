@@ -261,10 +261,19 @@ class MeshLoader:
         world2cam_bg = np.asarray(list(self.field2cam_bg_dict.values()))
         field2cam_fg = np.asarray(list(self.field2cam_fg_dict.values()))
         if data_class == "bg":
-            mesh = draw_cams(world2cam_bg, color="cool", radius_base=0.005)
+            mesh = draw_cams(
+                world2cam_bg,
+                color="Reds",
+                radius_base=0.005,
+                axis=False,
+            )  # np.asarray([255, 0, 0])
         elif data_class == "fg":
             world2field_fg = np.linalg.inv(field2cam_fg) @ world2cam_bg
-            mesh = draw_cams(world2field_fg, color="hot", radius_base=0.005)
+            mesh = draw_cams(
+                world2field_fg,
+                color="Blues",
+                radius_base=0.005,
+            )  # np.asarray([255, 0, 0])
         else:
             mesh = trimesh.Trimesh()
         # path = self.testdir + "/../export_%04d/%s-camtraj.obj" % (inst_id, data_class)

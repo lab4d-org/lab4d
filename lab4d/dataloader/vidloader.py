@@ -211,12 +211,7 @@ class VidDataset(Dataset):
             except:
                 print(f"Warning: cannot load {path}")
                 if k == "feature":
-                    if self.feature_type == "cse":
-                        self.mmap_list[k] = np.zeros((self.__len__() + 1, 112, 112, 16))
-                    elif self.feature_type == "dinov2":
-                        self.mmap_list[k] = np.zeros(
-                            (self.__len__() + 1, 112, 112, 384)
-                        )
+                    self.mmap_list[k] = np.zeros((self.__len__() + 1, 112, 112, 16))
                 else:
                     self.mmap_list[k] = np.zeros(
                         (self.__len__() + 1, self.img_size[0], self.img_size[1], 3)

@@ -32,10 +32,10 @@ except:
 
 
 class BGField:
-    def __init__(self, load_logname="home-2023-curated3"):
+    def __init__(self, load_logname="home-2023-curated3", use_default_mesh=False):
         # TODO delete this hack
         # load the model with good pca
-        logdir = "logdir/%s-bg-adapt1/"%load_logname
+        logdir = "logdir/%s-bg-adapt1/" % load_logname
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
         opts["logroot"] = "logdir"
@@ -46,7 +46,7 @@ class BGField:
         # logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
         # logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but bg is too similar
         # logdir = "logdir/home-2023-curated3-compose-ft-old/"  # cse feature
-        logdir = "logdir/%s-compose-ft/"%load_logname
+        logdir = "logdir/%s-compose-ft/" % load_logname
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
         opts["logroot"] = "logdir"
@@ -98,13 +98,30 @@ class BGField:
         self.voxel_grid = self.voxel_grids[0]
         self.bg_mesh = self.bg_meshes[0]
 
+        if use_default_mesh:
+            # TODO: load polycam mesh, which is higher resolution
+            # mesh_canonical = trimesh.load("database/polycam/Oct31at1-13AM-poly/raw.ply")
+            mesh_canonical = trimesh.load("database/polycam/Oct5at10-49AM-poly/raw.ply")
+            # # Example modification: Increase the brightness
+            # from PIL import Image, ImageEnhance
+            # import io
+
+            # texture_image = mesh_canonical.visual.material.image
+            # enhancer = ImageEnhance.Brightness(texture_image)
+            # modified_texture = enhancer.enhance(1.1)
+            # mesh_canonical.visual.material.image = modified_texture
+            mesh_canonical.vertices = mesh_canonical.vertices * np.asarray(
+                [[1, -1, -1]]
+            )
+            self.bg_mesh = mesh_canonical
+
         # # TODO add obstacle
         # box = trimesh.creation.box((1, 1, 1))
         # box.apply_translation([0.3, 1, -3])
         # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
 
         # self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*" % logdir)
-        self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*"%logdir)
+        self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*" % logdir)
         # voxel_grid.run_viser()
         self.voxel_grid.count_root_visitation(self.root_trajs[:, :3, 3])
         self.voxel_grid.count_cam_visitation(self.cam_trajs[:, :3, 3])
@@ -195,12 +212,19 @@ class VoxelGrid:
             mesh = mesh.slice_plane(box.facets_origin, -box.facets_normal)
 
         # print("voxelization")
-        mesh_o3d = o3d.geometry.TriangleMesh()
-        mesh_o3d.vertices = o3d.utility.Vector3dVector(mesh.vertices)
-        mesh_o3d.triangles = o3d.utility.Vector3iVector(mesh.faces)
-        voxel_grid = o3d.geometry.VoxelGrid.create_from_triangle_mesh(
-            mesh_o3d, voxel_size=voxel_size
-        )
+        if len(mesh.faces) == 0:
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
+            voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(
+                pcd, voxel_size=voxel_size
+            )
+        else:
+            mesh_o3d = o3d.geometry.TriangleMesh()
+            mesh_o3d.vertices = o3d.utility.Vector3dVector(mesh.vertices)
+            mesh_o3d.triangles = o3d.utility.Vector3iVector(mesh.faces)
+            voxel_grid = o3d.geometry.VoxelGrid.create_from_triangle_mesh(
+                mesh_o3d, voxel_size=voxel_size
+            )
         # o3d.visualization.draw_geometries([voxel_grid])
         voxels = voxel_grid.get_voxels()  # returns list of voxels
         if len(voxels) == 0:
@@ -210,7 +234,10 @@ class VoxelGrid:
         else:
             indices = np.stack(list(vx.grid_index for vx in voxels))
             colors = np.stack(list(vx.color for vx in voxels))
-            origin = mesh.bounding_box.bounds[0]
+            if hasattr(mesh, "bounding_box"):
+                origin = mesh.bounding_box.bounds[0]
+            else:
+                origin = mesh.vertices.min(0)
 
         if ego_box is not None:
             tensor_size = 2 * int(np.ceil(ego_box / voxel_size))
