@@ -10,8 +10,9 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --freeze_scale --freeze_camera_bg --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --num_rounds 120 \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-2 --reg_eikonal_wt 0.1 \
   --pixels_per_image 12 --bg_vid 0 \
-  --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5 \
+  --scene_type share-x --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5 \
   --imgs_per_gpu 512 --feature_type cse \
+  # --load_path logdir/home-2023-curated3-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
   # --load_path logdir-old/home-2023-11-curated-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
 
 # fine-tune
@@ -23,12 +24,12 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --load_path_bg logdir/$seqname-bg-adapt3/ckpt_latest.pth --load_path logdir/$seqname-compose-fs/ckpt_latest.pth \
   --mask_wt 0.1 --normal_wt 0.0 --depth_wt 1e-3 --reg_eikonal_wt 1e-3 \
   --pixels_per_image 12 --bg_vid 0 \
-  --nosingle_inst --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 \
+  --scene_type share-x --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 \
   --imgs_per_gpu 512 --feature_type cse
 
 
 
-## old ones
+  ## old ones
 
 # # actorname, dev
 # bash projects/csim/recon_actor.sh $vidname $dev

@@ -53,7 +53,7 @@ class TrainModelConfig:
     flags.DEFINE_float("beta_prob_init_fg", 1.0, "probability of initial morphology beta")
     flags.DEFINE_float("beta_prob_final_bg", 0.2, "probability of final morphology beta")
     flags.DEFINE_float("beta_prob_init_bg", 1.0, "probability of initial morphology beta")
-    flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
+    flags.DEFINE_string("scene_type", "share-1", "assume the same scene over videos")
     flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_integer("feature_channels", 16, "number of channels in features mlp")

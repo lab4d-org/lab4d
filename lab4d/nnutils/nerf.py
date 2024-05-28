@@ -390,7 +390,7 @@ class NeRF(nn.Module):
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
         if self.category == "fg":
-            if self.invalid_vid >= 0:
+            if self.invalid_vid >= 0 and self.num_inst > 1:
                 inst_id = list(range(self.num_inst))
                 inst_id.remove(self.invalid_vid)
                 inst_id = inst_id[0]

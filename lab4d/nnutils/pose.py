@@ -967,6 +967,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         frame_info,
         skel_type,
         joint_angles,
+        num_inst,
         D=5,
         W=256,
         num_freq_t=6,
@@ -1005,7 +1006,6 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         self.register_buffer("orient", torch.tensor([1.0, 0.0, 0.0, 0.0]))
 
         # instance bone length
-        num_inst = len(frame_info["frame_offset"]) - 1
         self.log_bone_len = CondMLP(
             num_inst,
             in_channels=0,
@@ -1279,6 +1279,7 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
         frame_info,
         skel_type,
         joint_angles,
+        num_inst,
         D=5,
         W=256,
         num_freq_t=6,
@@ -1289,6 +1290,7 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
             frame_info,
             skel_type,
             joint_angles,
+            num_inst,
             D=D,
             W=W,
             num_freq_t=num_freq_t,

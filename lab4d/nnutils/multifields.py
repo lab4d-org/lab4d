@@ -26,7 +26,7 @@ class MultiFields(nn.Module):
         fg_motion (str): Foreground motion type ("rigid", "dense", "bob",
             "skel-{human,quad}", or "comp_skel-{human,quad}_{bob,dense}")
         single_inst (bool): If True, assume the same morphology over videos
-        single_scene (bool): If True, assume the same scene over videos
+        scene_type (str): one of {share-1, share-x, sep-x}
     """
 
     def __init__(
@@ -35,7 +35,7 @@ class MultiFields(nn.Module):
         field_type="bg",
         fg_motion="rigid",
         single_inst=True,
-        single_scene=True,
+        scene_type="share-1",
         extrinsics_type="mlp",
         feature_channels=16,
         init_scale_fg=0.2,
@@ -51,7 +51,7 @@ class MultiFields(nn.Module):
         self.field_type = field_type
         self.fg_motion = fg_motion
         self.single_inst = single_inst
-        self.single_scene = single_scene
+        self.scene_type = scene_type
         self.extrinsic_type = extrinsics_type
         self.feature_channels = feature_channels
         self.init_scale_fg = init_scale_fg
@@ -105,9 +105,9 @@ class MultiFields(nn.Module):
             )
             # no directional encoding
         elif category == "bg":
-            if self.single_scene:
+            if self.scene_type.startswith("share"):
                 bg_arch = FeatureNeRF
-                num_inst_bg = 1 if self.single_inst else num_inst
+                num_inst_bg = 1 if self.scene_type.endswith("1") else num_inst
             else:
                 bg_arch = BGNeRF
                 num_inst_bg = num_inst

@@ -12,7 +12,7 @@ python scripts/run_preprocess.py $seqname human "0,1";
 # scene reconstruction
 # rm -rf logdir/$seqname-bg
 bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname bg \
-  --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-2 --reg_eikonal_wt 0.01 --nosingle_scene --freeze_intrinsics 
+  --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-2 --reg_eikonal_wt 0.01 --scene_type sep-x --freeze_intrinsics 
 
 # foreground reconstruction
 # rm -rf logdir/$seqname-fg-urdf
@@ -20,7 +20,7 @@ bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname fg-urdf --fg
 
 # physical reconstruction
 # rm -rf logdir/$seqname-ppr
-bash scripts/train.sh projects/ppr/train.py 0 --seqname $seqname --logname ppr --field_type comp --fg_motion urdf-human --feature_type cse --nosingle_scene \
+bash scripts/train.sh projects/ppr/train.py 0 --seqname $seqname --logname ppr --field_type comp --fg_motion urdf-human --feature_type cse --scene_type sep-x \
     --num_rounds 20  --iters_per_round 100 --ratio_phys_cycle 0.5 --phys_vis_interval 20 --frame_interval 0.0333 --secs_per_wdw 2.0 --warmup_iters 100 \
     --pixels_per_image 12 --noreset_steps --learning_rate 1e-4 --noabsorb_base \
     --load_path logdir/$seqname-fg-urdf/ckpt_latest.pth \
@@ -42,13 +42,13 @@ python scripts/run_preprocess.py $seqname human "0,1";
 
 # rm -rf logdir/$seqname-bg
 bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname bg \
-  --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-2 --reg_eikonal_wt 0.01 --nosingle_scene --freeze_intrinsics
+  --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-2 --reg_eikonal_wt 0.01 --scene_type sep-x --freeze_intrinsics
 
 # rm -rf logdir/$seqname-fg-urdf
 bash scripts/train.sh lab4d/train.py 0 --seqname $seqname --logname fg-urdf --fg_motion urdf-human --num_rounds 20 --feature_type cse --freeze_intrinsics
 
 # rm -rf logdir/$seqname-ppr
-bash scripts/train.sh projects/ppr/train.py 0 --seqname $seqname --logname ppr --field_type comp --fg_motion urdf-human --feature_type cse --nosingle_scene \
+bash scripts/train.sh projects/ppr/train.py 0 --seqname $seqname --logname ppr --field_type comp --fg_motion urdf-human --feature_type cse --scene_type sep-x \
     --num_rounds 20  --iters_per_round 100 --frame_interval 0.0333 --secs_per_wdw 1.0 --warmup_iters 100 \
     --pixels_per_image 12 --noreset_steps --learning_rate 1e-4 --noabsorb_base \
     --load_path logdir/$seqname-fg-urdf/ckpt_latest.pth \

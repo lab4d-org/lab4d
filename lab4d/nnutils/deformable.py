@@ -88,7 +88,7 @@ class Deformable(FeatureNeRF):
             invalid_vid=invalid_vid,
         )
 
-        self.warp = create_warp(fg_motion, data_info)
+        self.warp = create_warp(fg_motion, data_info, num_inst)
         self.fg_motion = fg_motion
         self.use_timesync = use_timesync
 

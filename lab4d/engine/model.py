@@ -41,7 +41,7 @@ class dvr_model(nn.Module):
             field_type=config["field_type"],
             fg_motion=config["fg_motion"],
             single_inst=config["single_inst"],
-            single_scene=config["single_scene"],
+            scene_type=config["scene_type"],
             extrinsics_type=config["extrinsics_type"],
             feature_channels=config["feature_channels"],
             init_scale_fg=config["init_scale_fg"],

@@ -145,16 +145,17 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1, mode="
 
     if component_id == 1:
         # fixed depth
-        cams_pred[:, :2, 3] = 0
-        cams_pred[:, 2, 3] = 3
+        cams_pred[:, :3, 3] = 0
 
         # compute initial camera trans with 2d bbox
         # depth = focal * sqrt(surface_area / bbox_area) = focal / bbox_size
         # xytrn = depth * (pxy - crop_size/2) / focal
         # surface_area = 1
+        misdet_arr = np.zeros(len(imglist), dtype=bool)
         for it, imgpath in enumerate(imglist):
             bbox = get_bbox(imgpath, component_id=component_id)
             if bbox is None:
+                misdet_arr[it] = True
                 continue
             shape = cv2.imread(imgpath).shape[:2]
 
@@ -170,7 +171,8 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1, mode="
             xytrn = depth * (center_bbox - center_img) / focal
 
             cams_pred[it, 2, 3] = depth
-            cams_pred[it, :2, 3] = xytrn
+            cams_pred[it, :2, 3] = xytrn        
+        cams_pred[:, :3, 3][misdet_arr] = cams_pred[:, :3, 3][~misdet_arr].mean(0)
 
     np.save("%s/%02d-canonical.npy" % (save_path, component_id), cams_pred)
     draw_cams(cams_pred, rgbpath_list=imglist).export(

@@ -25,7 +25,7 @@ from lab4d.utils.loss_utils import entropy_loss, cross_entropy_skin_loss
 from lab4d.utils.torch_utils import flip_pair
 
 
-def create_warp(fg_motion, data_info):
+def create_warp(fg_motion, data_info, num_inst):
     """Construct a warping field.
 
     Args:
@@ -43,20 +43,22 @@ def create_warp(fg_motion, data_info):
         joint_angles = None
 
     if fg_motion == "rigid":
-        warp = IdentityWarp(frame_info)
+        warp = IdentityWarp(frame_info, num_inst)
     elif fg_motion == "dense":
-        warp = DenseWarp(frame_info)
+        warp = DenseWarp(frame_info, num_inst)
     elif fg_motion == "bob":
-        warp = SkinningWarp(frame_info)
+        warp = SkinningWarp(frame_info, num_inst)
     elif fg_motion.startswith("skel-"):
         warp = SkinningWarp(
             frame_info,
+            num_inst,
             skel_type=fg_motion,
             joint_angles=joint_angles,
         )
     elif fg_motion.startswith("urdf-"):
         warp = SkinningWarp(
             frame_info,
+            num_inst,
             skel_type=fg_motion,
             joint_angles=joint_angles,
         )
@@ -64,6 +66,7 @@ def create_warp(fg_motion, data_info):
         warp = ComposedWarp(
             data_info,
             frame_info,
+            num_inst,
             warp_type=fg_motion,
             joint_angles=joint_angles,
         )
@@ -81,10 +84,10 @@ class IdentityWarp(nn.Module):
         num_freq_t (int): Number of frequencies in time embedding
     """
 
-    def __init__(self, frame_info, num_freq_xyz=10, num_freq_t=6):
+    def __init__(self, frame_info, num_inst, num_freq_xyz=10, num_freq_t=6):
         super().__init__()
         self.num_frames = frame_info["frame_offset"][-1]
-        self.num_inst = len(frame_info["frame_offset"]) - 1
+        self.num_inst = num_inst
 
     def forward(
         self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
@@ -130,9 +133,9 @@ class DenseWarp(IdentityWarp):
         W (int): Number of hidden units in each MLP layer
     """
 
-    def __init__(self, frame_info, num_freq_xyz=6, num_freq_t=6, D=6, W=256):
+    def __init__(self, frame_info, num_inst, num_freq_xyz=6, num_freq_t=6, D=6, W=256):
         super().__init__(
-            frame_info=frame_info, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
+            frame_info=frame_info, num_inst=num_inst, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
         )
 
         self.pos_embedding = PosEmbedding(3, num_freq_xyz)
@@ -281,6 +284,7 @@ class SkinningWarp(IdentityWarp):
     def __init__(
         self,
         frame_info,
+        num_inst,
         skel_type="flat",
         joint_angles=None,
         num_freq_xyz=10,
@@ -290,19 +294,19 @@ class SkinningWarp(IdentityWarp):
         init_beta=0.01,
     ):
         super().__init__(
-            frame_info=frame_info, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
+            frame_info=frame_info, num_inst=num_inst, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
         )
         if skel_type == "flat":
             self.articulation = ArticulationFlatMLP(frame_info, num_se3)
             symm_idx = None
         elif skel_type.startswith("skel-"):
             skel_type = skel_type.split("-")[1]
-            self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles)
+            self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles, self.num_inst)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
         elif skel_type.startswith("urdf-"):
             skel_type = skel_type.split("-")[1]
-            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles)
+            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles, self.num_inst)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
             init_gauss_scale = (
@@ -522,6 +526,7 @@ class ComposedWarp(SkinningWarp):
         self,
         data_info,
         frame_info,
+        num_inst,
         warp_type,
         joint_angles=None,
     ):
@@ -535,6 +540,7 @@ class ComposedWarp(SkinningWarp):
 
         super().__init__(
             frame_info,
+            num_inst,
             skel_type=type_list[0],
             joint_angles=joint_angles,
         )

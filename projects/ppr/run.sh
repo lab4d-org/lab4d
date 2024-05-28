@@ -27,7 +27,7 @@
 
 # rm -rf logdir/ama-samba-4v-bg
 # bash scripts/train.sh lab4d/train.py 0 --seqname ama-samba-4v --logname bg \
-#   --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-3 --reg_eikonal_wt 0.01 --nosingle_scene --freeze_intrinsics 
+#   --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-3 --reg_eikonal_wt 0.01 --scene_type sep-x --freeze_intrinsics 
 
 # rm -rf logdir/ama-samba-4v-fg-urdf-eik2
 # bash scripts/train.sh lab4d/train.py 0 --seqname ama-samba-4v --logname fg-urdf-eik2 --fg_motion urdf-human --num_rounds 60 --feature_type cse --freeze_intrinsics
@@ -36,7 +36,7 @@
 #     --load_path logdir/ama-samba-4v-fg-urdf-r60-fixproj/ckpt_latest.pth --pose_correction --noreset_steps
 
 # rm -rf logdir/ama-samba-4v-ppr-exp2
-# bash scripts/train.sh projects/ppr/train.py 1 --seqname ama-samba-4v --logname ppr-exp2 --field_type comp --fg_motion urdf-human --feature_type cse --nosingle_scene \
+# bash scripts/train.sh projects/ppr/train.py 1 --seqname ama-samba-4v --logname ppr-exp2 --field_type comp --fg_motion urdf-human --feature_type cse --scene_type sep-x \
 #     --num_rounds 20  --iters_per_round 100 --ratio_phys_cycle 0.5 --phys_vis_interval 20 --frame_interval 0.0333 --secs_per_wdw 2.0 \
 #     --pixels_per_image 12 --noreset_steps --learning_rate 1e-4 --noabsorb_base \
 #     --load_path logdir/ama-samba-4v-fg-urdf-eik2/ckpt_latest.pth \
@@ -47,7 +47,7 @@
 
 # rm -rf logdir/ama-bouncing-4v-bg
 # bash scripts/train.sh lab4d/train.py 2 --seqname ama-bouncing-4v --logname bg \
-#   --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-3 --reg_eikonal_wt 0.01 --nosingle_scene --freeze_intrinsics
+#   --field_type bg --data_prefix full --num_rounds 20 --alter_flow --mask_wt 0.01 --normal_wt 1e-3 --reg_eikonal_wt 0.01 --scene_type sep-x --freeze_intrinsics
 
 # rm -rf logdir/ama-bouncing-4v-fg-urdf-eik
 # bash scripts/train.sh lab4d/train.py 2 --seqname ama-bouncing-4v --logname fg-urdf-eik --fg_motion urdf-human --num_rounds 60 --feature_type cse --freeze_intrinsics
@@ -56,7 +56,7 @@
 #     --load_path logdir/ama-bouncing-4v-fg-urdf-r60-fixproj/ckpt_latest.pth --pose_correction --noreset_steps
 
 # rm -rf logdir/ama-bouncing-4v-ppr-exp
-# bash scripts/train.sh projects/ppr/train.py 1 --seqname ama-bouncing-4v --logname ppr-exp --field_type comp --fg_motion urdf-human --feature_type cse --nosingle_scene \
+# bash scripts/train.sh projects/ppr/train.py 1 --seqname ama-bouncing-4v --logname ppr-exp --field_type comp --fg_motion urdf-human --feature_type cse --scene_type sep-x \
 #     --num_rounds 20  --iters_per_round 100 --ratio_phys_cycle 0.5 --phys_vis_interval 20 --frame_interval 0.0333 --secs_per_wdw 1.0 \
 #     --pixels_per_image 12 --noreset_steps --learning_rate 1e-4 --noabsorb_base \
 #     --load_path logdir/ama-bouncing-4v-fg-urdf-eik/ckpt_latest.pth \
@@ -70,7 +70,7 @@
 # shiba-haru: challenging due to the length
 rm -rf logdir/shiba-haru-bg
 bash scripts/train.sh lab4d/train.py 1,2 --seqname shiba-haru --logname bg \
-    --field_type bg --data_prefix full --num_rounds 60 --alter_flow --mask_wt 0.01 --normal_wt 1e-3 --reg_eikonal_wt 0.01 --nosingle_scene
+    --field_type bg --data_prefix full --num_rounds 60 --alter_flow --mask_wt 0.01 --normal_wt 1e-3 --reg_eikonal_wt 0.01 --scene_type sep-x
 
 rm -rf logdir/shiba-haru-fg-urdf
 bash scripts/train.sh lab4d/train.py 1,2 --seqname shiba-haru --logname fg-urdf --fg_motion urdf-quad --num_rounds 60 --feature_type cse
@@ -79,7 +79,7 @@ bash scripts/train.sh lab4d/train.py 1,2 --seqname shiba-haru --logname fg-urdf-
     --load_path logdir/shiba-haru-fg-urdf/ckpt_latest.pth --pose_correction --noreset_steps
 
 rm -rf logdir/shiba-haru-ppr
-bash scripts/train.sh projects/ppr/train.py 1 --seqname shiba-haru --logname ppr --field_type comp --fg_motion urdf-quad --feature_type cse --nosingle_scene \
+bash scripts/train.sh projects/ppr/train.py 1 --seqname shiba-haru --logname ppr --field_type comp --fg_motion urdf-quad --feature_type cse --scene_type sep-x \
     --num_rounds 20  --iters_per_round 100 --ratio_phys_cycle 0.5 --phys_vis_interval 20 --frame_interval 0.0666 --secs_per_wdw 2.4 \
     --pixels_per_image 12 --noreset_steps --learning_rate 1e-4  --noabsorb_base --phys_vid 9 \
     --load_path logdir/shiba-haru-fg-urdf-proj/ckpt_latest.pth \
