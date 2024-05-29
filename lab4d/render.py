@@ -30,6 +30,7 @@ from lab4d.utils.camera_utils import (
 from lab4d.utils.geom_utils import K2inv, K2mat, mat2K
 from lab4d.utils.io import make_save_dir, save_rendered
 from lab4d.utils.profile_utils import torch_profile
+from lab4d.utils.mesh_utils import extract_mesh_bounded
 
 cudnn.benchmark = True
 
@@ -245,17 +246,24 @@ def render(opts, construct_batch_func, Trainer=Trainer):
     # trimesh.Trimesh(
     #     depth_to_xyz(
     #         # rendered["depth_id-fg"][0, :, :, 0].cpu().numpy(),
-    #         rendered["depth"][0, :, :, 0].cpu().numpy(),
-    #         mat2K(Kmatinv(batch["Kinv"])[0]).cpu().numpy(),
+    #         rendered["depth"][0, :, :, 0],
+    #         mat2K(Kmatinv(batch["Kinv"])[0,0]).cpu().numpy(),
     #     ).reshape(-1, 3)[::10]
     # ).export("tmp/0.obj")
     # trimesh.Trimesh(
     #     depth_to_xyz(
     #         ref_dict["ref_depth"][0, :, :, 0],
-    #         mat2K(Kmatinv(batch["Kinv"])[0]).cpu().numpy(),
+    #         mat2K(Kmatinv(batch["Kinv"])[0,0]).cpu().numpy(),
     #     ).reshape(-1, 3)
     # ).export("tmp/1.obj")
     # pdb.set_trace()
+
+    # # extract mesh
+    # intrinsics = mat2K(batch["Kinv"].inverse())[:,0].cpu().numpy()
+    # extrinsics = model.gaussians.get_extrinsics().detach().cpu().numpy()[:intrinsics.shape[0]]
+    # mesh = extract_mesh_bounded(intrinsics, extrinsics, rendered["rgb"], rendered["depth"][...,0], voxel_size=0.002)
+    # # extract_mesh_bounded(intrinsics, extrinsics, rendered["ref_rgb"], rendered["ref_depth"][...,0])
+
     save_rendered(rendered, save_dir, raw_size, data_info["apply_pca_fn"])
     print("Saved to %s" % save_dir)
 

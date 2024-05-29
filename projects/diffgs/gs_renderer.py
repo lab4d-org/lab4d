@@ -956,7 +956,7 @@ class GaussianModel(nn.Module):
             xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
             xyz_repeated_in = xyz_repeated[:,None] * scale_fg
 
-            chunk_size = 64
+            chunk_size = 32
             shadow_pred = []
             for idx in range(0, len(frameid), chunk_size):
                 frameid_chunk = frameid[idx : idx + chunk_size]

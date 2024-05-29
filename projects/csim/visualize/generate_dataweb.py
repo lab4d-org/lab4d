@@ -57,7 +57,7 @@ if __name__ == "__main__":
     input_dir = sys.argv[1]
     configpath = sys.argv[2]
     outname = "index"
-    vidlist = sorted(glob.glob("%s/*/render-shape-compose-ref.mp4" % (input_dir)))
+    vidlist = sorted(glob.glob("%s/*/render-*-ref.mp4" % (input_dir)))
 
     config = configparser.ConfigParser()
     config.read(configpath)
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         if it == 0:
             continue
         print(vidpath)
-        bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4").replace("shape", "bone")
+        bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4")#.replace("shape", "bone")
         vidpath_down = vidpath.replace("ref.mp4", "ref-down.mp4")
         bev_vidpath_down = bev_vidpath.replace("bev.mp4", "bev-down.mp4")
         outpath = vidpath.replace("ref.mp4", "concat.mp4")

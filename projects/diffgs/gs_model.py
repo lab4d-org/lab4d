@@ -538,6 +538,8 @@ class GSplatModel(nn.Module):
             loss_dict["mask"] += (rendered["alpha"] - 1).pow(2)
         loss_dict["flow"] = (rendered["flow"] - batch["flow"]).norm(2, 1, keepdim=True)
         loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
+        loss_dict["depth"] = (rendered["depth"] - batch["depth"]).abs()
+        loss_dict["depth"] = loss_dict["depth"] * (batch["depth"] > 0).float()
         # mask_balance_wt = get_mask_balance_wt(
         #     batch["mask"], batch["vis2d"], batch["is_detected"]
         # )
@@ -823,9 +825,9 @@ class GSplatModel(nn.Module):
         # always mask-out non-visible (out-of-frame) pixels
         keys_allpix = ["mask"]
         # field type specific keys
-        keys_type_specific = ["flow", "rgb"]
+        keys_type_specific = ["flow", "rgb", "depth"]
         # rendered-mask weighted losses
-        keys_mask_weighted = ["flow", "rgb"]
+        keys_mask_weighted = ["flow", "rgb", "depth"]
 
         # type-specific masking rules
         if config["field_type"] == "bg":
@@ -1022,8 +1024,8 @@ class GSplatModel(nn.Module):
         self.gaussians.update_trajectory(frameid)
 
         rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
-        if augment_nv:
-            self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
+        # if augment_nv:
+        #     self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
 
         # if is_pair:
         #     self.reshape_batch(rendered)

@@ -188,8 +188,8 @@ class ViserViewer:
                         0
                     ]  # full range of pixels
                     crop2raw = torch.zeros((1, 4), device=self.device)
-                    crop2raw[:, 0] = raw_size[1] / res
-                    crop2raw[:, 1] = raw_size[0] / res
+                    crop2raw[:, 0] = W / res
+                    crop2raw[:, 1] = H / res
                     intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
                     field2cam = {"fg": w2c[None]}
                     # field2cam = None

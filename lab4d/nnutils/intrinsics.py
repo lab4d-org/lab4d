@@ -102,8 +102,9 @@ class IntrinsicsConst(nn.Module):
             intrinsics: (..., 4) Output camera intrinsics
         """
         if frame_id is None:
-            intrinsics = self.intrinsics
-        frame_id = self.frame_mapping_inv[frame_id]
+            frame_id = self.frame_mapping_inv
+        else:
+            frame_id = self.frame_mapping_inv[frame_id]
         intrinsics = self.intrinsics[frame_id]
         return intrinsics
 
