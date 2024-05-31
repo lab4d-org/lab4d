@@ -145,8 +145,8 @@ class VidDataset(Dataset):
             camlist_bg = (
                 reflist[0]
                 .replace("JPEGImages", "Cameras")
-                .replace("00000.jpg", "00-dust3r.npy")
-                # .replace("00/000.jpg", "aligned-00.npy")
+                # .replace("00000.jpg", "00-dust3r.npy")
+                .replace("00/000.jpg", "aligned-00.npy")
             )  # bg
             if not os.path.exists(camlist_bg):
                 camlist_bg.replace("aligned-00.npy", "00.npy")
