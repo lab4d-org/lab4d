@@ -101,7 +101,7 @@ class BGField:
         if use_default_mesh:
             # TODO: load polycam mesh, which is higher resolution
             # mesh_canonical = trimesh.load("database/polycam/Oct31at1-13AM-poly/raw.ply")
-            mesh_canonical = trimesh.load("database/polycam/Oct5at10-49AM-poly/raw.ply")
+            mesh_canonical = trimesh.load("database/polycam/cat-pikachu/Oct5at10-49AM-poly/raw.ply")
             # # Example modification: Increase the brightness
             # from PIL import Image, ImageEnhance
             # import io

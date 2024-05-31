@@ -145,8 +145,8 @@ class VidDataset(Dataset):
             camlist_bg = (
                 reflist[0]
                 .replace("JPEGImages", "Cameras")
-                # .replace("00000.jpg", "00-dust3r.npy")
-                .replace("00000.jpg", "aligned-00.npy")
+                .replace("00000.jpg", "00-dust3r.npy")
+                # .replace("00/000.jpg", "aligned-00.npy")
             )  # bg
             if not os.path.exists(camlist_bg):
                 camlist_bg.replace("aligned-00.npy", "00.npy")
@@ -222,6 +222,8 @@ class VidDataset(Dataset):
         return len(self.dict_list["ref"]) - 1
 
     def __getitem__(self, index):
+        # self.min_frameid = 80
+        # self.max_frameid = 120
         index = max(index - self.min_frameid, 0)
         index = index % (self.max_frameid - self.min_frameid)
         index = index + self.min_frameid
@@ -321,6 +323,8 @@ class VidDataset(Dataset):
 
         raw_frameid_sub = self.frame_info.frame_map[im0idx]
 
+        # if self.dataid==0:
+        #     raw_frameid_sub = raw_frameid_sub + 1
         data_dict = {}
         data_dict["rgb"] = rgb
         data_dict["mask"] = mask

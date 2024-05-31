@@ -221,7 +221,7 @@ class NeRF(nn.Module):
             sdf: (M,N,D,1) Signed distance (negative inside)
             sigma: (M,N,D,1) Denstiy
         """
-        if frame_id is not None:
+        if frame_id is not None and not isinstance(frame_id, str):
             assert frame_id.ndim == 1
         if inst_id is not None:
             assert inst_id.ndim == 1
@@ -465,7 +465,7 @@ class NeRF(nn.Module):
         return mesh
 
     @torch.no_grad()
-    def extract_canonical_color(self, mesh):
+    def extract_canonical_color(self, mesh, frame_id=None):
         """Extract color on canonical mesh vertices
 
         Args:
@@ -474,9 +474,15 @@ class NeRF(nn.Module):
             color (np.ndarray): Color on vertices
         """
         device = next(self.parameters()).device
-        verts = torch.tensor(mesh.vertices, dtype=torch.float32, device=device)
+        if torch.is_tensor(mesh):
+            verts = mesh
+        else:
+            verts = torch.tensor(mesh.vertices, dtype=torch.float32, device=device)
         dir = torch.zeros_like(verts)
-        frame_id = torch.tensor([0], device=device)
+        if frame_id is None:
+            frame_id = "mean"
+        else:
+            frame_id = torch.tensor([frame_id], device=device)
         color = self.forward(verts, dir=dir, frame_id=frame_id)[0]
         return color.cpu().numpy()
 
@@ -587,6 +593,34 @@ class NeRF(nn.Module):
         # evaluate loss
         vis = self.vis_mlp(pts, inst_id=inst_id)
         loss = -F.logsigmoid(-vis).mean()
+        return loss
+
+    def timesync_cam_loss(self, bg_rtmat):
+        # import pdb;pdb.set_trace()
+        from lab4d.utils.geom_utils import rot_angle
+        quat, trans = self.camera_mlp.get_vals()
+        rtmat = quaternion_translation_to_se3(quat, trans)
+        frame_offset = self.frame_offset
+        bg_rtmat = torch.tensor(bg_rtmat, device=rtmat.device)
+        # camk vs cam1 x cam1_to_k_gt
+        loss = []
+        for i in range(1, len(frame_offset) - 1):
+            cami = rtmat[frame_offset[i] : frame_offset[i + 1]]
+            leni = len(cami)
+            cam1_to_cami = bg_rtmat[frame_offset[i] : frame_offset[i + 1]] @ \
+                        (bg_rtmat[frame_offset[0] : frame_offset[1]])[:leni].inverse()
+            cami_gt = cam1_to_cami @ rtmat[frame_offset[0] : frame_offset[1]][:leni]
+            assert cami.dim()==3 and cami_gt.dim()==3
+            loss_rot = rot_angle(cami[:,:3,:3]@cami_gt[:,:3,:3].permute(0,2,1)).mean()
+            loss_trn = 0
+            loss.append(loss_rot + loss_trn)
+
+            # from lab4d.utils.vis_utils import draw_cams
+            # draw_cams(rtmat[frame_offset[0] : frame_offset[1]][:leni].detach().cpu().numpy()[:1]).export("tmp/before.obj")
+            # draw_cams(cami_gt.detach().cpu().numpy()[:1]).export("tmp/gt.obj")
+            # draw_cams(cami.detach().cpu().numpy()[:1]).export("tmp/pred.obj")
+
+        loss = torch.stack(loss).mean()
         return loss
 
     def compute_eikonal(self, xyz, inst_id=None, sample_ratio=16):

@@ -66,8 +66,6 @@ if __name__ == "__main__":
     concat_paths =[]
     for it, vidpath in enumerate(vidlist):
         it = int(vidpath.split("/")[-2].split("_")[-1])
-        if it == 0:
-            continue
         print(vidpath)
         bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4")#.replace("shape", "bone")
         vidpath_down = vidpath.replace("ref.mp4", "ref-down.mp4")

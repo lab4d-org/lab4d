@@ -822,6 +822,9 @@ class dvr_model(nn.Module):
             loss_dict["reg_cam_prior_relative"] = self.fields.cam_prior_relative_loss()
         loss_dict["reg_cam_smooth"] = self.fields.cam_smooth_loss()
         loss_dict["reg_skel_prior"] = self.fields.skel_prior_loss()
+        if self.config["reg_timesync_cam_wt"] > 0:
+            bg_rtmat = self.data_info["rtmat"][0]
+            loss_dict["reg_timesync_cam"] = self.fields.field_params["fg"].timesync_cam_loss(bg_rtmat)
 
         # render rgb from a random view
         if self.config["reg_diffusion_prior_wt"] > 0:

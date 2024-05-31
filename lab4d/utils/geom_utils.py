@@ -649,7 +649,8 @@ def marching_cubes(
         mesh = [i for i in mesh.split(only_watertight=False)]
         mesh = sorted(mesh, key=lambda x: x.vertices.shape[0])
         mesh = mesh[-1]
-        mesh = decimate_mesh(mesh, res_f=10000)
+        if len(mesh.vertices) > 50000:
+            mesh = decimate_mesh(mesh, res_f=100000)
     else:
         pass
         # bg

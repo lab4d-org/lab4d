@@ -417,9 +417,9 @@ class GSplatTrainer(Trainer):
                 "._features_rest": lr_base * 0.05,
                 # "._scaling": lr_base * 0.5,
                 # "._rotation": lr_base * 0.5,
-                "._opacity": lr_base * 5,
+                "._opacity": lr_base,
                 # "._trajectory": lr_base * 0.5,
-                # ".gs_camera_mlp": camera_lr,
+                ".gs_camera_mlp": camera_lr * 0.1,
                 ".lab4d_model": lr_base * 0.1,
                 ".shadow_field": lr_base * 0.1,
             }

@@ -66,6 +66,7 @@ class ViserViewer:
 
         frame_offset = data_info["frame_info"]["frame_offset"]
         self.sublen = frame_offset[1:] - frame_offset[:-1]
+        self.frame_offset = frame_offset
 
         self.render_times = deque(maxlen=3)
         self.server = viser.ViserServer(port=self.port)
@@ -96,7 +97,7 @@ class ViserViewer:
             "Far", min=30.0, max=1000.0, step=10.0, initial_value=1000.0
         )
         self.inst_id_slider = self.server.add_gui_slider(
-            "Video ID", min=0, max=len(self.sublen), step=1, initial_value=0
+            "Video ID", min=0, max=len(self.sublen)-1, step=1, initial_value=0
         )
 
         self.frameid_sub_slider = self.server.add_gui_slider(
@@ -154,15 +155,15 @@ class ViserViewer:
             def _(_):
                 self.need_update = True
 
-            # # initialize cameras
-            # for client in self.server.get_clients().values():
-            #     client.camera.wxyz = np.array([1.0, 0.0, 0.0, 0.0])
-            #     print(client.camera.wxyz)
-
+            # initialize cameras
+            client.camera.wxyz = np.array([1.0, 0.0, 0.0, 0.0])
+            client.camera.position = np.array([0.0, 0.0, 1.0])
         self.debug_idx = 0
 
     def set_renderer(self, renderer):
         self.renderer = renderer
+        self.intrinsics = renderer.get_intrinsics(0)[None]
+        self.extrinsics = renderer.gaussians.get_extrinsics().detach().cpu().numpy()
 
     @torch.no_grad()
     def update(self):
@@ -182,7 +183,13 @@ class ViserViewer:
                     end_cuda = torch.cuda.Event(enable_timing=True)
                     start_cuda.record()
 
-                    intrinsics = self.renderer.get_intrinsics(0)[None]
+                    inst_id = self.inst_id_slider.value
+                    frameid_sub = [
+                        min(self.frameid_sub_slider.value, self.sublen[inst_id])
+                    ]
+                    frameid = self.frame_offset[inst_id] + frameid_sub
+
+                    intrinsics = self.intrinsics
                     res = self.renderer.config["render_res"]
                     raw_size = self.renderer.data_info["raw_size"][
                         0
@@ -191,14 +198,10 @@ class ViserViewer:
                     crop2raw[:, 0] = W / res
                     crop2raw[:, 1] = H / res
                     intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
-                    field2cam = {"fg": w2c[None]}
+                    field2cam = {"fg": w2c[None] @ self.extrinsics[frameid]}
                     # field2cam = None
                     # crop2raw=np.asarray([[focal_x, focal_y, W/2, H/2]])
                     crop2raw = None
-                    inst_id = self.inst_id_slider.value
-                    frameid_sub = [
-                        min(self.frameid_sub_slider.value, self.sublen[inst_id])
-                    ]
 
                     batch = construct_batch(
                         inst_id,

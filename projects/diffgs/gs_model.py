@@ -19,6 +19,7 @@ from diff_gaussian_rasterization import (
 sys.path.insert(0, os.getcwd())
 from lab4d.config import load_flags_from_file
 from lab4d.engine.trainer import Trainer
+from lab4d.engine.model import dvr_model
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.intrinsics import IntrinsicsConst
 from lab4d.utils.numpy_utils import interp_wt
@@ -37,6 +38,7 @@ from lab4d.utils.quat_transform import (
     matrix_to_quaternion,
     quaternion_translation_to_se3,
 )
+from lab4d.dataloader import data_utils
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
 from projects.diffgs.gs_renderer import (
@@ -51,15 +53,23 @@ from projects.predictor.predictor import CameraPredictor, TrajPredictor
 
 from flowutils.flowlib import point_vec, warp_flow
 
-def load_lab4d(flags_path):
+def load_lab4d(config):
+    flags_path = config["lab4d_path"]
     # load lab4d model
     if len(flags_path) == 0:
-        return None
-
-    opts = load_flags_from_file(flags_path)
-    opts["load_suffix"] = "latest"
-    model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
-    return model
+        # construct dataset
+        eval_dict = Trainer.construct_dataset_opts(config, is_eval=True)
+        evalloader = data_utils.eval_loader(eval_dict)
+        data_info, _ = data_utils.get_data_info(evalloader)
+        model = dvr_model(config, data_info)
+        model.cuda()
+        model.eval()
+    else:
+        opts = load_flags_from_file(flags_path)
+        opts["load_suffix"] = "latest"
+        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+    meshes = model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
+    return model, meshes
 
 def fake_a_pair(tensor):
     """Fake a pair of tensors by repeating the first dimension
@@ -114,8 +124,7 @@ class GSplatModel(nn.Module):
             mode_list=["fg"]
         else:
             raise NotImplementedError
-        lab4d_model = load_lab4d(config["lab4d_path"])
-        lab4d_meshes = lab4d_model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
+        lab4d_model, lab4d_meshes = load_lab4d(config)
         self.gaussians = GaussianModel(sh_degree, config, data_info, 
                                        parent_list=parent_list, index=0, mode_list=mode_list,
                                        lab4d_model=lab4d_model, lab4d_meshes=lab4d_meshes)

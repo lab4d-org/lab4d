@@ -123,11 +123,14 @@ class TimeMLP(BaseMLP):
         """Compute values at the given frames.
 
         Args:
-            frame_id: (...,) Frame id. If None, evaluate at all frames
+            frame_id: (...,) Frame id. If None, evaluate at all frames; If -1, use mean embedding.
         Returns:
             pred: Predicted outputs
         """
-        t_embed = self.time_embedding(frame_id)
+        if frame_id=="mean":
+            t_embed = self.time_embedding.get_mean_embedding(None)
+        else:
+            t_embed = self.time_embedding(frame_id)
         pred = self.forward(t_embed)
         return pred
 

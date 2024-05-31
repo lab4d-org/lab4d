@@ -31,6 +31,7 @@ from lab4d.utils.geom_utils import K2inv, K2mat, mat2K
 from lab4d.utils.io import make_save_dir, save_rendered
 from lab4d.utils.profile_utils import torch_profile
 from lab4d.utils.mesh_utils import extract_mesh_bounded
+from lab4d.utils.quat_transform import quaternion_translation_to_se3
 
 cudnn.benchmark = True
 
@@ -260,7 +261,9 @@ def render(opts, construct_batch_func, Trainer=Trainer):
 
     # # extract mesh
     # intrinsics = mat2K(batch["Kinv"].inverse())[:,0].cpu().numpy()
-    # extrinsics = model.gaussians.get_extrinsics().detach().cpu().numpy()[:intrinsics.shape[0]]
+    # # extrinsics = model.gaussians.get_extrinsics().detach().cpu().numpy()[:intrinsics.shape[0]]
+    # extrinsics = batch["field2cam"]["fg"][:,0]
+    # extrinsics = quaternion_translation_to_se3(extrinsics[..., :4], extrinsics[..., 4:]).cpu().numpy()
     # mesh = extract_mesh_bounded(intrinsics, extrinsics, rendered["rgb"], rendered["depth"][...,0], voxel_size=0.002)
     # # extract_mesh_bounded(intrinsics, extrinsics, rendered["ref_rgb"], rendered["ref_depth"][...,0])
 

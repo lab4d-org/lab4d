@@ -75,6 +75,7 @@ class TrainOptConfig:
     flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")
     flags.DEFINE_integer("bg_vid", -1, "background video ids")
     flags.DEFINE_boolean("use_timesync", False, "enforce same pose across all vids")
+    flags.DEFINE_float("reg_timesync_cam_wt", 0.0, "regularize root-cam pose by camera")
 
     # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")

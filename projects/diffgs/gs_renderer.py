@@ -313,9 +313,9 @@ class GaussianModel(nn.Module):
             # shadow field
             num_freq_xyz = 6
             num_freq_t = 6
-            num_inst = len(lab4d_model.data_info["frame_info"]["frame_offset"]) - 1
+            num_inst = len(data_info["frame_info"]["frame_offset"]) - 1
             self.pos_embedding = PosEmbedding(3, num_freq_xyz)
-            self.time_embedding = TimeEmbedding(num_freq_t, lab4d_model.data_info["frame_info"])
+            self.time_embedding = TimeEmbedding(num_freq_t, data_info["frame_info"])
             self.shadow_field = CondMLP(num_inst=num_inst, 
                                         D=1,
                                         W=256,             
@@ -411,7 +411,9 @@ class GaussianModel(nn.Module):
                 shape = frameid.shape
                 frameid = frameid.reshape(-1)
                 delta_rot = []
-                for key in frameid.cpu().numpy():
+                if torch.is_tensor(frameid):
+                    frameid = frameid.cpu().numpy()
+                for key in frameid:
                     delta_rot.append(self.rotation_activation(self.trajectory_cache[key][:,:4]))
                 delta_rot = torch.stack(delta_rot, dim=1) # N,T,4
                 rot = quaternion_mul(delta_rot, rot[:, None])  # w2c @ delta @ rest gaussian
@@ -446,7 +448,9 @@ class GaussianModel(nn.Module):
                 frameid = frameid.reshape(-1)
                 # to prop grad to motion
                 traj_pred = []
-                for key in frameid.cpu().numpy():
+                if torch.is_tensor(frameid):
+                    frameid = frameid.cpu().numpy()
+                for key in frameid:
                     traj_pred.append(self.trajectory_cache[key][:,4:])
                 traj_pred = torch.stack(traj_pred, dim=1) 
                 # N,xyz,3
@@ -638,7 +642,7 @@ class GaussianModel(nn.Module):
             rtmat = np.eye(4)
             rtmat = np.repeat(rtmat[None], len(data_info["rtmat"][0]), axis=0)
         else:
-            if self.lab4d_model is not None:
+            if config["lab4d_path"]!="":
                 cams = self.lab4d_model.get_cameras()
                 rtmat = cams[self.mode]
             else:

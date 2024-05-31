@@ -628,10 +628,10 @@ class CameraMLP_so3(TimeMLP):
         self.trans = nn.Sequential(
             nn.Linear(W, 3),
         )
-        # self.so3 = nn.Sequential(
-        #     nn.Linear(W, 3),
-        # )
-        self.so3 = SO3Layer(out_rots=1, out_type="quat")
+        self.so3 = nn.Sequential(
+            nn.Linear(W, 3),
+        )
+        # self.so3 = SO3Layer(out_rots=1, out_type="quat")
 
         # camera pose: field to camera
         base_quat = torch.zeros(frame_info["frame_offset"][-1], 4)
@@ -711,9 +711,9 @@ class CameraMLP_so3(TimeMLP):
         """
         t_feat = super().forward(t_embed)
         trans = self.trans(t_feat)
-        # so3 = self.so3(self.base_rot(t_embed_rot))
-        # quat = axis_angle_to_quaternion(so3)
-        quat = self.so3(self.base_rot(t_embed_rot))
+        so3 = self.so3(self.base_rot(t_embed_rot))
+        quat = axis_angle_to_quaternion(so3)
+        # quat = self.so3(self.base_rot(t_embed_rot))
         return quat, trans
 
     def get_vals(self, frame_id=None):
