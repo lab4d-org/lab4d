@@ -382,10 +382,10 @@ class dvr_model(nn.Module):
         if isinstance(self.intrinsics, IntrinsicsMLP_delta):
             self.intrinsics.update_base_focal()
 
-        # update camera mlp base quat
-        for field in self.fields.field_params.values():
-            if isinstance(field.camera_mlp, CameraMLP_so3):
-                field.camera_mlp.update_base_quat()
+        # # update camera mlp base quat
+        # for field in self.fields.field_params.values():
+        #     if isinstance(field.camera_mlp, CameraMLP_so3):
+        #         field.camera_mlp.update_base_quat()
 
     def export_geometry_aux(self, path):
         """Export proxy geometry for all neural fields"""

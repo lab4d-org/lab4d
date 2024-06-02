@@ -554,8 +554,9 @@ class SO3Layer(nn.Module):
         """
         output: quaternion
         """
+        shape = x.shape  # ..., F
         x = self.fc(x)
-        x = x.reshape(x.shape[:-1] + (-1, 9))
+        x = x.reshape(x.shape[:-1] + (self.out_rots, -1))  # ..., B, K
         x = symmetric_orthogonalization(x)
         if self.out_type == "quat":
             x = matrix_to_quaternion(x)
@@ -563,8 +564,30 @@ class SO3Layer(nn.Module):
             pass
         elif self.out_type == "so3":
             x = matrix_to_axis_angle(x)
-        x = x.reshape(x.shape[:-2] + (-1,))
+        x = x.reshape(shape[:-1] + (-1,))
         return x
+
+    @staticmethod
+    def decode_6d(rot6):
+        """ssss
+        decode 6D rotation to matrix
+
+        Args:
+            rot6: (..., 6)
+        Returns:
+            rot3x3: (..., 3, 3)
+        """
+        shape = rot6.shape
+        rot6 = rot6.view(-1, 6)
+        # decode 6D rotation to matrix
+        a1, a2 = rot6[:, :3], rot6[:, 3:]
+        b1 = F.normalize(a1, dim=-1)
+        b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+        b2 = F.normalize(b2, dim=-1)  # -1, 3
+        b3 = torch.cross(b1, b2, dim=-1)  # -1, 3
+        rot3x3 = torch.stack([b1, b2, b3], dim=-2).view(-1, 3, 3)
+        rot3x3 = rot3x3.view(*shape[:-1], 3, 3)
+        return rot3x3
 
 
 class CameraMLP_so3(TimeMLP):
@@ -628,10 +651,10 @@ class CameraMLP_so3(TimeMLP):
         self.trans = nn.Sequential(
             nn.Linear(W, 3),
         )
-        self.so3 = nn.Sequential(
-            nn.Linear(W, 3),
-        )
-        # self.so3 = SO3Layer(out_rots=1, out_type="quat")
+        # self.so3 = nn.Sequential(
+        #     nn.Linear(W, 3),
+        # )
+        self.so3 = SO3Layer(out_rots=1, out_type="quat")
 
         # camera pose: field to camera
         base_quat = torch.zeros(frame_info["frame_offset"][-1], 4)
@@ -711,9 +734,9 @@ class CameraMLP_so3(TimeMLP):
         """
         t_feat = super().forward(t_embed)
         trans = self.trans(t_feat)
-        so3 = self.so3(self.base_rot(t_embed_rot))
-        quat = axis_angle_to_quaternion(so3)
-        # quat = self.so3(self.base_rot(t_embed_rot))
+        # so3 = self.so3(self.base_rot(t_embed_rot))
+        # quat = axis_angle_to_quaternion(so3)
+        quat = self.so3(self.base_rot(t_embed_rot))
         return quat, trans
 
     def get_vals(self, frame_id=None):

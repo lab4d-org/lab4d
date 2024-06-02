@@ -7,7 +7,7 @@ dev=$2
 logname2=fg-urdf
 rm -rf logdir/$seqname-$logname2
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2 \
-  --fg_motion urdf-quad --num_rounds 120 --depth_wt 1e-3 --feature_type cse --freeze_scale --intrinsics_type const --init_scale_fg 0.4
+  --fg_motion urdf-quad --num_rounds 120 --depth_wt 1e-3 --feature_type cse --freeze_scale --intrinsics_type const --init_scale_fg 0.2
 
 logname1=bg
 rm -rf logdir/$seqname-$logname1
