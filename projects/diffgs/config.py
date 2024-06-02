@@ -28,3 +28,6 @@ class GSplatConfig:
     # use pre-trained lab4d
     flags.DEFINE_string("lab4d_path", "", "path to lab4d model")
     flags.DEFINE_float("reg_lab4d_wt", 0.0, "weight for lab4d loss")
+
+    # io
+    flags.DEFINE_boolean("use_gui", False, "check training progress with viser gui")

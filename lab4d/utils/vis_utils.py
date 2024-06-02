@@ -16,6 +16,14 @@ sys.path.insert(
 from flowutils.flowlib import flow_to_image, point_vec
 
 
+def to_cpu(img):
+    if type(img) is tuple:
+        img = (to_cpu(img[0]), to_cpu(img[1]))
+    else:
+        if torch.is_tensor(img):
+            img = img.cpu().numpy()
+    return img
+
 def img2color(tag, img, pca_fn=None):
     """Convert depth/flow/normal/feature/xyz/vis images to RGB
 
@@ -26,10 +34,7 @@ def img2color(tag, img, pca_fn=None):
     Returns:
         img: (H,W,3) Image converted to RGB
     """
-    if type(img) is tuple:
-        img = (img[0].cpu().numpy(), img[1].cpu().numpy())
-    else:
-        img = img.cpu().numpy()
+    img = to_cpu(img)
 
     if "depth" in tag:
         img = minmax_normalize(img)
@@ -58,6 +63,9 @@ def img2color(tag, img, pca_fn=None):
 
     if "xy_reproj" in tag:
         img = minmax_normalize(img)
+
+    if "mask" in tag or "alpha" in tag:
+        img = np.tile(img, (1,)*len(img.shape[:-1]) + (3,))
     return img
 
 

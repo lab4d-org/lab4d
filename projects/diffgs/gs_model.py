@@ -49,6 +49,7 @@ from projects.diffgs.gs_renderer import (
 )
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.diffgs.cam_utils import orbit_camera
+from projects.diffgs.viserviewer import ViserViewer
 from projects.predictor.predictor import CameraPredictor, TrajPredictor
 
 from flowutils.flowlib import point_vec, warp_flow
@@ -69,6 +70,10 @@ def load_lab4d(config):
         opts["load_suffix"] = "latest"
         model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
     meshes = model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
+    # color
+    for cate, field in model.fields.field_params.items():
+        color = field.extract_canonical_color(meshes[cate])
+        meshes[cate].visual.vertex_colors[:,:3] = color * 255
     return model, meshes
 
 def fake_a_pair(tensor):
@@ -146,6 +151,11 @@ class GSplatModel(nn.Module):
             # self.guidance_zero123 = Zero123(
             #     self.device, model_key="ashawkey/stable-zero123-diffusers"
             # )
+
+        if get_local_rank()==0:
+            gui = ViserViewer(device=self.device, viewer_port=6789, data_info=data_info)
+            gui.set_renderer(self)
+            self.gui = gui
 
     def init_background(self, resolution):
         bg_color = torch.ones((3, resolution, resolution), dtype=torch.float)
@@ -477,6 +487,20 @@ class GSplatModel(nn.Module):
             )
             out_dict["flow"] = flow[None, :2] * camera_dict["render_resolution"] / 2
             # out_dict["means2D_tmp"] = means2D_tmp
+            
+            # Gaussian Flow, 10x slower
+            # _, _, _, _, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2, _, _, _ = rasterizer_flow(
+            #     means3D=means3D_2,
+            #     means2D=means2D_tmp,
+            #     shs=None,
+            #     colors_precomp=(xy_2 - xy_1),
+            #     opacities=opacity,
+            #     scales=scales,
+            #     rotations=rotations_2,
+            #     cov3D_precomp=cov3D_precomp,
+            # )
+            # flow = self.compute_flow_gauss(proj_2D_t_1, cov2D_inv_t_1, gs_per_pixel, weight_per_gs_pixel, x_mu, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2)
+            # out_dict["flow"] = flow[None, :2]
 
         # save aux for densification
         if self.training:
@@ -485,6 +509,53 @@ class GSplatModel(nn.Module):
             else:
                 self.rendered_aux = [out_dict]
         return out_dict
+
+    @staticmethod
+    def compute_flow_gauss(proj_2D_t_1, cov2D_inv_t_1, gs_per_pixel, weights, x_mu, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2):
+        gs_per_pixel = gs_per_pixel.long()
+        weights = weights[:,None]
+        cov2D_t_2_mtx = torch.zeros([cov2D_t_2.shape[0], 2, 2]).cuda()
+        cov2D_t_2_mtx[:, 0, 0] = cov2D_t_2[:, 0]
+        cov2D_t_2_mtx[:, 0, 1] = cov2D_t_2[:, 1]
+        cov2D_t_2_mtx[:, 1, 0] = cov2D_t_2[:, 1]
+        cov2D_t_2_mtx[:, 1, 1] = cov2D_t_2[:, 2]
+
+        cov2D_inv_t_1_mtx = torch.zeros([cov2D_inv_t_1.shape[0], 2, 2]).cuda()
+        cov2D_inv_t_1_mtx[:, 0, 0] = cov2D_inv_t_1[:, 0]
+        cov2D_inv_t_1_mtx[:, 0, 1] = cov2D_inv_t_1[:, 1]
+        cov2D_inv_t_1_mtx[:, 1, 0] = cov2D_inv_t_1[:, 1]
+        cov2D_inv_t_1_mtx[:, 1, 1] = cov2D_inv_t_1[:, 2]
+
+        # B_t_2
+        U_t_2 = torch.svd(cov2D_t_2_mtx)[0]
+        S_t_2 = torch.svd(cov2D_t_2_mtx)[1]
+        V_t_2 = torch.svd(cov2D_t_2_mtx)[2]
+        B_t_2 = torch.bmm(torch.bmm(U_t_2, torch.diag_embed(S_t_2)**(1/2)), V_t_2.transpose(1,2))
+
+        # B_t_1 ^(-1)
+        U_inv_t_1 = torch.svd(cov2D_inv_t_1_mtx)[0]
+        S_inv_t_1 = torch.svd(cov2D_inv_t_1_mtx)[1]
+        V_inv_t_1 = torch.svd(cov2D_inv_t_1_mtx)[2]
+        B_inv_t_1 = torch.bmm(torch.bmm(U_inv_t_1, torch.diag_embed(S_inv_t_1)**(1/2)), V_inv_t_1.transpose(1,2))
+
+        # calculate B_t_2*B_inv_t_1
+        B_t_2_B_inv_t_1 = torch.bmm(B_t_2, B_inv_t_1)
+
+        # calculate cov2D_t_2*cov2D_inv_t_1
+        # cov2D_t_2cov2D_inv_t_1 = torch.zeros([cov2D_inv_t_2.shape[0],2,2]).cuda()
+        # cov2D_t_2cov2D_inv_t_1[:, 0, 0] = cov2D_t_2[:, 0] * cov2D_inv_t_1[:, 0] + cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 1]
+        # cov2D_t_2cov2D_inv_t_1[:, 0, 1] = cov2D_t_2[:, 0] * cov2D_inv_t_1[:, 1] + cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 2]
+        # cov2D_t_2cov2D_inv_t_1[:, 1, 0] = cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 0] + cov2D_t_2[:, 2] * cov2D_inv_t_1[:, 1]
+        # cov2D_t_2cov2D_inv_t_1[:, 1, 1] = cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 1] + cov2D_t_2[:, 2] * cov2D_inv_t_1[:, 2]
+
+        # # isotropic version of GaussianFlow
+        # predicted_flow_by_gs = (proj_2D_t_2[gs_per_pixel] - proj_2D_t_1[gs_per_pixel].detach()).permute(0,3,1,2) * weights.detach()
+
+        # full formulation of GaussianFlow
+        cov_multi = (B_t_2_B_inv_t_1[gs_per_pixel] @ x_mu.permute(0,2,3,1).unsqueeze(-1).detach()).squeeze()
+        predicted_flow_by_gs = (cov_multi + proj_2D_t_2[gs_per_pixel] - proj_2D_t_1[gs_per_pixel].detach()).permute(0,3,1,2) - x_mu.detach()
+        predicted_flow_by_gs = predicted_flow_by_gs * weights.detach()
+        return predicted_flow_by_gs.sum(0)
 
     def get_default_cam(self, render_resolution):
         # focal=1 corresponds to 90 degree fov and identity projection matrix
@@ -601,6 +672,8 @@ class GSplatModel(nn.Module):
                 "reg_soft_deform" (0,), "reg_gauss_skin" (0,),
                 "reg_cam_prior" (0,), and "reg_skel_prior" (0,).
         """
+        if self.config["use_gui"]:
+            self.gui.update()
         self.process_frameid(batch)
         cam_dict, Kmat, w2c = self.compute_camera_samples(
             batch, self.config["train_res"]

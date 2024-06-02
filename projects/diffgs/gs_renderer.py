@@ -302,13 +302,13 @@ class GaussianModel(nn.Module):
             # )
             # self.initialize(input=pcd)
 
-            # # initialize temporal part: (dx,dy,dz)t
-            # if not config["fg_motion"] == "rigid" and not self.mode=="bg":
-            #     total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
-            #     if config["use_timesync"]:
-            #         num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
-            #         total_frames = total_frames // num_vids
-            #     self.init_trajectory(total_frames)
+            # initialize temporal part: (dx,dy,dz)t
+            if config["fg_motion"] == "explicit" and not self.mode=="bg":
+                total_frames = data_info["frame_info"]["frame_offset_raw"][-1]
+                if config["use_timesync"]:
+                    num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
+                    total_frames = total_frames // num_vids
+                self.init_trajectory(total_frames)
                     
             # shadow field
             num_freq_xyz = 6
@@ -930,7 +930,7 @@ class GaussianModel(nn.Module):
             trajectory[:, :, 0] = 1.0
 
             # update init traj if lab4d ckpt exists
-            if self.lab4d_model is not None:
+            if len(self.config["lab4d_path"]) != 0:
                 dev = "cuda"
                 frame_offsets = self.lab4d_model.data_info["frame_info"]["frame_offset"]
                 for inst_id in range(0, len(frame_offsets)-1):
@@ -990,6 +990,9 @@ class GaussianModel(nn.Module):
                 # _, _, motion = self.gs_camera_mlp.get_vals(frameid, xyz=self._xyz)  # N, bs, 3
                 # self._trajectory.data[:, frameid, 4:] = motion
                 # #TODO add delta quat
+            elif self.config["fg_motion"] == "explicit":
+                motion = self._trajectory[:, frameid, 4:]
+                quat_delta = self._trajectory[:, frameid, :4]
             elif self.mode=="fg":
                 # lab4d model (fourier basis motion)
                 # xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)

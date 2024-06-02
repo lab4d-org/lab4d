@@ -412,13 +412,13 @@ class GSplatTrainer(Trainer):
                 "module.guidance_sd": 0.0,
             }
             param_lr_with = {
-                "._xyz": xyz_lr * 0.1,
+                "._xyz": xyz_lr,
                 "._features_dc": lr_base,
                 "._features_rest": lr_base * 0.05,
-                # "._scaling": lr_base * 0.5,
-                # "._rotation": lr_base * 0.5,
-                "._opacity": lr_base,
-                # "._trajectory": lr_base * 0.5,
+                "._scaling": lr_base * 0.5,
+                "._rotation": lr_base * 0.5,
+                "._opacity": lr_base * 5,
+                "._trajectory": lr_base * 0.5,
                 ".gs_camera_mlp": camera_lr * 0.1,
                 ".lab4d_model": lr_base * 0.1,
                 ".shadow_field": lr_base * 0.1,
@@ -457,8 +457,8 @@ class GSplatTrainer(Trainer):
         return {}
 
     @staticmethod
-    def construct_test_model(opts, model_class=GSplatModel):
-        return Trainer.construct_test_model(opts, model_class=model_class)
+    def construct_test_model(opts, model_class=GSplatModel, return_refs=True):
+        return Trainer.construct_test_model(opts, model_class=model_class, return_refs=return_refs)
 
     def train_one_round(self):
         """Train a single round (going over mini-batches)"""

@@ -19,7 +19,7 @@ from lab4d.utils.geom_utils import (
     extend_aabb,
     linear_blend_skinning,
 )
-from lab4d.utils.quat_transform import dual_quaternion_inverse, dual_quaternion_mul
+from lab4d.utils.quat_transform import dual_quaternion_inverse, dual_quaternion_mul, quaternion_translation_apply, quaternion_translation_to_dual_quaternion
 from lab4d.utils.transforms import get_xyz_bone_distance, get_bone_coords
 from lab4d.utils.loss_utils import entropy_loss, cross_entropy_skin_loss
 from lab4d.utils.torch_utils import flip_pair
@@ -46,6 +46,8 @@ def create_warp(fg_motion, data_info, num_inst):
         warp = IdentityWarp(frame_info, num_inst)
     elif fg_motion == "dense":
         warp = DenseWarp(frame_info, num_inst)
+    elif fg_motion == "se3":
+        warp = SE3Warp(frame_info, num_inst)
     elif fg_motion == "bob":
         warp = SkinningWarp(frame_info, num_inst)
     elif fg_motion.startswith("skel-"):
@@ -202,6 +204,91 @@ class DenseWarp(IdentityWarp):
         else:
             return out
 
+class SE3Warp(IdentityWarp):
+    """Predict dense SE(3) fields, using separate MLPs for forward and
+    backward warping. Used by Nerfies.
+
+    Args:
+        frame_info (FrameInfo): Metadata about the frames in a dataset
+        num_freq_xyz (int): Number of frequencies in position embedding
+        num_freq_t (int): Number of frequencies in time embedding
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+    """
+
+    def __init__(self, frame_info, num_inst, num_freq_xyz=6, num_freq_t=6, D=6, W=256):
+        super().__init__(
+            frame_info=frame_info, num_inst=num_inst, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
+        )
+
+        self.pos_embedding = PosEmbedding(3, num_freq_xyz)
+        self.time_embedding = TimeEmbedding(num_freq_t, frame_info)
+
+        self.forward_map = CondMLP(
+            self.num_inst,
+            D=D,
+            W=W,
+            in_channels=self.pos_embedding.out_channels
+            + self.time_embedding.out_channels,
+            out_channels=7,
+        )
+
+        self.backward_map = CondMLP(
+            self.num_inst,
+            D=D,
+            W=W,
+            in_channels=self.pos_embedding.out_channels
+            + self.time_embedding.out_channels,
+            out_channels=7,
+        )   
+
+    def forward(
+        self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
+    ):
+        """
+        Args:
+            xyz: (M,N,D,3) Points in object canonical space
+            frame_id: (M,) Frame id. If None, warp for all frames
+            inst_id: (M,) Instance id. If None, warp for the average instance
+            type (str): Forward (=> deformed), backward (=> canonical), or flow (t1=>t2)
+            samples_dict (Dict): Only used for SkeletonWarp
+        Returns:
+            xyz: (M,N,D,3) Warped xyz coordinates
+        """
+        xyz_embed = self.pos_embedding(xyz)
+        t_embed = self.time_embedding(frame_id)
+        t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
+        t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
+        embed = torch.cat([xyz_embed, t_embed], dim=-1)
+        if type == "backward":
+            map = self.backward_map
+        elif type == "forward":
+            map = self.forward_map
+        elif type == "flow":
+            # TODO: use dx/dt to compute flow
+            raise NotImplementedError
+            # motion = self.backward_map(embed, inst_id)
+            # xyz_canonical = xyz + motion * 0.1
+            # xyz_canonical_embed = self.pos_embedding(xyz_canonical)
+            # t_embed_flip = flip_pair(t_embed)
+            # embed_flip = torch.cat([xyz_canonical_embed, t_embed_flip], dim=-1)
+            # motion = self.forward_map(embed_flip, inst_id)
+            # out = xyz_canonical + motion * 0.1  # control the scale
+        else:
+            raise NotImplementedError
+
+        quat_trans = map(embed, inst_id)
+        quat, trans = quat_trans.split([4, 3], -1)
+        quat = F.normalize(quat, dim=-1)
+        trans = trans * 0.1 # control the scale
+
+        out = quaternion_translation_apply(quat, trans, xyz)
+        warp_dict = {}
+        warp_dict["dual_quat"] = quaternion_translation_to_dual_quaternion(quat[:, 0], trans[:, 0])
+        if return_aux:
+            return out, warp_dict
+        else:
+            return out
 
 class NVPWarp(IdentityWarp):
     """Predict dense translation fields, using a single invertible MLP for
