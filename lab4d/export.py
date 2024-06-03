@@ -20,6 +20,7 @@ if cwd not in sys.path:
 from lab4d.config import get_config
 from lab4d.dataloader import data_utils
 from lab4d.engine.trainer import Trainer
+from lab4d.nnutils.deformable import Deformable
 from lab4d.nnutils.warping import SkinningWarp
 from lab4d.nnutils.pose import ArticulationSkelMLP
 from lab4d.utils.io import make_save_dir, save_rendered
@@ -64,16 +65,24 @@ def extract_deformation(field, mesh_rest, inst_id):
     frame_mapping = torch.tensor(field.frame_mapping, device=device)
     frame_offset = field.frame_offset
     frame_ids = frame_mapping[frame_offset[inst_id] : frame_offset[inst_id + 1]]
-    start_id = frame_ids[0]
-    print("Extracting motion parameters for inst id:", inst_id)
-    print("Frame ids with the video:", frame_ids - start_id)
 
     xyz = torch.tensor(mesh_rest.vertices, dtype=torch.float32, device=device)
     inst_id = torch.tensor([inst_id], dtype=torch.long, device=device)
 
+    if isinstance(field, Deformable) and field.use_timesync:
+        frame_ids_deform = field.frame_id_to_sub(frame_ids, inst_id)
+        inst_id = inst_id.clone() * 0  # assume all videos capture the same instance
+    else:
+        frame_ids_deform = frame_ids
+
+    start_id = frame_ids[0]
+    print("Extracting motion parameters for inst id:", inst_id)
+    print("Frame ids with the video:", frame_ids - start_id)
+
     motion_tuples = {}
-    for frame_id in frame_ids:
+    for frame_id, frame_id_dfm in zip(frame_ids, frame_ids_deform):
         frame_id = frame_id[None]
+        frame_id_dfm = frame_id_dfm[None]
         field2cam = field.camera_mlp.get_vals(frame_id)
 
         samples_dict = {}
@@ -83,11 +92,11 @@ def extract_deformation(field, mesh_rest, inst_id):
             (
                 samples_dict["t_articulation"],
                 samples_dict["rest_articulation"],
-            ) = field.warp.articulation.get_vals_and_mean(frame_id)
+            ) = field.warp.articulation.get_vals_and_mean(frame_id_dfm)
             t_articulation = samples_dict["t_articulation"]
 
             if isinstance(field.warp.articulation, ArticulationSkelMLP):
-                so3 = field.warp.articulation.get_vals(frame_id, return_so3=True)[0]
+                so3 = field.warp.articulation.get_vals(frame_id_dfm, return_so3=True)[0]
                 so3 = so3.cpu().numpy()
             else:
                 so3 = None
@@ -111,7 +120,7 @@ def extract_deformation(field, mesh_rest, inst_id):
         if hasattr(field, "warp"):
             # warp mesh
             xyz_t = field.warp(
-                xyz[None, None], frame_id, inst_id, samples_dict=samples_dict
+                xyz[None, None], frame_id_dfm, inst_id, samples_dict=samples_dict
             )[0, 0]
             mesh_t = trimesh.Trimesh(
                 vertices=xyz_t.cpu().numpy(), faces=mesh_rest.faces, process=False
@@ -155,7 +164,7 @@ def extract_deformation(field, mesh_rest, inst_id):
             samples_dict=samples_dict,
         )
         xyz_i = xyz_i[0, 0]
-        mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces)
+        mesh_rest = trimesh.Trimesh(vertices=xyz_i.cpu().numpy(), faces=mesh_rest.faces, vertex_colors = mesh_rest.visual.vertex_colors)
 
     return mesh_rest, motion_tuples
 

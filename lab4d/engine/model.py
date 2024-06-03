@@ -964,6 +964,9 @@ class dvr_model(nn.Module):
         # remove mask loss for frames without detection
         if config["field_type"] == "fg" or config["field_type"] == "comp":
             loss_dict["mask"] = loss_dict["mask"] * is_detected
+            loss_dict["reg_gauss_mask"] = loss_dict["reg_gauss_mask"] * is_detected
+            loss_dict["feature"] = loss_dict["feature"] * is_detected
+            loss_dict["feat_reproj"] = loss_dict["feat_reproj"] * is_detected
 
     @staticmethod
     def apply_loss_weights(loss_dict, config, motion_scale):

@@ -599,9 +599,10 @@ class NeRF(nn.Module):
         # import pdb;pdb.set_trace()
         from lab4d.utils.geom_utils import rot_angle
         quat, trans = self.camera_mlp.get_vals()
+        trans = trans / self.logscale.exp()
         rtmat = quaternion_translation_to_se3(quat, trans)
         frame_offset = self.frame_offset
-        bg_rtmat = torch.tensor(bg_rtmat, device=rtmat.device)
+        bg_rtmat = torch.tensor(bg_rtmat, device=rtmat.device, dtype=rtmat.dtype)
         # camk vs cam1 x cam1_to_k_gt
         loss = []
         for i in range(1, len(frame_offset) - 1):
@@ -612,8 +613,8 @@ class NeRF(nn.Module):
             cami_gt = cam1_to_cami @ rtmat[frame_offset[0] : frame_offset[1]][:leni]
             assert cami.dim()==3 and cami_gt.dim()==3
             loss_rot = rot_angle(cami[:,:3,:3]@cami_gt[:,:3,:3].permute(0,2,1)).mean()
-            loss_trn = 0
-            loss.append(loss_rot + loss_trn)
+            loss_trn = F.mse_loss(cami[:,:3,3], cami_gt[:,:3,3])
+            loss.append(loss_rot + loss_trn * 10)
 
             # from lab4d.utils.vis_utils import draw_cams
             # draw_cams(rtmat[frame_offset[0] : frame_offset[1]][:leni].detach().cpu().numpy()[:1]).export("tmp/before.obj")

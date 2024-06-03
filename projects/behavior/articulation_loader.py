@@ -140,6 +140,7 @@ class ArticulationLoader(MeshLoader):
             mesh = trimesh.Trimesh(
                 vertices=xyz_t[frame_idx].cpu().numpy(),
                 faces=meshes_rest["fg"].faces,
+                vertex_colors=meshes_rest["fg"].visual.vertex_colors,
                 process=False,
             )
             mesh.apply_scale(1.0 / scale_fg)
@@ -155,10 +156,10 @@ class ArticulationLoader(MeshLoader):
             # mesh.visual.vertex_colors = color
             # queried color
             # mesh.visual.vertex_colors = self.meshes_rest["fg"].visual.vertex_colors
-            # xyz color
-            xyz = self.meshes_rest["fg"].vertices
-            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
-            mesh.visual.vertex_colors[:, :3] = xyz * 255
+            # # xyz color
+            # xyz = self.meshes_rest["fg"].vertices
+            # xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            # mesh.visual.vertex_colors[:, :3] = xyz * 255
             self.mesh_dict[frame_idx] = mesh
 
             self.t_articulation_dict[frame_idx] = scaled_t_articulation[frame_idx]

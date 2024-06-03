@@ -169,15 +169,19 @@ class Deformable(FeatureNeRF):
             xyz_t: (M,N,D,3) Points along rays in object time-t space.
         """
         xyz_t, dir = self.cam_to_field(xyz_cam, dir_cam, field2cam)
+        samples_dict_copy = {}
+        for k, v in enumerate(samples_dict):
+            if k == "rest_articulation" or k == "t_articulation":
+                samples_dict_copy[k] = v
         if self.use_timesync:
             frame_id = self.frame_id_to_sub(frame_id, inst_id)
-            inst_id[:] = 0  # assume all videos capture the same instance
+            inst_id = inst_id.clone() * 0  # assume all videos capture the same instance
         xyz, warp_dict = self.warp(
             xyz_t,
             frame_id,
             inst_id,
             type="backward",
-            samples_dict=samples_dict,
+            samples_dict=samples_dict_copy,
             return_aux=True,
         )
 
@@ -407,6 +411,9 @@ class Deformable(FeatureNeRF):
             # (M,K,4)x2, # (M,K,4)x2
             inst_id = samples_dict["inst_id"]
             frame_id = samples_dict["frame_id"]
+            if self.use_timesync:
+                frame_id = self.frame_id_to_sub(frame_id, inst_id)
+                inst_id = inst_id.clone() * 0
             if "joint_so3" in batch.keys():
                 override_so3 = batch["joint_so3"]
                 samples_dict["rest_articulation"] = (
