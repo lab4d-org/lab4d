@@ -72,6 +72,7 @@ class ViserViewer:
 
         self.need_update = False
 
+        self.pause_time = True
         self.pause_training = False
         self.train_viewer_update_period_slider = self.server.add_gui_slider(
             "Train Viewer Update Period",
@@ -83,6 +84,7 @@ class ViserViewer:
         )
 
         self.pause_training_button = self.server.add_gui_button("Pause Training")
+        self.pause_time_button = self.server.add_gui_button("Pause Time")
         self.sh_order = self.server.add_gui_slider(
             "SH Order", min=1, max=4, step=1, initial_value=1
         )
@@ -149,6 +151,13 @@ class ViserViewer:
                 "Resume Training" if self.pause_training else "Pause Training"
             )
 
+        @self.pause_time_button.on_click
+        def _(_):
+            self.pause_time = not self.pause_time
+            self.pause_training_button.name = (
+                "Resume Time" if self.pause_time else "Pause Time"
+            )
+
         self.c2ws = []
         self.camera_infos = []
 
@@ -194,6 +203,8 @@ class ViserViewer:
                     frameid_sub = [
                         min(self.frameid_sub_slider.value, self.sublen[inst_id]-1)
                     ]
+                    if not self.pause_time:
+                        self.frameid_sub_slider.value += 1
                     frameid = self.frame_offset[inst_id] + frameid_sub
 
                     intrinsics = self.intrinsics

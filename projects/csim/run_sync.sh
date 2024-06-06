@@ -4,14 +4,14 @@
 seqname=$1
 dev=$2
 
-logname2=fg-urdf-sync-fix
+logname2=fg-urdf-sync-fix-sm
 rm -rf logdir/$seqname-$logname2
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2 \
   --fg_motion urdf-quad --num_rounds 120 --depth_wt 1e-3 --feature_type cse --freeze_scale --intrinsics_type const --init_scale_fg 0.4 \
-  --use_timesync  --reg_timesync_cam_wt 0.01
+  --use_timesync  --reg_timesync_cam_wt 0.01 --reg_cam_smooth_wt 0.01
 
 # use higher rgb weight
-logname3=fg-urdf-sync-fix-ft
+logname3=fg-urdf-sync-fix-sm-ft
 rm -rf logdir/$seqname-$logname3
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname3 \
   --fg_motion urdf-quad --num_rounds 20 --learning_rate 1e-4 --noreset_steps  --noabsorb_base \

@@ -126,10 +126,10 @@ class MeshViewer:
         if "scene" in input_dict or len(loader.path_list) == 1:
             # add canonical geometry for background
             mesh_canonical = loader.query_canonical_mesh(inst_id=0)
-            # change the color
-            mesh_canonical.visual.vertex_colors = np.tile(
-                [255, 189, 227, 255], [len(mesh_canonical.vertices), 1]
-            )
+            # # change the color
+            # mesh_canonical.visual.vertex_colors = np.tile(
+            #     [255, 189, 227, 255], [len(mesh_canonical.vertices), 1]
+            # )
             if args.use_polycam_mesh:
                 # TODO: load polycam mesh, which is higher resolution
                 # mesh_canonical = trimesh.load("database/polycam/Oct31at1-13AM-poly/raw.ply")

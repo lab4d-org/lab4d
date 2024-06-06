@@ -281,6 +281,13 @@ class dvr_model(nn.Module):
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
+        # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
+        loss_name = "reg_cam_smooth_wt"
+        anchor_x = (0, 2000)
+        anchor_y = (10, 1)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+
         # # learn feature field before reproj error
         # loss_name = "feat_reproj_wt"
         # anchor_x = (200, 400)

@@ -2,17 +2,17 @@ seqname=$1
 dev=$2
 field_type=fg # bg
 data_prefix=crop # full
-batchsize=1
+batchsize=16
 # dynamic singlecam
 # dev=0
 #seqname=cat-pikachu-0
 # seqname=home-2023-curated3
 # logname=gsplat-ref-lab4d-shadowrgb-opt-sync
-logname=diffgs-bob
+logname=diffgs-bob-20k
 # lab4d_path=logdir/home-2023-curated3-compose-ft/opts.log
 # lab4d_path=logdir/cat-pikachu-0-fg-skel/opts.log
 # lab4d_path=logdir/cat-pikachu-0-comp/opts.log
-lab4d_path=logdir/2024-05-07--19-25-33-ft-full-d256-long/opts.log
+lab4d_path=logdir/2024-05-07--19-25-33-fg-urdf-sync-fix-sm-ft/opts.log
 # lab4d_path=logdir/Oct5at10-49AM-poly-bg/opts.log
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname $logname \
@@ -20,7 +20,7 @@ bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
   --feature_type cse --intrinsics_type const --extrinsics_type explicit --fg_motion bob \
   --use_init_cam --lab4d_path $lab4d_path --use_timesync \
-  --reg_arap_wt 0.1
+  --reg_arap_wt 0.1 --num_pts 20000
   # --depth_wt 0.01 --flow_wt 0.1
   # --flow_wt 0 --depth_wt 0.1
   # --load_path logdir/$seqname-gsplat-ref-lab4d-comp3/ckpt_latest.pth

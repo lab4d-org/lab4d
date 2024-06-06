@@ -613,8 +613,8 @@ class NeRF(nn.Module):
             cami_gt = cam1_to_cami @ rtmat[frame_offset[0] : frame_offset[1]][:leni]
             assert cami.dim()==3 and cami_gt.dim()==3
             loss_rot = rot_angle(cami[:,:3,:3]@cami_gt[:,:3,:3].permute(0,2,1)).mean()
-            loss_trn = F.mse_loss(cami[:,:3,3], cami_gt[:,:3,3])
-            loss.append(loss_rot + loss_trn * 10)
+            loss_trn = (cami[:,:3,3] - cami_gt[:,:3,3]).norm(2,-1).mean()
+            loss.append(loss_rot + loss_trn)
 
             # from lab4d.utils.vis_utils import draw_cams
             # draw_cams(rtmat[frame_offset[0] : frame_offset[1]][:leni].detach().cpu().numpy()[:1]).export("tmp/before.obj")

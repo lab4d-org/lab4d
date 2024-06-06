@@ -29,7 +29,7 @@ def get_mask_balance_wt(mask, vis2d, is_detected):
     return mask_balance_wt
 
 
-def compute_se3_smooth_loss(rtk_all, data_offset, vid=None):
+def compute_se3_smooth_loss_2nd(rtk_all, data_offset, vid=None):
     """
     2nd order loss
     """
@@ -57,13 +57,30 @@ def compute_se3_smooth_loss(rtk_all, data_offset, vid=None):
         rot_sm_loss.append(rot_sm_sub)
         trn_sm_loss.append(trn_sm_sub)
     rot_sm_loss = torch.cat(rot_sm_loss, 0)
-    rot_sm_loss = rot_angle(rot_sm_loss).mean() * 1e-1
+    rot_sm_loss = rot_angle(rot_sm_loss).mean()
     trn_sm_loss = torch.cat(trn_sm_loss, 0)
     trn_sm_loss = trn_sm_loss.norm(2, -1).mean()
-    root_sm_loss = rot_sm_loss + trn_sm_loss
-    root_sm_loss = root_sm_loss * 0.1
+    root_sm_loss = rot_sm_loss + trn_sm_loss * 10
     return root_sm_loss
 
+def compute_se3_smooth_loss(rtk_all, data_offset):
+    rot_sm_loss = []
+    trans_sm_loss = []
+    for didx in range(len(data_offset)-1):
+        stt_idx = data_offset[didx]
+        end_idx = data_offset[didx+1]
+        rot_sm_sub = rtk_all[stt_idx:end_idx-1,:3,:3].matmul(
+                      rtk_all[stt_idx+1:end_idx,:3,:3].permute(0,2,1))
+        trans_sm_sub =  rtk_all[stt_idx:end_idx-1,:3,3] - \
+                        rtk_all[stt_idx+1:end_idx,:3,3]
+        rot_sm_loss.append(rot_sm_sub)
+        trans_sm_loss.append(trans_sm_sub)
+    rot_sm_loss = torch.cat(rot_sm_loss,0)
+    rot_sm_loss = rot_angle(rot_sm_loss).mean()
+    trans_sm_loss = torch.cat(trans_sm_loss,0)
+    trans_sm_loss = trans_sm_loss.norm(2,-1).mean()
+    root_sm_loss = rot_sm_loss + trans_sm_loss * 10
+    return root_sm_loss
 
 def entropy_loss(prob, dim=-1):
     """Compute entropy of a probability distribution
