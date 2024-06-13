@@ -791,7 +791,8 @@ class dvr_model(nn.Module):
 
         # consistency between rendered mask and gauss mask
         if "gauss_mask" in rendered.keys():
-            if current_steps < 4000:
+            # if current_steps < 4000:
+            if True:
                 # supervise with a fixed target
                 loss_dict["reg_gauss_mask"] = (
                     aux_dict["fg"]["gauss_mask"] - batch["mask"].float()

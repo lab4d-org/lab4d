@@ -381,21 +381,22 @@ class SkinningWarp(IdentityWarp):
         init_beta=0.01,
     ):
         D = 2
+        W = 256
         skips = [1, 2]
         super().__init__(
             frame_info=frame_info, num_inst=num_inst, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
         )
         if skel_type == "flat":
-            self.articulation = ArticulationFlatMLP(frame_info, num_se3, num_freq_t=num_freq_t, D=D, skips=skips)
+            self.articulation = ArticulationFlatMLP(frame_info, num_se3, num_freq_t=num_freq_t, D=D, W=W, skips=skips)
             symm_idx = None
         elif skel_type.startswith("skel-"):
             skel_type = skel_type.split("-")[1]
-            self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles, self.num_inst, num_freq_t=num_freq_t, D=D, skips=skips)
+            self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles, self.num_inst, num_freq_t=num_freq_t, D=D, W=W, skips=skips)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
         elif skel_type.startswith("urdf-"):
             skel_type = skel_type.split("-")[1]
-            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles, self.num_inst, num_freq_t=num_freq_t, D=D, skips=skips)
+            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles, self.num_inst, num_freq_t=num_freq_t, D=D, W=W, skips=skips)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
             init_gauss_scale = (

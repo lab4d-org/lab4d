@@ -16,6 +16,7 @@ from lab4d.utils.geom_utils import (
 )
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
+    axis_angle_to_matrix,
     matrix_to_quaternion,
     matrix_to_axis_angle,
     quaternion_mul,
@@ -998,6 +999,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         skips=[],
         activation=nn.ReLU(True),
     ):
+        self.skel_type = skel_type
         # get skeleton
         rest_joints, edges, symm_idx = get_predefined_skeleton(skel_type)
         num_se3 = len(rest_joints)
@@ -1023,7 +1025,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         #     activation,
         #     nn.Linear(W // 2, self.num_se3 * 3),
         # )
-        self.so3 = SO3Layer(out_rots=self.num_se3, out_type="mat")
+        self.so3 = SO3Layer(W=W, out_rots=self.num_se3, out_type="mat")
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
@@ -1069,7 +1071,11 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
                 t_embed = self.time_embedding(frame_id=frame_id)
                 pred = self.forward(t_embed, inst_id, return_so3=True)
-                loss_t = F.mse_loss(pred, gt) * 0.05
+                if gt.shape[0] != pred.shape[0]:
+                    pred = pred[-gt.shape[0]:]
+                    print("shape mismatch, use last K frames of predictions to match gt")
+                loss_t = F.mse_loss(axis_angle_to_matrix(pred), axis_angle_to_matrix(gt))
+                # loss_t = F.mse_loss(pred, gt) * 0.02
                 loss = loss_t + loss_rest
             else:
                 loss = loss_rest

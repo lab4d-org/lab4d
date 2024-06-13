@@ -78,7 +78,7 @@ def extract_hmr_oneseq(seqname, dataset_focal, hmr2_model, hmr2_model_cfg):
     joint_angles_list = []
     hmr_vertices = []
     kps_2d = []
-    for impath in tqdm.tqdm(imglist, desc=f"hmr2_smpl {vidname}"):
+    for impath in tqdm.tqdm(imglist, desc=f"hmr2_smpl {seqname}"):
         maskpath = impath.replace("JPEGImages", "Annotations").replace(".jpg", ".npy")
 
         img_cv2 = cv2.imread(impath)  # H, W, C
@@ -175,7 +175,7 @@ def extract_hmr_oneseq(seqname, dataset_focal, hmr2_model, hmr2_model_cfg):
     )
 
     vis_imgs = []
-    for it, impath in enumerate(tqdm.tqdm(imglist, desc=f"hmr2_smpl {vidname}")):
+    for it, impath in enumerate(tqdm.tqdm(imglist, desc=f"saving {seqname}")):
         imgidx = int(impath.split("/")[-1].split(".")[0])
         img_cv2 = cv2.imread(impath)  # H, W, C
 
@@ -237,9 +237,11 @@ def extract_hmr_oneseq(seqname, dataset_focal, hmr2_model, hmr2_model_cfg):
 
 
 if __name__ == "__main__":
-    vidname = "2024-05-11--01-06-03"
-    extract_joint_angles_hmr2(vidname)
-    vidname = "2024-05-11--01-08-29"
-    extract_joint_angles_hmr2(vidname)
-    vidname = "2024-05-11--01-10-54"
-    extract_joint_angles_hmr2(vidname)
+    # vidname = "2024-05-11--01-06-03"
+    # extract_joint_angles_hmr2(vidname)
+    # vidname = "2024-05-11--01-08-29"
+    # extract_joint_angles_hmr2(vidname)
+    # vidname = "2024-05-11--01-10-54"
+    # extract_joint_angles_hmr2(vidname)
+    extract_joint_angles_hmr2("2024-05-15--19-51-31")
+    extract_joint_angles_hmr2("2024-05-15--19-56-12")

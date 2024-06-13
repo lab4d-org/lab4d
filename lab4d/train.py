@@ -5,6 +5,7 @@ import sys
 import torch
 import torch.backends.cudnn as cudnn
 from absl import app
+from datetime import timedelta
 
 cwd = os.getcwd()
 if cwd not in sys.path:
@@ -30,6 +31,7 @@ def train_ddp(Trainer):
         init_method="env://",
         world_size=opts["ngpu"],
         rank=local_rank,
+        timeout=timedelta(minutes=20),
     )
 
     # torch.manual_seed(0)
