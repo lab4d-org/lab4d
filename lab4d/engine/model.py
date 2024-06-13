@@ -46,6 +46,7 @@ class dvr_model(nn.Module):
             feature_channels=config["feature_channels"],
             init_scale_fg=config["init_scale_fg"],
             init_scale_bg=config["init_scale_bg"],
+            init_beta=config["init_beta"],
             num_freq_xyz=config["num_freq_xyz"],
             use_timesync=config["use_timesync"],
             bg_vid=config["bg_vid"],
@@ -241,6 +242,13 @@ class dvr_model(nn.Module):
 
         # camera prior wt: steps(0->1000, 1->0), range (0,1)
         loss_name = "reg_cam_prior_wt"
+        anchor_x = (0, config["num_rounds_cam_init"] * config["iters_per_round"])
+        anchor_y = (1, 0)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+
+        # camera prior wt: steps(0->1000, 1->0), range (0,1)
+        loss_name = "reg_pose_prior_wt"
         anchor_x = (0, config["num_rounds_cam_init"] * config["iters_per_round"])
         anchor_y = (1, 0)
         type = "linear"
@@ -825,6 +833,10 @@ class dvr_model(nn.Module):
         if self.config["reg_gauss_skin_wt"] > 0:
             loss_dict["reg_gauss_skin"] = self.fields.gauss_skin_consistency_loss()
         loss_dict["reg_cam_prior"] = self.fields.cam_prior_loss()
+        if self.config["reg_pose_prior_wt"] > 0:
+            loss_dict["reg_pose_prior"] = self.fields.field_params["fg"].pose_prior_loss()
+        if self.config["reg_shape_prior_wt"] > 0:
+            loss_dict["reg_shape_prior"] = self.fields.field_params["fg"].shape_prior_loss()
         if self.config["reg_cam_prior_relative_wt"] > 0:
             loss_dict["reg_cam_prior_relative"] = self.fields.cam_prior_relative_loss()
         loss_dict["reg_cam_smooth"] = self.fields.cam_smooth_loss()

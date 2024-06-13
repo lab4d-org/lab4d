@@ -67,7 +67,7 @@ if __name__ == "__main__":
     for it, vidpath in enumerate(vidlist):
         it = int(vidpath.split("/")[-2].split("_")[-1])
         print(vidpath)
-        bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4")#.replace("shape", "bone")
+        bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4").replace("shape", "bone")
         vidpath_down = vidpath.replace("ref.mp4", "ref-down.mp4")
         bev_vidpath_down = bev_vidpath.replace("bev.mp4", "bev-down.mp4")
         outpath = vidpath.replace("ref.mp4", "concat.mp4")

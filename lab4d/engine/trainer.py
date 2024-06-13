@@ -113,7 +113,7 @@ class Trainer:
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics from external priors, if this is the first run"""
         # init mlp
-        if get_local_rank() == 0:
+        if get_local_rank() == 0 and self.opts["mlp_init"]:
             self.model.mlp_init()
 
     def define_model(self, model=dvr_model):
@@ -197,6 +197,17 @@ class Trainer:
         }
         return param_lr_with_freeze_camera_fg
 
+    def get_lr_freeze_smpl(self):
+        opts = self.opts
+        lr_base = opts["learning_rate"]
+        param_lr_with_freeze_camera_fg = {
+            "module.fields.field_params.fg.basefield.": lr_base * 0.0,
+            "module.fields.field_params.fg.sdf.": lr_base * 0.0,
+            "module.fields.field_params.fg.camera_mlp": lr_base * 0.1,
+            "module.fields.field_params.fg.warp.articulation": lr_base * 0.1,
+        }
+        return param_lr_with_freeze_camera_fg
+
     def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters
 
@@ -251,6 +262,12 @@ class Trainer:
                 "module.fields.field_params.fg.warp.skinning_model": 0.0,
             }
             param_lr_with.update(param_lr_with_pose_correction)
+
+        if opts["smpl_init"]:
+            if ".logscale" in param_lr_with:
+                del param_lr_with[".logscale"]
+            del param_lr_with[".shift"]
+            param_lr_with.update(self.get_lr_freeze_smpl())
 
         return param_lr_startwith, param_lr_with
 
@@ -378,7 +395,8 @@ class Trainer:
             self.save_checkpoint(round_count=self.current_round)
 
     def update_aux_vars(self):
-        self.model.update_geometry_aux()
+        if not "smpl" in self.opts["fg_motion"]: # do not update proxy for smpl
+            self.model.update_geometry_aux()
         self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
         if (
             self.current_round > self.opts["num_rounds_cam_init"]

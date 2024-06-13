@@ -129,7 +129,14 @@ def quaternion_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             a.view(-1, a.shape[-1]), b.view(-1, b.shape[-1])
         ).view(ouput_shape)
     else:
-        return _quaternion_mul(a, b)
+        if a.shape[-1] == 4 and b.shape[-1] == 4:
+            return _quaternion_mul(a, b)
+        elif b.shape[-1] == 3:
+            return _quaternion_4D_mul_3D(a, b)
+        elif a.shape[-1] == 3:
+            return _quaternion_3D_mul_4D(a, b)
+        else:
+            raise ValueError
 
 
 def _axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:

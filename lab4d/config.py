@@ -32,6 +32,8 @@ class TrainModelConfig:
     flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
     # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
+    flags.DEFINE_float("reg_pose_prior_wt", 0.0, "weight for pose regularization")
+    flags.DEFINE_float("reg_shape_prior_wt", 0.0, "weight for shape regularization")
     flags.DEFINE_float(
         "reg_cam_prior_relative_wt", 0.0, "weight for relative camera regularization"
     )
@@ -92,7 +94,9 @@ class TrainOptConfig:
         True,
         "reset steps of loss scheduling, set to False if resuming training",
     )
+    flags.DEFINE_boolean("mlp_init", True, "whether to initialize mlps")
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
+    flags.DEFINE_boolean("smpl_init", False, "whether to use smpl initialization routine")
     flags.DEFINE_boolean("load_fg_camera", True, "whether load camera for fg ckpt")
     flags.DEFINE_boolean("freeze_field_bg", False, "whether to freeze bg field")
     flags.DEFINE_boolean("freeze_field_fg", False, "whether to freeze fg field")
@@ -106,6 +110,7 @@ class TrainOptConfig:
     flags.DEFINE_float("reset_beta", 0.0, "whether to reset transparency")
     flags.DEFINE_float("init_scale_fg", 0.2, "initial scale for the fg field")
     flags.DEFINE_float("init_scale_bg", 0.05, "initial scale for the bg field")
+    flags.DEFINE_float("init_beta", 0.1, "initial transparency for all fields")
     flags.DEFINE_integer("num_freq_xyz", 10, "number of base frequencies for 3D points")
     flags.DEFINE_float("symm_ratio", 0.0, "points to get reflected along x at train")
 

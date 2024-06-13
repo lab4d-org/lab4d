@@ -14,6 +14,7 @@ from lab4d.utils.quat_transform import (
 )
 from lab4d.utils.transforms import get_bone_coords
 from lab4d.utils.vis_utils import get_colormap
+from lab4d.utils.torch_utils import zero_module
 
 
 class SkinningField(nn.Module):
@@ -47,7 +48,7 @@ class SkinningField(nn.Module):
         frame_info,
         num_inst,
         D=2,
-        W=64,
+        W=256,
         num_freq_xyz=0,
         num_freq_t=6,
         inst_channels=32,
@@ -90,7 +91,7 @@ class SkinningField(nn.Module):
                 activation=activation,
                 final_act=False,
             )
-
+            self.delta_field.linear_final = zero_module(self.delta_field.linear_final)
         self.symm_idx = symm_idx
 
     def forward(self, xyz, bone2obj, frame_id, inst_id):

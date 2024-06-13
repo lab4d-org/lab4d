@@ -186,6 +186,85 @@ def get_predefined_skeleton(skel_type):
     BOB_SYMM_IDX = {key: key for key in range(1, 25)}
     BOB_REST_JOINTS = torch.randn(25, 3) * 0.02
 
+    SMPL_PARENT = {
+        1: 0,  # 01 left hip
+        2: 0,  # 02 right hip
+        3: 0,  # 03 spine bottom
+        4: 1,  # 04 left knee
+        5: 2,  # 05 right knee
+        6: 3,  # 06 spine middle
+        7: 4,  # 07 left ankle
+        8: 5,  # 08 right ankle
+        9: 6,  # 09 spine top
+        10: 7,  # 10 left foot
+        11: 8,  # 11 right foot
+        12: 9,  # 12 neck
+        13: 9,  # 13 left clavicle
+        14: 9,  # 14 right clavicle
+        15: 12,  # 15 head
+        16: 13,  # 16 left shoulder
+        17: 14,  # 17 right shoulder
+        18: 16,  # 18 left elbow
+        19: 17,  # 19 right elbow
+        20: 18,  # 20 left wrist
+        21: 19,  # 21 right wrist
+        22: 20,  # 22 left hand
+        23: 21,  # 23 right hand
+    }
+    SMPL_SYMM_IDX = {
+        1: 2,
+        2: 1,
+        3: 3,
+        4: 5,
+        5: 4,
+        6: 6,
+        7: 8,
+        8: 7,
+        9: 9,
+        10: 11,
+        11: 10,
+        12: 12,
+        13: 14,
+        14: 13,
+        15: 15,
+        16: 17,
+        17: 16,
+        18: 19,
+        19: 18,
+        20: 21,
+        21: 20,
+        22: 23,
+        23: 22,
+    }
+    SMPL_REST_JOINTS = torch.tensor(
+        [
+            [-1.74190715e-03, -2.23063158e-01, 2.91330973e-02],
+            [6.81734483e-02, -3.13917358e-01, 2.27152380e-02],
+            [-6.98239707e-02, -3.13087052e-01, 2.53507467e-02],
+            [-4.22573358e-03, -1.15035136e-01, 2.28505200e-03],
+            [1.00613662e-01, -6.80088049e-01, 1.75002589e-02],
+            [-1.06328349e-01, -6.86680581e-01, 1.61795709e-02],
+            [1.01848113e-03, 1.88399865e-02, 2.62107263e-03],
+            [8.74353319e-02, -1.06785189e00, -2.60158501e-02],
+            [-9.10438950e-02, -1.07495173e00, -2.60316528e-02],
+            [2.58083688e-03, 7.12579823e-02, 2.87856741e-02],
+            [1.12834554e-01, -1.12251271e00, 9.14187384e-02],
+            [-1.15749911e-01, -1.12197993e00, 9.52946067e-02],
+            [1.87118027e-06, 2.83364355e-01, -1.62156448e-02],
+            [8.12272780e-02, 1.92182174e-01, -5.83969388e-03],
+            [-7.88218849e-02, 1.89387751e-01, -1.04887941e-02],
+            [4.80707622e-03, 3.47078040e-01, 3.44834974e-02],
+            [1.71836923e-01, 2.22166810e-01, -1.48544485e-02],
+            [-1.74272205e-01, 2.21247588e-01, -2.01701257e-02],
+            [4.25978596e-01, 2.10599433e-01, -4.21919244e-02],
+            [-4.22842634e-01, 2.09094619e-01, -4.13804610e-02],
+            [6.69799605e-01, 2.19214862e-01, -4.30523941e-02],
+            [-6.72549272e-01, 2.16630925e-01, -4.63892268e-02],
+            [7.52595686e-01, 2.10989045e-01, -5.76200870e-02],
+            [-7.55930300e-01, 2.10448465e-01, -5.66164354e-02],
+        ]
+    )
+
     # TODO: map human to QUAD
     # index, parent index, # name of the index
     HUMAN_PARENT = {
@@ -380,6 +459,8 @@ def get_predefined_skeleton(skel_type):
 
     if skel_type == "human":
         edges, rest_joints, symm_idx = HUMAN_PARENT, HUMAN_REST_JOINTS, HUMAN_SYMM_IDX
+    elif skel_type == "smpl":
+        edges, rest_joints, symm_idx = SMPL_PARENT, SMPL_REST_JOINTS, SMPL_SYMM_IDX
     elif skel_type == "quad":
         edges, rest_joints, symm_idx = QUAD_PARENT, QUAD_REST_JOINTS, QUAD_SYMM_IDX
     else:

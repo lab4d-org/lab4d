@@ -363,11 +363,17 @@ def load_small_files(data_path_dict):
     # path to centered mesh files
     geom_path_bg = []
     geom_path_fg = []
+    joint_angles = []
     for path in data_path_dict["cambg"]:
         camera_prefix = path.rsplit("/", 1)[0]
         geom_path_bg.append("%s/mesh-00-centered.obj" % camera_prefix)
         geom_path_fg.append("%s/mesh-01-centered.obj" % camera_prefix)
+        hmr_path = "%s/hmr.npy" % camera_prefix
+        if os.path.exists(hmr_path):
+            joint_angles.append(np.load(hmr_path))
     data_info["geom_path"] = [geom_path_bg, geom_path_fg]
+    if len(joint_angles)>0:
+        data_info["joint_angles"] = np.concatenate(joint_angles, 0)
     return data_info
 
 

@@ -375,29 +375,31 @@ class SkinningWarp(IdentityWarp):
         skel_type="flat",
         joint_angles=None,
         num_freq_xyz=10,
-        num_freq_t=6,
+        num_freq_t=10,
         num_se3=25,
         init_gauss_scale=0.03,
         init_beta=0.01,
     ):
+        D = 2
+        skips = [1, 2]
         super().__init__(
             frame_info=frame_info, num_inst=num_inst, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
         )
         if skel_type == "flat":
-            self.articulation = ArticulationFlatMLP(frame_info, num_se3)
+            self.articulation = ArticulationFlatMLP(frame_info, num_se3, num_freq_t=num_freq_t, D=D, skips=skips)
             symm_idx = None
         elif skel_type.startswith("skel-"):
             skel_type = skel_type.split("-")[1]
-            self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles, self.num_inst)
+            self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles, self.num_inst, num_freq_t=num_freq_t, D=D, skips=skips)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
         elif skel_type.startswith("urdf-"):
             skel_type = skel_type.split("-")[1]
-            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles, self.num_inst)
+            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles, self.num_inst, num_freq_t=num_freq_t, D=D, skips=skips)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
             init_gauss_scale = (
-                self.articulation.bone_sizes * self.articulation.logscale.exp()
+                self.articulation.bone_sizes * self.articulation.logscale.exp() * init_gauss_scale / 0.03
             )
         else:
             raise NotImplementedError
@@ -413,6 +415,17 @@ class SkinningWarp(IdentityWarp):
         # beta: transparency for bone rendering
         beta = torch.tensor([init_beta])
         self.logibeta = nn.Parameter(-beta.log())  # beta: transparency
+
+        # device = self.parameters().__next__().device
+        # articulation = self.articulation.forward(
+        #     None,
+        #     None,
+        #     override_so3=torch.zeros(1, num_se3, 3, device=device),
+        #     override_log_bone_len=torch.zeros(1, num_se3, device=device),
+        # )
+        # articulation = (articulation[0][0], articulation[1][0])
+        # mesh_gauss = self.skinning_model.draw_gaussian(articulation, self.articulation.edges)
+        # mesh_gauss.export("tmp/0.obj")
 
     def forward(
         self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
@@ -472,6 +485,8 @@ class SkinningWarp(IdentityWarp):
 
         # skinning weights
         skin, delta_skin = self.skinning_model(xyz, articulation, frame_id, inst_id)
+        # # temperature scaling -> smooth control
+        # skin *= 0.2
         # # debug: hard selection
         # max_bone = 3
         # topk, indices = skin.topk(max_bone, 3, largest=True)
@@ -523,6 +538,9 @@ class SkinningWarp(IdentityWarp):
             dist2: (N,B) Squared distance to each bone
         """
         if isinstance(self.articulation, ArticulationURDFMLP):
+            # # gauss bones only
+            # xyz_bone = self.skinning_model.get_gauss_bone_coords(xyz, bone2obj)
+            # dist2 = xyz_bone.pow(2).sum(dim=-1)
             # gauss bones + skinning
             xyz = xyz[:, None, None]  # (N,1,1,3)
             bone2obj = (

@@ -167,7 +167,7 @@ class MeshViewer:
         # )
         # voxel_grid = VoxelGrid(mesh_canonical, res=0.1)
 
-        bg_field = BGField()
+        bg_field = BGField(load_logname="cat-pikachu-2023", use_default_mesh=True)
 
         for inst_id, bg_mesh in bg_field.bg_meshes.items():
             server.add_mesh_trimesh(name=f"/frames/bg/{inst_id}", mesh=bg_mesh)

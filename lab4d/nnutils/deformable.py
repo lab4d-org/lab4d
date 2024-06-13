@@ -14,8 +14,8 @@ from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.warping import SkinningWarp, create_warp
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import extend_aabb, check_inside_aabb
-from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation
-
+from lab4d.utils.quat_transform import dual_quaternion_to_quaternion_translation, axis_angle_to_matrix
+from lab4d.utils.loss_utils import align_tensors
 
 class Deformable(FeatureNeRF):
     """A dynamic neural radiance field
@@ -69,6 +69,8 @@ class Deformable(FeatureNeRF):
         use_timesync=False,
         invalid_vid=-1,
     ):
+        self.fg_motion = fg_motion
+        self.use_timesync = use_timesync
         super().__init__(
             data_info,
             D=D,
@@ -89,8 +91,6 @@ class Deformable(FeatureNeRF):
         )
 
         self.warp = create_warp(fg_motion, data_info, num_inst)
-        self.fg_motion = fg_motion
-        self.use_timesync = use_timesync
 
     # def update_aabb(self, beta=0.5):
     #     """Update axis-aligned bounding box by interpolating with the current
@@ -108,7 +108,20 @@ class Deformable(FeatureNeRF):
             geom_path (str): Unused
             init_scale (float): Unused
         """
-        self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12, count=[4, 4])
+        if "smpl" in self.fg_motion:
+            scale = self.logscale.detach().exp()[0]
+
+            sys.path.insert(0, "projects/gd-mdm/")
+            from smpl import SMPL
+            self.smpl_model = SMPL().eval()
+            global_orient = torch.eye(3)
+            global_orient[1:] *= -1
+            out = self.smpl_model(global_orient=global_orient[None])
+            verts = (out["vertices"][0] * scale).numpy()
+            faces = self.smpl_model.faces
+            self.proxy_geometry = trimesh.Trimesh(vertices=verts, faces=faces)
+        else:
+            self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12 * init_scale / 0.2, count=[4, 4])
 
     def get_init_sdf_fn(self):
         """Initialize signed distance function as a skeleton or sphere
@@ -130,7 +143,10 @@ class Deformable(FeatureNeRF):
             return sdf
 
         if "skel-" in self.fg_motion or "urdf-" in self.fg_motion:
-            return sdf_fn_torch_skel
+            if "-smpl" in self.fg_motion:
+                return super().get_init_sdf_fn() # use proxy-geometry from smpl
+            else:
+                return sdf_fn_torch_skel
         else:
             return sdf_fn_torch_sphere
 
@@ -389,6 +405,34 @@ class Deformable(FeatureNeRF):
         dist2 = self.warp.compute_post_warp_dist2(pts[:, None, None], frame_id, inst_id)
         return dist2.mean()
 
+    def pose_prior_loss(self):
+        """Encourage body pose over time to match external priors.
+
+        Returns:
+            loss: (0,) Mean squared error of camera SE(3) transforms to priors
+        """
+        if isinstance(self.warp, SkinningWarp):
+            loss = self.warp.articulation.compute_distance_to_prior()
+            return loss
+        else:
+            return torch.zeros(1, device=self.parameters().__next__().device).mean()
+
+    def shape_prior_loss(self, nsample=2048):
+        from lab4d.utils.loss_utils import align_tensors
+        sdf_fn = self.get_init_sdf_fn()
+
+        # sample points
+        pts, _, inst_id = self.sample_points_aabb(nsample, extend_factor=0.5)
+
+        # get sdf from proxy geometry
+        sdf_gt = sdf_fn(pts)
+
+        # evaluate sdf loss
+        sdf, _ = self.forward_sdf(pts, inst_id=inst_id)
+        scale = align_tensors(sdf, sdf_gt)
+        sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
+        return sdf_loss
+
     def get_samples(self, Kinv, batch):
         """Compute time-dependent camera and articulation parameters.
 
@@ -433,10 +477,9 @@ class Deformable(FeatureNeRF):
         """For skeleton fields, initialize bone lengths and rest joint angles
         from an external skeleton
         """
-        super().mlp_init()
         if "skel-" in self.fg_motion or "urdf-" in self.fg_motion:
-            if hasattr(self.warp.articulation, "init_vals"):
-                self.warp.articulation.mlp_init()
+            self.warp.articulation.mlp_init()
+        super().mlp_init()
 
     def query_field(self, samples_dict, flow_thresh=None):
         """Render outputs from a neural radiance field.
@@ -529,3 +572,156 @@ class Deformable(FeatureNeRF):
         else:
             vis = self.vis_mlp(xyz, inst_id=inst_id)
         return vis
+
+
+    def geometry_init(self, sdf_fn, nsample=2048):
+        super().geometry_init(sdf_fn, nsample=nsample)
+        device = self.parameters().__next__().device
+        if not "-smpl" in self.fg_motion:
+            return
+        # time-varying sdf initialization
+        from pysdf import SDF
+        sys.path.insert(0, "projects/gd-mdm/")
+        from smpl import SMPL
+
+        # smpl
+        smpl_scale = self.logscale.exp().detach().cpu().numpy()
+        self.smpl_model = SMPL().cuda().eval()
+        global_orient = torch.eye(3).cuda()
+        global_orient[1:] *= -1
+        faces = self.smpl_model.faces
+
+        # prepare poses
+        # body_pose_all = axis_angle_to_matrix(self.warp.articulation.init_vals)
+        with torch.no_grad():
+            frame_ids = torch.arange(0, self.num_frames, device=device)
+            t_articulation, rest_articulation = self.warp.articulation.get_vals_and_mean(frame_ids)
+            t_embed = self.warp.articulation.time_embedding(frame_id=frame_ids)
+            so3 = self.warp.articulation.forward(t_embed, None, return_so3=True)
+            body_pose_all = axis_angle_to_matrix(so3)
+
+            zero_pose = torch.zeros_like(so3[:1])
+            nframes = so3.shape[0]
+            xyz_rest = self.smpl_model(body_pose=axis_angle_to_matrix(zero_pose), global_orient=global_orient[None])["vertices"][0]
+            xyz_t = self.smpl_model(body_pose=body_pose_all, global_orient=global_orient[None].repeat(nframes, 1, 1))["vertices"]
+
+
+        def sdf_fn(pts):
+            verts = xyz_t[frame_id].cpu() * smpl_scale
+            sdf_fn_numpy = SDF(verts, faces)
+            sdf = -sdf_fn_numpy(pts.cpu().numpy())[:, None]  # negative inside
+            sdf = torch.tensor(sdf, device=pts.device, dtype=pts.dtype)
+            return sdf
+
+        def sdf_pred_fn(pts):
+            frame_id_rep = frame_id[None].repeat(len(pts))
+            samples_dict = {}
+            samples_dict["t_articulation"] = (t_articulation[0][frame_id_rep], 
+                                              t_articulation[1][frame_id_rep])
+            samples_dict["rest_articulation"] = (rest_articulation[0][frame_id_rep], 
+                                                 rest_articulation[1][frame_id_rep])
+            pts_warped, warp_dict = self.warp(
+                pts[:, None, None],
+                frame_id_rep,
+                inst_id,
+                type="backward",
+                samples_dict=samples_dict,
+                return_aux=True,
+            )
+            pts_warped = pts_warped[:, 0, 0]
+            delta_skin = warp_dict["delta_skin"]
+            sdf, _ = self.forward_sdf(pts_warped, inst_id=inst_id)
+            return sdf, delta_skin
+
+        def compute_corresp_loss(frame_id):
+            frame_id_rep = frame_id[None].repeat(len(xyz_rest))
+            samples_dict = {}
+            samples_dict["t_articulation"] = (t_articulation[0][frame_id_rep], 
+                                              t_articulation[1][frame_id_rep])
+            samples_dict["rest_articulation"] = (rest_articulation[0][frame_id_rep], 
+                                                 rest_articulation[1][frame_id_rep])
+
+            # forward: xyz->warp->xyz_t
+            # nsample = 512
+            # npts = xyz_rest.shape[0]
+            # rand_id =  torch.randint(0, npts, (nsample,), device=device)
+            pts_warped_t = self.warp(
+                xyz_rest[:, None, None],
+                frame_id_rep,
+                inst_id,
+                type="forward",
+                samples_dict=samples_dict,
+                return_aux=False,
+            )[:, 0, 0]
+            loss_fw = F.mse_loss(xyz_t[frame_id], pts_warped_t)
+
+            # backward: xyz_t->warp->xyz
+            pts_warped_c = self.warp(
+                xyz_t[frame_id][:, None, None],
+                frame_id_rep,
+                inst_id,
+                type="backward",
+                samples_dict=samples_dict,
+                return_aux=False,
+            )[:, 0, 0]
+            loss_bw = F.mse_loss(xyz_rest, pts_warped_c)
+
+            loss = (loss_fw + loss_bw) / 2
+            return loss
+
+        # setup optimizer
+        total_steps = 2000
+        lr = 2e-3
+        opt_model = self.warp.skinning_model
+        optimizer = torch.optim.AdamW(opt_model.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            lr,
+            total_steps,
+            pct_start=0.1,
+            cycle_momentum=False,
+            anneal_strategy="linear",
+        )
+
+        # optimize
+        for i in range(total_steps):
+            optimizer.zero_grad()
+
+            # sample points and gt sdf
+            pts, frame_id, _ = self.sample_points_aabb(nsample//4*3, extend_factor=0.0, return_cube=True)
+            pts_neg, _, _ = self.sample_points_aabb(nsample//4, extend_factor=0.5, return_cube=True)
+            pts = torch.cat([pts, pts_neg], 0)
+            # frame_id = frame_id[0] * 0 + 40
+            frame_id = frame_id[0]
+            inst_id = None
+
+            # get sdf from proxy geometry
+            sdf_gt = sdf_fn(pts)
+
+            # evaluate sdf loss
+            sdf, delta_skin = sdf_pred_fn(pts)
+
+            # sdf loss
+            scale = align_tensors(sdf, sdf_gt)
+            sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
+
+            # dskin loss
+            skin_loss = delta_skin.mean()
+
+            # correspondence loss
+            corresp_loss = compute_corresp_loss(frame_id)
+
+            total_loss = sdf_loss * 0.5 + corresp_loss * 0.1 + skin_loss * 0.01
+            total_loss.backward()
+            nn.utils.clip_grad_norm_(opt_model.parameters(), 1.0)
+            optimizer.step()
+            scheduler.step()
+            if i % 100 == 0:
+                print(f"iter {i}, loss {total_loss.item()}")
+                # run marching cubes
+                from lab4d.utils.geom_utils import marching_cubes
+                aabb = self.get_aabb(inst_id=inst_id, return_cube=True)
+                mesh_gt = marching_cubes(sdf_fn, aabb[0], level=0.0)
+                mesh_pred = marching_cubes(lambda x: sdf_pred_fn(x)[0], aabb[0], level=0.0)
+                mesh_gt.export("tmp/%04d-gt.obj"%i)
+                mesh_pred.export("tmp/%04d-pred.obj"%i)

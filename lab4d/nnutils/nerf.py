@@ -30,7 +30,7 @@ from lab4d.utils.geom_utils import (
     check_inside_aabb,
     compute_rectification_se3,
 )
-from lab4d.utils.loss_utils import align_tensors, compute_se3_smooth_loss
+from lab4d.utils.loss_utils import align_tensors, compute_se3_smooth_loss_2nd
 from lab4d.utils.quat_transform import (
     quaternion_apply,
     quaternion_translation_inverse,
@@ -349,23 +349,39 @@ class NeRF(nn.Module):
         """
         device = next(self.parameters()).device
         # setup optimizer
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        total_steps = 5000
+        lr = 2e-3
+        optimizer = torch.optim.AdamW(self.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            lr,
+            total_steps,
+            pct_start=0.1,
+            cycle_momentum=False,
+            anneal_strategy="linear",
+        )
+
+        def sdf_pred_fn(pts):
+            sdf, _ = self.forward_sdf(pts, inst_id=inst_id)
+            return sdf
 
         # optimize
-        for i in range(1000):
+        for i in range(total_steps):
             optimizer.zero_grad()
 
             # sample points and gt sdf
-            inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+            inst_id = None # torch.randint(0, self.num_inst, (nsample,), device=device)
 
             # sample points
-            pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
+            pts, _, _ = self.sample_points_aabb(nsample//4*3, extend_factor=0.0)
+            pts_neg, _, _ = self.sample_points_aabb(nsample//4, extend_factor=0.5)
+            pts = torch.cat([pts, pts_neg], 0)
 
             # get sdf from proxy geometry
             sdf_gt = sdf_fn(pts)
 
             # evaluate sdf loss
-            sdf, _ = self.forward_sdf(pts, inst_id=inst_id)
+            sdf = sdf_pred_fn(pts)
             scale = align_tensors(sdf, sdf_gt)
             sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
 
@@ -379,13 +395,19 @@ class NeRF(nn.Module):
                 pts[:, None, None], inst_id=inst_id, sample_ratio=1
             )
             eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
-            eikonal_loss = eikonal_loss * 1e-3
+            eikonal_loss = eikonal_loss * 1e-4
 
             total_loss = sdf_loss + vis_loss + eikonal_loss
             total_loss.backward()
             optimizer.step()
+            scheduler.step()
             if i % 100 == 0:
                 print(f"iter {i}, loss {total_loss.item()}")
+                # aabb = self.get_aabb(inst_id=inst_id)
+                # mesh_gt = marching_cubes(sdf_fn, aabb[0], level=0.0)
+                # mesh_pred = marching_cubes(sdf_pred_fn, aabb[0], level=0.0)
+                # mesh_gt.export("tmp/%04d-gt.obj"%i)
+                # mesh_pred.export("tmp/%04d-pred.obj"%i)
 
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
@@ -500,17 +522,21 @@ class NeRF(nn.Module):
         sdf = self.forward_sdf(pts)[0]
         return sdf.cpu().numpy()
 
-    def get_aabb(self, inst_id=None):
+    def get_aabb(self, inst_id=None, return_cube=False):
         """Get axis-aligned bounding box
         Args:
             inst_id: (N,) Instance id
         Returns:
             aabb: (2,3) Axis-aligned bounding box if inst_id is None, (N,2,3) otherwise
         """
+        aabb = self.aabb
+        if return_cube:
+            aabb[0] = aabb[0].min()
+            aabb[1] = aabb[1].max()
         if inst_id is None:
-            return self.aabb[None]
+            return aabb[None]
         else:
-            return self.aabb[None].repeat(len(inst_id), 1, 1)
+            return aabb[None].repeat(len(inst_id), 1, 1)
 
     def get_scale(self):
         """Get scale of the proxy geometry"""
@@ -554,7 +580,7 @@ class NeRF(nn.Module):
                 frame_mapping
             ] * beta + near_far * (1 - beta)
 
-    def sample_points_aabb(self, nsample, extend_factor=1.0, aabb=None):
+    def sample_points_aabb(self, nsample, extend_factor=1.0, aabb=None, return_cube=False):
         """Sample points within axis-aligned bounding box
 
         Args:
@@ -569,7 +595,7 @@ class NeRF(nn.Module):
         frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
         inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
         if aabb is None:
-            aabb = self.get_aabb(inst_id=inst_id)
+            aabb = self.get_aabb(inst_id=inst_id, return_cube=return_cube)
             aabb = extend_aabb(aabb, factor=extend_factor)
         pts = (
             torch.rand(nsample, 3, dtype=torch.float32, device=device)
@@ -1364,7 +1390,7 @@ class NeRF(nn.Module):
 
         # compute smoothness
         extrinsics = self.get_camera(metric_scale=False)
-        loss = compute_se3_smooth_loss(extrinsics, self.frame_offset)
+        loss = compute_se3_smooth_loss_2nd(extrinsics, self.frame_offset)
         return loss
 
     def get_camera(self, frame_id=None, metric_scale=True):

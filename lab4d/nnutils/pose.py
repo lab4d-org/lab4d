@@ -1045,13 +1045,34 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
                 torch.tensor(joint_angles, dtype=torch.float32),
                 persistent=False,
             )
+        else:
+            self.init_vals = None
 
         # override the loss function
         def loss_fn(gt):
             inst_id = self.time_embedding.frame_to_vid
-            t_embed = self.time_embedding(frame_id=None)
-            pred = self.forward(t_embed, inst_id, return_so3=True)
-            loss = F.mse_loss(pred, gt)
+            device = self.parameters().__next__().device
+
+            # loss on canonical shape
+            t_embed = self.time_embedding.get_mean_embedding(device)
+            so3 = self.forward(t_embed, None, return_so3=True)  # 1, num_channels
+            loss_rest = so3.pow(2).mean() * 0.01
+
+            if self.init_vals is not None:
+                # # sample frameids
+                # nsample = 32
+                # frame_id = torch.randint(0, self.time_embedding.num_frames, (nsample,), device=device)
+                # frame_id = frame_id * 0 + 40
+                # inst_id = inst_id[frame_id]
+                # gt = gt[frame_id]
+                frame_id = None
+
+                t_embed = self.time_embedding(frame_id=frame_id)
+                pred = self.forward(t_embed, inst_id, return_so3=True)
+                loss_t = F.mse_loss(pred, gt) * 0.05
+                loss = loss_t + loss_rest
+            else:
+                loss = loss_rest
             return loss
 
         self.loss_fn = loss_fn
@@ -1060,9 +1081,6 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         """For skeleton fields, initialize bone lengths and rest joint angles
         from an external skeleton
         """
-        if not hasattr(self, "init_vals"):
-            return
-
         super().mlp_init()
 
     def forward(
@@ -1355,6 +1373,11 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
             offset = torch.tensor([0.0, 0.0, 0.0])
             orient = torch.tensor([0.0, -1.0, 0.0, 0.0])  # wxyz
             scale_factor = torch.tensor([0.4])
+        elif urdf_name == "smpl":
+            physical_scale = 0.5 # this has to be the same as init_scale
+            offset = torch.tensor([0.0, -0.2 * physical_scale, 0.0])
+            orient = torch.tensor([0.0, -1.0, 0.0, 0.0])  # wxyz
+            scale_factor = torch.tensor([physical_scale])
         elif urdf_name == "quad":
             offset = torch.tensor([0.0, -0.02, 0.02])
             orient = torch.tensor([1.0, -0.8, 0.0, 0.0])
@@ -1366,7 +1389,7 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
         # get center/size of each link
         bone_centers = []
         bone_sizes = []
-        for link in urdf._reverse_topo:
+        for link in urdf.links:
             if len(link.visuals) == 0:
                 continue
             bone_bounds = link.collision_mesh.bounds

@@ -39,16 +39,21 @@ colormap = get_colormap()
 
 def gs_transform(center, rotations, w2c):
     """
-    center: [N, 3]
-    rotations: [N, 4]
-    w2c: [4, 4]
+    center: [N, bs, 3]
+    rotations: [N, bs, 4]
+    w2c: [bs, 4, 4]
     """
     if not torch.is_tensor(w2c):
         w2c = torch.tensor(w2c, dtype=torch.float, device=center.device)
-    center = center @ w2c[:3, :3].T + w2c[:3, 3][None]
-    rmat = w2c[:3, :3][None].repeat(len(center), 1, 1)
+    rmat = w2c[None, :, :3, :3] # 1, bs, 3, 3
+    tmat = w2c[None, :, :3, 3:] # 1, bs, 3, 1
+    npts = center.shape[0]
+
     # gaussian space to world then to camera
-    rotations = quaternion_mul(matrix_to_quaternion(rmat), rotations)  # wxyz
+    center = (rmat @ center[..., None] + tmat)[..., 0]
+    rquat = matrix_to_quaternion(rmat) # 1, bs, 4
+    rquat = rquat.repeat(npts, 1, 1)
+    rotations = quaternion_mul(rquat, rotations)  # wxyz
     return center, rotations
 
 def getProjectionMatrix_K(znear, zfar, Kmat):
@@ -416,7 +421,7 @@ class GaussianModel(nn.Module):
                 for key in frameid:
                     delta_rot.append(self.rotation_activation(self.trajectory_cache[key][:,:4]))
                 delta_rot = torch.stack(delta_rot, dim=1) # N,T,4
-                rot = quaternion_mul(delta_rot, rot[:, None])  # w2c @ delta @ rest gaussian
+                rot = quaternion_mul(delta_rot, rot[:, None].repeat(1,delta_rot.shape[1],1))  # w2c @ delta @ rest gaussian
                 rot = rot.view(rot.shape[:1] + shape + rot.shape[-1:])
             return rot
         else:

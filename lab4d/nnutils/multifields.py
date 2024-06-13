@@ -40,6 +40,7 @@ class MultiFields(nn.Module):
         feature_channels=16,
         init_scale_fg=0.2,
         init_scale_bg=0.05,
+        init_beta=0.1,
         num_freq_xyz=10,
         use_timesync=False,
         bg_vid=-1,
@@ -56,6 +57,7 @@ class MultiFields(nn.Module):
         self.feature_channels = feature_channels
         self.init_scale_fg = init_scale_fg
         self.init_scale_bg = init_scale_bg
+        self.init_beta=init_beta
         self.num_freq_xyz = num_freq_xyz
         self.use_timesync = use_timesync
         self.bg_vid = bg_vid
@@ -99,6 +101,7 @@ class MultiFields(nn.Module):
                 appr_channels=32,
                 num_inst=1 if self.single_inst else num_inst,
                 init_scale=self.init_scale_fg,
+                init_beta=self.init_beta,
                 feature_channels=self.feature_channels,
                 use_timesync=self.use_timesync,
                 invalid_vid=self.bg_vid,
@@ -121,6 +124,7 @@ class MultiFields(nn.Module):
                 appr_channels=0,
                 num_inst=num_inst_bg,
                 init_scale=self.init_scale_bg,
+                init_beta=self.init_beta,
                 num_freq_xyz=num_freq_xyz,
                 extrinsics_type=self.extrinsic_type,
                 feature_channels=self.feature_channels,
