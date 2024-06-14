@@ -387,6 +387,9 @@ class GaussianModel(nn.Module):
         """
         transormation from current node to parent node
         """
+        if frameid is not None and not torch.is_tensor(frameid):
+            dev = self.parameters().__next__().device
+            frameid = torch.tensor(frameid, dtype=torch.long, device=dev)
         quat, trans = self.gs_camera_mlp.get_vals(frameid)
         if return_qt:
             return (quat, trans)
@@ -406,15 +409,18 @@ class GaussianModel(nn.Module):
 
     def get_rotation(self, frameid=None):
         if self.is_leaf():
-            rot = self.rotation_activation(self._rotation)
-            # if hasattr(self, "_trajectory"):
-            if frameid is None or self.mode=="bg":
-                pass
-                # delta_rot = self.rotation_activation(self._trajectory[:, 0, :4])
-                # rot = quaternion_mul(delta_rot, rot)  # w2c @ delta @ rest gaussian
+            rot = self.rotation_activation(self._rotation).clone()
+            # return N, 4
+            if frameid is None:
+                return rot
+            
+            # return N, T, 4
+            npts = rot.shape[0]
+            shape = frameid.shape
+            frameid = frameid.reshape(-1)
+            if self.mode=="bg":
+                rot = rot[:, None].repeat(1, len(frameid), 1)
             else:
-                shape = frameid.shape
-                frameid = frameid.reshape(-1)
                 delta_rot = []
                 if torch.is_tensor(frameid):
                     frameid = frameid.cpu().numpy()
@@ -422,7 +428,7 @@ class GaussianModel(nn.Module):
                     delta_rot.append(self.rotation_activation(self.trajectory_cache[key][:,:4]))
                 delta_rot = torch.stack(delta_rot, dim=1) # N,T,4
                 rot = quaternion_mul(delta_rot, rot[:, None].repeat(1,delta_rot.shape[1],1))  # w2c @ delta @ rest gaussian
-                rot = rot.view(rot.shape[:1] + shape + rot.shape[-1:])
+            rot = rot.view((npts,) + shape + (4,))
             return rot
         else:
             rt_tensor = []
@@ -444,13 +450,18 @@ class GaussianModel(nn.Module):
 
     def get_xyz(self, frameid=None):
         if self.is_leaf(): 
-            # if hasattr(self, "_trajectory"):
-            if frameid is None or self.mode=="bg":
-                # return self._xyz + self._trajectory[:, 0, 4:]
-                return self._xyz
+            # return N,3
+            xyz_t = self._xyz.clone()
+            if frameid is None:
+                return xyz_t
+            
+            # return N, T, 3
+            npts = self._xyz.shape[0]
+            shape = frameid.shape
+            frameid = frameid.reshape(-1)
+            if self.mode=="bg":
+                 xyz_t = xyz_t[:,None].repeat(1,len(frameid),1)
             else:
-                shape = frameid.shape
-                frameid = frameid.reshape(-1)
                 # to prop grad to motion
                 traj_pred = []
                 if torch.is_tensor(frameid):
@@ -459,9 +470,9 @@ class GaussianModel(nn.Module):
                     traj_pred.append(self.trajectory_cache[key][:,4:])
                 traj_pred = torch.stack(traj_pred, dim=1) 
                 # N,xyz,3
-                xyz_t = self._xyz[:, None] + traj_pred
-                return xyz_t.view(xyz_t.shape[:1] + shape + xyz_t.shape[-1:])
-            return self._xyz
+                xyz_t = xyz_t[:, None] + traj_pred
+            xyz_t = xyz_t.view((npts,) + shape + (3,))
+            return xyz_t
         else:
             rt_tensor = []
             for gaussians in self.gaussians:
