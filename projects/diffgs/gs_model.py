@@ -15,6 +15,7 @@ from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
 )
+from gsplat import rasterization
 
 sys.path.insert(0, os.getcwd())
 from lab4d.config import load_flags_from_file
@@ -271,45 +272,244 @@ class GSplatModel(nn.Module):
             out_dict[k] = v.view((bs, 2) + v.shape[1:])
         return out_dict
 
-        out_dicts = []
-        for i in range(bs):
-            Kmat_0 = Kmat[i, 0]
-            Kmat_1 = Kmat[i, 1]
-            w2c_0 = w2c[i, 0]
-            w2c_1 = w2c[i, 1]
-            frameid_0 = frameid[i, 0]
-            frameid_1 = frameid[i, 1]
-            out_dict_0 = self.render(
-                res,
-                Kmat_0,
-                w2c_0,
-                bg_color,
-                frameid_0,
-                w2c_1,
-                frameid_1,
-                Kmat_1,
-            )
-            out_dict_1 = self.render(
-                res,
-                Kmat_1,
-                w2c_1,
-                bg_color,
-                frameid_1,
-                w2c_0,
-                frameid_0,
-                Kmat_0,
-            )
-            for k, v in out_dict_0.items():
-                out_dict_0[k] = torch.cat([v, out_dict_1[k]], 0)
-            out_dicts.append(out_dict_0)
-        out_dict = {}
-        for k in out_dicts[0].keys():
-            out_dict[k] = torch.stack([d[k] for d in out_dicts], 0)
-        return out_dict
+    # @staticmethod
+    # def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, rgbs, opacities, bg_color):
+    #     from gsplat import rasterization
+    #     Kmat_img = Kmat.clone()
+    #     Kmat_img[...,0,0] = Kmat_img[...,0,0] * res/2
+    #     Kmat_img[...,1,1] = Kmat_img[...,1,1] * res/2
+    #     Kmat_img[...,0,2] = Kmat_img[...,0,2] * res/2 + res / 2
+    #     Kmat_img[...,1,2] = Kmat_img[...,1,2] * res/2 + res / 2
+    #     quats / quats.norm(dim=-1, keepdim=True)
+    #     bs = means3D.shape[1]
+    #     # # single
+    #     # rendered_rgbds = []
+    #     # rendered_alphas = []
+    #     # for i in range(bs):
+    #     #     if rgbs.ndim==3:
+    #     #         colors = rgbs[:,i]
+    #     #     elif rgbs.ndim==2:
+    #     #         colors = rgbs
+    #     #     else:
+    #     #         raise ValueError
+    #     #     rendered_rgbd, rendered_alpha, meta = rasterization(
+    #     #         means=means3D[:,i], # [N, 3]
+    #     #         quats=quats[:,i], # [N, 4]
+    #     #         scales=scales, # [N, 3]
+    #     #         opacities=opacities[:,0], # [N]
+    #     #         colors=colors, # [N, 3]
+    #     #         viewmats=viewmat[i:i+1, ...], # [1, 4, 4]
+    #     #         Ks=Kmat_img[i:i+1, ...], # [1, 3, 3]
+    #     #         width=res,
+    #     #         height=res,
+    #     #         render_mode="RGB+D",
+    #     #         backgrounds=bg_color,
+    #     #         packed=False,
+    #     #     )
+    #     #     rendered_rgbds.append(rendered_rgbd)
+    #     #     rendered_alphas.append(rendered_alpha)
+    #     # rendered_rgbds = torch.cat(rendered_rgbds, 0) # bs, N, H,W,4
+    #     # rendered_alphas = torch.cat(rendered_alphas, 0) # bs, H,W,1
+
+    #     # batched
+    #     if rgbs.ndim==3:
+    #         colors = rgbs
+    #     elif rgbs.ndim==2:
+    #         colors = rgbs[:,None].repeat(1,bs,1) # N,bs,3
+    #     else:
+    #         raise ValueError
+    #     rendered_rgbds, rendered_alphas, meta = rasterization(
+    #         means=means3D, # [N, bs, 3]
+    #         quats=quats.view(-1,4), # [N*bs, 4]
+    #         scales=scales, # [N, 3]
+    #         opacities=opacities[:,0], # [N]
+    #         colors=colors.transpose(0,1), # [bs, N, 3]
+    #         viewmats=viewmat, # [1, 4, 4]
+    #         Ks=Kmat_img, # [1, 3, 3]
+    #         width=res,
+    #         height=res,
+    #         render_mode="RGB+D",
+    #         backgrounds=bg_color,
+    #         packed=False,
+    #     )
+
+    #     # merge
+    #     rendered_rgbds = rendered_rgbds.permute(0,3,1,2)
+    #     rendered_images = rendered_rgbds[:, :3]
+    #     rendered_depths = rendered_rgbds[:, 3:4]
+    #     rendered_alphas = rendered_alphas[:, None, ..., 0]
+    #     return rendered_images, rendered_depths, rendered_alphas
+
+    # def render(
+    #     self,
+    #     res,
+    #     Kmat,
+    #     w2c=None,
+    #     bg_color=None,
+    #     frameid=None,
+    #     w2c_2=None,
+    #     frameid_2=None,
+    #     Kmat_2=None,
+    # ):
+    #     # rasterizer = self.get_rasterizer(camera_dict, Kmat, bg_color)
+    #     screenspace_points = self.get_screenspace_pts_placeholder(self.gaussians)
+    #     means3D = self.gaussians.get_xyz(frameid)
+    #     means2D = screenspace_points
+    #     means2D_tmp = self.get_screenspace_pts_placeholder(self.gaussians)
+    #     opacity = self.gaussians.get_opacity
+    #     cov3D_precomp = None
+    #     scales = self.gaussians.get_scaling
+    #     rotations = self.gaussians.get_rotation(frameid)
+
+    #     if w2c is not None:
+    #         means3D, rotations = gs_transform(means3D, rotations, w2c)
+    #         xy_1 = pinhole_projection(Kmat, means3D.transpose(0,1)).transpose(0,1)
+    #     else:
+    #         raise NotImplementedError
+
+    #     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
+    #     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
+    #     shs = self.gaussians.get_features(frameid)
+
+    #     # # Rasterize visible Gaussians to image, obtain their radii (on screen).
+    #     # rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
+    #     #     means3D=means3D,
+    #     #     means2D=means2D,
+    #     #     shs=shs,
+    #     #     colors_precomp=None,
+    #     #     opacities=opacity,
+    #     #     scales=scales,
+    #     #     rotations=rotations,
+    #     #     cov3D_precomp=cov3D_precomp,
+    #     # )
+
+    #     identity_viewmat = torch.eye(4, dtype=torch.float32, device="cuda")
+    #     bs = frameid.shape[0]
+    #     identity_viewmat = identity_viewmat[None].repeat(bs, 1, 1)
+    #     rendered_image, rendered_depth, rendered_alpha = self.gsplat_render(
+    #         means3D, scales, rotations, identity_viewmat, Kmat, res,
+    #         SH2RGB(shs[...,0,:]), opacity, bg_color,
+    #     )
+
+    #     with torch.no_grad():
+    #         field_vals = self.gaussians.get_xyz()
+    #         #### render other quantities
+    #         # rasterizer_xyz = self.get_rasterizer(
+    #         #     camera_dict, Kmat, bg_color=torch.zeros_like(self.bg_color)
+    #         # )
+    #         # render_vals, _, _, _ = rasterizer_xyz(
+    #         #     means3D=means3D,
+    #         #     means2D=torch.zeros_like(means2D),
+    #         #     shs=None,
+    #         #     colors_precomp=field_vals,
+    #         #     opacities=opacity,
+    #         #     scales=scales,
+    #         #     rotations=rotations,
+    #         #     cov3D_precomp=cov3D_precomp,
+    #         # )
+    #         ####
+    #         render_vals, _, _ = self.gsplat_render(
+    #             means3D, scales, rotations, identity_viewmat, Kmat, res,
+    #             field_vals, opacity, bg_color
+    #         )
+
+    #     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
+    #     # They will be excluded from value updates used in the splitting criteria.
+    #     out_dict = {
+    #         "rgb": rendered_image.clamp(0, 1),
+    #         "depth": rendered_depth,
+    #         "alpha": rendered_alpha,
+    #         # "viewspace_points": screenspace_points,
+    #         # "visibility_mask": radii > 0,
+    #         # "radii": radii,
+    #         # "reproj_xy": xy_1[None, ..., :2],
+    #     }
+    #     out_dict["rgb"] = out_dict["rgb"]
+    #     out_dict["depth"] = out_dict["depth"]
+    #     out_dict["alpha"] = out_dict["alpha"]
+    #     out_dict["xyz"] = render_vals
+
+    #     if self.config["field_type"] == "comp":
+    #         # render mask_fg
+    #         gaussians_fg = self.gaussians.gaussians[1]
+    #         means3D_fg = gaussians_fg.get_xyz(frameid)
+    #         means2D_fg = self.get_screenspace_pts_placeholder(gaussians_fg)
+    #         opacity_fg = gaussians_fg.get_opacity
+    #         scales_fg = gaussians_fg.get_scaling
+    #         rotations_fg = gaussians_fg.get_rotation(frameid)
+    #         shs_fg = gaussians_fg.get_features(frameid)
+
+    #         w2c_fg = gaussians_fg.get_extrinsics(frameid)
+    #         means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
+
+    #         # _, _, _, rendered_alpha_fg = rasterizer(
+    #         #     means3D=means3D_fg,
+    #         #     means2D=means2D_fg,
+    #         #     shs=shs_fg,
+    #         #     colors_precomp=None,
+    #         #     opacities=opacity_fg,
+    #         #     scales=scales_fg,
+    #         #     rotations=rotations_fg,
+    #         #     cov3D_precomp=None,
+    #         # )
+    #         _, _, rendered_alpha_fg = self.gsplat_render(
+    #             means3D_fg, scales_fg, rotations_fg, identity_viewmat, Kmat, res,
+    #             means3D_fg, opacity_fg, bg_color
+    #         )
+    #         out_dict["mask_fg"] = rendered_alpha_fg
+
+    #     # render flow
+    #     if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
+    #         # rasterizer_flow = self.get_rasterizer(
+    #         #     camera_dict, Kmat, torch.zeros_like(self.bg_color)
+    #         # )
+    #         means3D_2 = self.gaussians.get_xyz(frameid_2)
+    #         rotations_2 = self.gaussians.get_rotation(frameid_2)
+    #         means3D_2, rotations_2 = gs_transform(
+    #             means3D_2, rotations_2, w2c_2
+    #         )
+    #         xy_2 = pinhole_projection(Kmat_2, means3D_2.transpose(0,1)).transpose(0,1)
+    #         # flow, _, _, _ = rasterizer_flow(
+    #         #     means3D=means3D,
+    #         #     means2D=means2D_tmp,
+    #         #     shs=None,
+    #         #     colors_precomp=(xy_2 - xy_1),
+    #         #     opacities=opacity,
+    #         #     scales=scales,
+    #         #     rotations=rotations,
+    #         #     cov3D_precomp=cov3D_precomp,
+    #         # )
+    #         flow, _, _ = self.gsplat_render(
+    #             means3D, scales, rotations, identity_viewmat, Kmat, res,
+    #             (xy_2 - xy_1), opacity, bg_color
+    #         )
+    #         out_dict["flow"] = flow[:, :2] * res / 2
+    #         # out_dict["means2D_tmp"] = means2D_tmp
+            
+    #         # Gaussian Flow, 10x slower
+    #         # _, _, _, _, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2, _, _, _ = rasterizer_flow(
+    #         #     means3D=means3D_2,
+    #         #     means2D=means2D_tmp,
+    #         #     shs=None,
+    #         #     colors_precomp=(xy_2 - xy_1),
+    #         #     opacities=opacity,
+    #         #     scales=scales,
+    #         #     rotations=rotations_2,
+    #         #     cov3D_precomp=cov3D_precomp,
+    #         # )
+    #         # flow = self.compute_flow_gauss(proj_2D_t_1, cov2D_inv_t_1, gs_per_pixel, weight_per_gs_pixel, x_mu, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2)
+    #         # out_dict["flow"] = flow[None, :2]
+
+    #     # save aux for densification
+    #     if self.training:
+    #         if hasattr(self, "rendered_aux"):
+    #             self.rendered_aux.append(out_dict)
+    #         else:
+    #             self.rendered_aux = [out_dict]
+    #     return out_dict
 
     @staticmethod
-    def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, rgbs, opacities, bg_color):
-        from gsplat import rasterization
+    def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, feat_dict, opacities, bg_color):
         Kmat_img = Kmat.clone()
         Kmat_img[...,0,0] = Kmat_img[...,0,0] * res/2
         Kmat_img[...,1,1] = Kmat_img[...,1,1] * res/2
@@ -317,48 +517,28 @@ class GSplatModel(nn.Module):
         Kmat_img[...,1,2] = Kmat_img[...,1,2] * res/2 + res / 2
         quats / quats.norm(dim=-1, keepdim=True)
         bs = means3D.shape[1]
-        # # single
-        # rendered_rgbds = []
-        # rendered_alphas = []
-        # for i in range(bs):
-        #     if rgbs.ndim==3:
-        #         colors = rgbs[:,i]
-        #     elif rgbs.ndim==2:
-        #         colors = rgbs
-        #     else:
-        #         raise ValueError
-        #     rendered_rgbd, rendered_alpha, meta = rasterization(
-        #         means=means3D[:,i], # [N, 3]
-        #         quats=quats[:,i], # [N, 4]
-        #         scales=scales, # [N, 3]
-        #         opacities=opacities[:,0], # [N]
-        #         colors=colors, # [N, 3]
-        #         viewmats=viewmat[i:i+1, ...], # [1, 4, 4]
-        #         Ks=Kmat_img[i:i+1, ...], # [1, 3, 3]
-        #         width=res,
-        #         height=res,
-        #         render_mode="RGB+D",
-        #         backgrounds=bg_color,
-        #         packed=False,
-        #     )
-        #     rendered_rgbds.append(rendered_rgbd)
-        #     rendered_alphas.append(rendered_alpha)
-        # rendered_rgbds = torch.cat(rendered_rgbds, 0) # bs, N, H,W,4
-        # rendered_alphas = torch.cat(rendered_alphas, 0) # bs, H,W,1
 
-        # batched
-        if rgbs.ndim==3:
-            colors = rgbs
-        elif rgbs.ndim==2:
-            colors = rgbs[:,None].repeat(1,bs,1) # N,bs,3
-        else:
-            raise ValueError
-        rendered_rgbds, rendered_alphas, meta = rasterization(
+        # merge features for N,bs,K
+        feats = []
+        out_dim = {}
+        for k,v in feat_dict.items():
+            out_dim[k] = v.shape[-1]
+            # batched
+            if v.ndim==3:
+                pass
+            elif v.ndim==2:
+                v = v[:,None].repeat(1,bs,1) # N,bs,3
+            else:
+                raise ValueError
+            feats.append(v)
+        feats = torch.cat(feats, -1)
+
+        rendered_images, rendered_alphas, meta = rasterization(
             means=means3D, # [N, bs, 3]
             quats=quats.view(-1,4), # [N*bs, 4]
             scales=scales, # [N, 3]
             opacities=opacities[:,0], # [N]
-            colors=colors.transpose(0,1), # [bs, N, 3]
+            colors=feats.transpose(0,1), # [bs, N, 3]
             viewmats=viewmat, # [1, 4, 4]
             Ks=Kmat_img, # [1, 3, 3]
             width=res,
@@ -369,11 +549,16 @@ class GSplatModel(nn.Module):
         )
 
         # merge
-        rendered_rgbds = rendered_rgbds.permute(0,3,1,2)
-        rendered_images = rendered_rgbds[:, :3]
-        rendered_depths = rendered_rgbds[:, 3:4]
+        rendered_images = rendered_images.permute(0,3,1,2)
+        rendered_images = rendered_images[:, :-1]
+        rendered_depths = rendered_images[:, -1:]
         rendered_alphas = rendered_alphas[:, None, ..., 0]
-        return rendered_images, rendered_depths, rendered_alphas
+
+        out_dict = {}
+        for k,v in out_dim.items():
+            out_dict[k] = rendered_images[:, :v]
+            rendered_images = rendered_images[:, v:]
+        return out_dict, rendered_depths, rendered_alphas
 
     def render(
         self,
@@ -386,7 +571,6 @@ class GSplatModel(nn.Module):
         frameid_2=None,
         Kmat_2=None,
     ):
-        # rasterizer = self.get_rasterizer(camera_dict, Kmat, bg_color)
         screenspace_points = self.get_screenspace_pts_placeholder(self.gaussians)
         means3D = self.gaussians.get_xyz(frameid)
         means2D = screenspace_points
@@ -406,63 +590,43 @@ class GSplatModel(nn.Module):
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
         shs = self.gaussians.get_features(frameid)
 
-        # # Rasterize visible Gaussians to image, obtain their radii (on screen).
-        # rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
-        #     means3D=means3D,
-        #     means2D=means2D,
-        #     shs=shs,
-        #     colors_precomp=None,
-        #     opacities=opacity,
-        #     scales=scales,
-        #     rotations=rotations,
-        #     cov3D_precomp=cov3D_precomp,
-        # )
-
         identity_viewmat = torch.eye(4, dtype=torch.float32, device="cuda")
         bs = frameid.shape[0]
         identity_viewmat = identity_viewmat[None].repeat(bs, 1, 1)
+        feature_dict = {
+                        "rgb": SH2RGB(shs[...,0,:]),
+                        "xyz": self.gaussians.get_xyz(),
+                        }
+        
+        # render flow
+        if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
+            means3D_2 = self.gaussians.get_xyz(frameid_2)
+            rotations_2 = self.gaussians.get_rotation(frameid_2)
+            means3D_2, rotations_2 = gs_transform(
+                means3D_2, rotations_2, w2c_2
+            )
+            xy_2 = pinhole_projection(Kmat_2, means3D_2.transpose(0,1)).transpose(0,1)
+            feature_dict["flow"] = (xy_2 - xy_1)[:, :, :2] * res / 2
+
         rendered_image, rendered_depth, rendered_alpha = self.gsplat_render(
             means3D, scales, rotations, identity_viewmat, Kmat, res,
-            SH2RGB(shs[...,0,:]), opacity, bg_color,
+            feature_dict, opacity, bg_color,
         )
-
-        with torch.no_grad():
-            field_vals = self.gaussians.get_xyz()
-            #### render other quantities
-            # rasterizer_xyz = self.get_rasterizer(
-            #     camera_dict, Kmat, bg_color=torch.zeros_like(self.bg_color)
-            # )
-            # render_vals, _, _, _ = rasterizer_xyz(
-            #     means3D=means3D,
-            #     means2D=torch.zeros_like(means2D),
-            #     shs=None,
-            #     colors_precomp=field_vals,
-            #     opacities=opacity,
-            #     scales=scales,
-            #     rotations=rotations,
-            #     cov3D_precomp=cov3D_precomp,
-            # )
-            ####
-            render_vals, _, _ = self.gsplat_render(
-                means3D, scales, rotations, identity_viewmat, Kmat, res,
-                field_vals, opacity, bg_color
-            )
 
         # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
         # They will be excluded from value updates used in the splitting criteria.
         out_dict = {
-            "rgb": rendered_image.clamp(0, 1),
+            "rgb": rendered_image["rgb"].clamp(0, 1),
             "depth": rendered_depth,
             "alpha": rendered_alpha,
+            "xyz": rendered_image["xyz"].detach(),
             # "viewspace_points": screenspace_points,
             # "visibility_mask": radii > 0,
             # "radii": radii,
             # "reproj_xy": xy_1[None, ..., :2],
         }
-        out_dict["rgb"] = out_dict["rgb"]
-        out_dict["depth"] = out_dict["depth"]
-        out_dict["alpha"] = out_dict["alpha"]
-        out_dict["xyz"] = render_vals
+        if "flow" in feature_dict:
+            out_dict["flow"] = rendered_image["flow"]
 
         if self.config["field_type"] == "comp":
             # render mask_fg
@@ -477,63 +641,11 @@ class GSplatModel(nn.Module):
             w2c_fg = gaussians_fg.get_extrinsics(frameid)
             means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
 
-            # _, _, _, rendered_alpha_fg = rasterizer(
-            #     means3D=means3D_fg,
-            #     means2D=means2D_fg,
-            #     shs=shs_fg,
-            #     colors_precomp=None,
-            #     opacities=opacity_fg,
-            #     scales=scales_fg,
-            #     rotations=rotations_fg,
-            #     cov3D_precomp=None,
-            # )
             _, _, rendered_alpha_fg = self.gsplat_render(
                 means3D_fg, scales_fg, rotations_fg, identity_viewmat, Kmat, res,
                 means3D_fg, opacity_fg, bg_color
             )
             out_dict["mask_fg"] = rendered_alpha_fg
-
-        # render flow
-        if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
-            # rasterizer_flow = self.get_rasterizer(
-            #     camera_dict, Kmat, torch.zeros_like(self.bg_color)
-            # )
-            means3D_2 = self.gaussians.get_xyz(frameid_2)
-            rotations_2 = self.gaussians.get_rotation(frameid_2)
-            means3D_2, rotations_2 = gs_transform(
-                means3D_2, rotations_2, w2c_2
-            )
-            xy_2 = pinhole_projection(Kmat_2, means3D_2.transpose(0,1)).transpose(0,1)
-            # flow, _, _, _ = rasterizer_flow(
-            #     means3D=means3D,
-            #     means2D=means2D_tmp,
-            #     shs=None,
-            #     colors_precomp=(xy_2 - xy_1),
-            #     opacities=opacity,
-            #     scales=scales,
-            #     rotations=rotations,
-            #     cov3D_precomp=cov3D_precomp,
-            # )
-            flow, _, _ = self.gsplat_render(
-                means3D, scales, rotations, identity_viewmat, Kmat, res,
-                (xy_2 - xy_1), opacity, bg_color
-            )
-            out_dict["flow"] = flow[:, :2] * res / 2
-            # out_dict["means2D_tmp"] = means2D_tmp
-            
-            # Gaussian Flow, 10x slower
-            # _, _, _, _, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2, _, _, _ = rasterizer_flow(
-            #     means3D=means3D_2,
-            #     means2D=means2D_tmp,
-            #     shs=None,
-            #     colors_precomp=(xy_2 - xy_1),
-            #     opacities=opacity,
-            #     scales=scales,
-            #     rotations=rotations_2,
-            #     cov3D_precomp=cov3D_precomp,
-            # )
-            # flow = self.compute_flow_gauss(proj_2D_t_1, cov2D_inv_t_1, gs_per_pixel, weight_per_gs_pixel, x_mu, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2)
-            # out_dict["flow"] = flow[None, :2]
 
         # save aux for densification
         if self.training:
