@@ -314,6 +314,9 @@ class GaussianModel(nn.Module):
                     num_vids = len(data_info["frame_info"]["frame_offset"]) - 1
                     total_frames = total_frames // num_vids
                 self.init_trajectory(total_frames)
+
+            self.frame_offset_raw = data_info["frame_info"]["frame_offset_raw"]
+            self.use_timesync = config["use_timesync"]
                     
             # shadow field
             num_freq_xyz = 6
@@ -382,6 +385,20 @@ class GaussianModel(nn.Module):
             self.gs_camera_mlp.init_weights()
         for gaussians in self.gaussians:
             gaussians.init_camera_mlp()
+
+    def frame_id_to_sub(self, frame_id, inst_id):
+        """Convert frame id to frame id relative to the video.
+        This forces all videos to share the same pose embedding.
+
+        Args:
+            frame_id: (M,) Frame id
+            inst_id: (M,) Instance id
+        Returns:
+            frameid_sub: (M,) Frame id relative to the video
+        """
+        frame_offset_raw = torch.tensor(self.frame_offset_raw, device=frame_id.device)
+        frameid_sub = frame_id - frame_offset_raw[inst_id]
+        return frameid_sub
 
     def get_extrinsics(self, frameid=None, return_qt=False):
         """
@@ -999,6 +1016,11 @@ class GaussianModel(nn.Module):
                 self.shadow_cache[key] = shadow_pred[it]
 
             # motion
+            frameid_abs = frameid.clone()
+            if self.use_timesync:
+                frameid = self.frame_id_to_sub(frameid, inst_id)
+                inst_id = inst_id.clone() * 0  # assume all videos capture the same instance
+
             if self.config["fg_motion"] == "rigid" or self.mode=="bg": return
             if isinstance(self.gs_camera_mlp, TrajPredictor):
                 raise NotImplementedError
@@ -1043,7 +1065,7 @@ class GaussianModel(nn.Module):
             
             trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
             self.trajectory_cache = {}
-            for it, key in enumerate(frameid.cpu().numpy()):
+            for it, key in enumerate(frameid_abs.cpu().numpy()):
                 self.trajectory_cache[key] = trajectory_pred[:, it]
         else:
             for gaussians in self.gaussians:

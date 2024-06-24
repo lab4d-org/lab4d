@@ -44,6 +44,7 @@ class MultiFields(nn.Module):
         num_freq_xyz=10,
         use_timesync=False,
         bg_vid=-1,
+        use_cc=True,
     ):
         vis_info = data_info["vis_info"]
 
@@ -61,6 +62,7 @@ class MultiFields(nn.Module):
         self.num_freq_xyz = num_freq_xyz
         self.use_timesync = use_timesync
         self.bg_vid = bg_vid
+        self.use_cc = use_cc # whether to use connected components for fg
 
         # specify field type
         if field_type == "comp":
@@ -134,6 +136,7 @@ class MultiFields(nn.Module):
 
         # mark type
         nerf.category = category
+        nerf.use_cc = self.use_cc
         return nerf
 
     def mlp_init(self):

@@ -12,8 +12,8 @@ bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname 
   --pixels_per_image 12 --bg_vid 0 \
   --scene_type share-x --beta_prob_init_bg 0.0 --beta_prob_final_bg 0.0 --beta_prob_init_fg 1.0 --beta_prob_final_fg 1.0 --noabsorb_base --reset_beta 0.01 --init_scale_fg 0.5 \
   --imgs_per_gpu 512 --feature_type cse \
-  --reg_cam_smooth_wt 0.01 \
-  # --load_path logdir/2024-05-07--19-25-33-fg-urdf-sync-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
+  # --load_path logdir/2024-05-07--19-25-33-fg-urdf-sync-mod-bbox-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
+  # --reg_cam_smooth_wt 0.01 \
   # --load_path logdir-old/home-2023-11-curated-compose-ft/ckpt_latest.pth --nouse_freq_anneal --noload_fg_camera --freeze_field_fg \
 
 # fine-tune

@@ -51,6 +51,7 @@ class TrainModelConfig:
         "fg_motion", "rigid", "{rigid, dense, bob, skel-human, skel-quad}"
     )
     flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
+    flags.DEFINE_bool("use_cc", True, "apply connected components for fg")
     flags.DEFINE_float("beta_prob_final_fg", 0.2, "probability of final morphology beta")
     flags.DEFINE_float("beta_prob_init_fg", 1.0, "probability of initial morphology beta")
     flags.DEFINE_float("beta_prob_final_bg", 0.2, "probability of final morphology beta")
@@ -95,6 +96,7 @@ class TrainOptConfig:
         "reset steps of loss scheduling, set to False if resuming training",
     )
     flags.DEFINE_boolean("mlp_init", True, "whether to initialize mlps")
+    flags.DEFINE_boolean("update_geometry_aux", True, "whether to update_geometry_aux")
     flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
     flags.DEFINE_boolean("smpl_init", False, "whether to use smpl initialization routine")
     flags.DEFINE_boolean("load_fg_camera", True, "whether load camera for fg ckpt")
@@ -113,6 +115,7 @@ class TrainOptConfig:
     flags.DEFINE_float("init_beta", 0.1, "initial transparency for all fields")
     flags.DEFINE_integer("num_freq_xyz", 10, "number of base frequencies for 3D points")
     flags.DEFINE_float("symm_ratio", 0.0, "points to get reflected along x at train")
+    flags.DEFINE_integer("num_iter_gtmask_gauss", 4000, "iters use gt mask to learn gauss")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

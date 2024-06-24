@@ -469,13 +469,17 @@ class NeRF(nn.Module):
         vis_func = lambda xyz: self.visibility_func(xyz, inst_id=inst_id) > vis_thresh
         if use_extend_aabb:
             aabb = extend_aabb(aabb, factor=0.5)
+        if self.category == "fg" and self.use_cc:
+            apply_connected_component=True
+        else:
+            apply_connected_component=False
         mesh = marching_cubes(
             sdf_func,
             aabb[0],
             visibility_func=vis_func,
             grid_size=grid_size,
             level=level,
-            apply_connected_component=True if self.category == "fg" else False,
+            apply_connected_component=apply_connected_component,
         )
         # cut bg
         # if self.category == "bg":

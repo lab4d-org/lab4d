@@ -395,7 +395,7 @@ class Trainer:
             self.save_checkpoint(round_count=self.current_round)
 
     def update_aux_vars(self):
-        if not "smpl" in self.opts["fg_motion"]: # do not update proxy for smpl
+        if not "smpl" in self.opts["fg_motion"] and self.opts["update_geometry_aux"]: # do not update proxy for smpl
             self.model.update_geometry_aux()
         self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
         if (

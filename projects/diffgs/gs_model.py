@@ -550,8 +550,8 @@ class GSplatModel(nn.Module):
 
         # merge
         rendered_images = rendered_images.permute(0,3,1,2)
-        rendered_images = rendered_images[:, :-1]
         rendered_depths = rendered_images[:, -1:]
+        rendered_images = rendered_images[:, :-1]
         rendered_alphas = rendered_alphas[:, None, ..., 0]
 
         out_dict = {}
@@ -606,7 +606,13 @@ class GSplatModel(nn.Module):
                 means3D_2, rotations_2, w2c_2
             )
             xy_2 = pinhole_projection(Kmat_2, means3D_2.transpose(0,1)).transpose(0,1)
-            feature_dict["flow"] = (xy_2 - xy_1)[:, :, :2] * res / 2
+            # flow filtering
+            flow = (xy_2 - xy_1)[:, :, :2]
+            invalid_pts = torch.logical_or(means3D[...,2] < 0.01, means3D_2[...,2] < 0.01)
+            flow[invalid_pts] = 0
+            # clip large flow
+            flow = flow.clamp(-1, 1)
+            feature_dict["flow"] = flow  * res / 2
 
         rendered_image, rendered_depth, rendered_alpha = self.gsplat_render(
             means3D, scales, rotations, identity_viewmat, Kmat, res,
@@ -641,9 +647,10 @@ class GSplatModel(nn.Module):
             w2c_fg = gaussians_fg.get_extrinsics(frameid)
             means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
 
+            feature_dict = {"xyz": means3D_fg}
             _, _, rendered_alpha_fg = self.gsplat_render(
                 means3D_fg, scales_fg, rotations_fg, identity_viewmat, Kmat, res,
-                means3D_fg, opacity_fg, bg_color
+                feature_dict, opacity_fg, bg_color
             )
             out_dict["mask_fg"] = rendered_alpha_fg
 
@@ -823,7 +830,7 @@ class GSplatModel(nn.Module):
         cam_dict, Kmat, w2c = self.compute_camera_samples(
             batch, self.config["train_res"]
         )
-        frameid = self.get_frameid(batch)
+        frameid = batch["frameid"]
 
         # TODO: get deformation before rendering
         self.gaussians.update_trajectory(frameid)
@@ -936,7 +943,7 @@ class GSplatModel(nn.Module):
     def compute_diffusion_loss(self, loss_dict, batch):
         crop_size = self.config["train_res"]
         render_size = crop_size
-        frameid = self.get_frameid(batch)
+        frameid = batch["frameid"]
         # NOTE: gradient from diffusion might make the camera optimization unstable
         cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
         cam_dict["render_resolution"] = render_size
@@ -1159,12 +1166,6 @@ class GSplatModel(nn.Module):
         batch["frameid"] = batch["frameid_sub"] + inst_id
         return batch
 
-    def get_frameid(self, batch):
-        if self.config["use_timesync"]:
-            frameid = batch["frameid_sub"]
-        else:
-            frameid = batch["frameid"]
-        return frameid
 
     @staticmethod
     def reshape_batch_inv(batch):
@@ -1245,7 +1246,7 @@ class GSplatModel(nn.Module):
         else:
             crop_size = self.config["eval_res"]
         cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
-        frameid = self.get_frameid(batch)
+        frameid = batch["frameid"]
 
         # TODO: get deformation before rendering
         self.gaussians.update_trajectory(frameid)

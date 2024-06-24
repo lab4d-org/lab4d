@@ -121,7 +121,8 @@ class Deformable(FeatureNeRF):
             faces = self.smpl_model.faces
             self.proxy_geometry = trimesh.Trimesh(vertices=verts, faces=faces)
         else:
-            self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12 * init_scale / 0.2, count=[4, 4])
+            self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12 * init_scale / 0.2, count=[4, 4]) # zoe depth
+            # self.proxy_geometry = trimesh.creation.uv_sphere(radius=0.12 * init_scale / 0.5, count=[4, 4]) # metric depth
 
     def get_init_sdf_fn(self):
         """Initialize signed distance function as a skeleton or sphere

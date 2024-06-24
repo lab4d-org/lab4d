@@ -50,6 +50,7 @@ class dvr_model(nn.Module):
             num_freq_xyz=config["num_freq_xyz"],
             use_timesync=config["use_timesync"],
             bg_vid=config["bg_vid"],
+            use_cc=config["use_cc"],
         )
         self.construct_intrinsics(data_info)
 
@@ -791,8 +792,7 @@ class dvr_model(nn.Module):
 
         # consistency between rendered mask and gauss mask
         if "gauss_mask" in rendered.keys():
-            # if current_steps < 4000:
-            if True:
+            if current_steps < config["num_iter_gtmask_gauss"]:
                 # supervise with a fixed target
                 loss_dict["reg_gauss_mask"] = (
                     aux_dict["fg"]["gauss_mask"] - batch["mask"].float()

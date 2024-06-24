@@ -149,9 +149,8 @@ def extract_hmr_oneseq(seqname, dataset_focal, hmr2_model, hmr2_model_cfg):
         joint_angles_list.append(joint_angles)
 
         # Foreground: Object-to-camera transform
-        c2o_fg = np.eye(4)  # 4, 4
-        c2o_fg[:3, :3] = hmr2_out["pred_smpl_params"]["global_orient"][0, 0].cpu().numpy()  # 3, 3
-        o2c_fg = np.linalg.inv(c2o_fg)  # 4, 4
+        o2c_fg = np.eye(4)  # 4, 4
+        o2c_fg[:3, :3] = hmr2_out["pred_smpl_params"]["global_orient"][0, 0].cpu().numpy()  # 3, 3
         o2c_fg[:3, 3] = pred_cam_t_full  # 3,
         o2c_fg[:, (1, 2)] *= -1  # OpenGL => OpenCV camera coordinates (+x: right, -y: up, +z: forward)
         camlist_fg.append(o2c_fg)
@@ -237,11 +236,11 @@ def extract_hmr_oneseq(seqname, dataset_focal, hmr2_model, hmr2_model_cfg):
 
 
 if __name__ == "__main__":
-    # vidname = "2024-05-11--01-06-03"
-    # extract_joint_angles_hmr2(vidname)
+    vidname = "2024-05-11--01-06-03"
+    extract_joint_angles_hmr2(vidname)
     # vidname = "2024-05-11--01-08-29"
     # extract_joint_angles_hmr2(vidname)
-    # vidname = "2024-05-11--01-10-54"
-    # extract_joint_angles_hmr2(vidname)
+    vidname = "2024-05-11--01-10-54"
+    extract_joint_angles_hmr2(vidname)
     extract_joint_angles_hmr2("2024-05-15--19-51-31")
     extract_joint_angles_hmr2("2024-05-15--19-56-12")
