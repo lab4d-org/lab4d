@@ -42,17 +42,23 @@ def cross_entropy_skin_loss(skin):
     return cross_entropy
 
 
-def align_vectors(v1, v2):
+def align_tensors(v1, v2, dim=None):
     """Return the scale that best aligns v1 to v2 in the L2 sense:
     min || kv1-v2 ||^2
 
     Args:
         v1: (...,) Source vector
         v2: (...,) Target vector
+        dim: Dimension to align. If None, return a scalar
     Returns:
         scale_fac (1,): Scale factor
     """
-    scale_fac = (v1 * v2).sum() / (v1 * v1).sum()
-    if scale_fac < 0:
-        scale_fac = torch.tensor([1.0], device=scale_fac.device)
-    return scale_fac
+    if dim is None:
+        scale = (v1 * v2).sum() / (v1 * v1).sum()
+        if scale < 0:
+            scale = torch.tensor([1.0], device=scale.device)
+        return scale
+    else:
+        scale = (v1 * v2).sum(dim, keepdim=True) / (v1 * v1).sum(dim, keepdim=True)
+        scale[scale < 0] = 1.0
+        return scale

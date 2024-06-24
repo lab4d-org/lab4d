@@ -123,7 +123,7 @@ To render novel views, run::
 
 To render a video of the proxy geometry and cameras over training iterations, run::
 
-  python scripts/render_intermediate.py --testdir logdir/$logname/
+  python lab4d/render_intermediate.py --testdir logdir/$logname/
 
 .. raw:: html
 
