@@ -5,6 +5,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.9
+  - setuptools=66.0.0
   - pip
   - pytorch=2.0.0
   - pytorch-cuda=11.7
@@ -31,9 +32,9 @@ dependencies:
   - tqdm
   - pip:
     - pysdf
-    - gradio==3.28.3
+    - gradio==3.49.0
     - timm==0.6.7
-    - detectron2 @ git+https://github.com/facebookresearch/detectron2.git
+    - detectron2 @ git+https://github.com/facebookresearch/detectron2.git@e9f7e2b
     - segment_anything @ git+https://github.com/facebookresearch/segment-anything.git
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
     - openmim

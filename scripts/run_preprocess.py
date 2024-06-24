@@ -155,7 +155,7 @@ if __name__ == "__main__":
         from preprocess.scripts.manual_cameras import manual_camera_interface
 
         mesh_path = "database/mesh-templates/cat-pikachu-remeshed.obj"
-        manual_camera_interface(vidname, use_manual_segment, mesh_path)
+        manual_camera_interface(vidname, mesh_path)
 
     # extract flow/depth/camera/etc
     gpu_map(run_extract_priors, prior_args, gpus=gpulist)
