@@ -489,6 +489,34 @@ def K2inv(K):
     return Kmat
 
 
+def invert_se3(T):
+    """
+    Invert a batch of SE(3) transformations.
+
+    Parameters:
+        T (torch.Tensor): A tensor of shape (..., 4, 4) representing a batch of SE(3) transformations.
+
+    Returns:
+        torch.Tensor: A tensor of shape (..., 4, 4) representing the inverted SE(3) transformations.
+    """
+    # Extract the rotation part and translation part
+    R = T[..., :3, :3]
+    t = T[..., :3, 3]
+
+    # Invert the rotation matrix (transpose)
+    R_inv = R.transpose(-1, -2)
+
+    # Invert the translation
+    t_inv = -torch.matmul(R_inv, t.unsqueeze(-1)).squeeze(-1)
+
+    # Create the inverse transformation matrix
+    T_inv = torch.eye(4, device=T.device).expand_as(T).clone()
+    T_inv[..., :3, :3] = R_inv
+    T_inv[..., :3, 3] = t_inv
+
+    return T_inv
+
+
 def get_near_far(pts, rtmat, tol_fac=1.5, min_depth=1e-6):
     """
     Args:

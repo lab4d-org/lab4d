@@ -47,6 +47,64 @@ def rest_joints_to_local(rest_joints, edges):
     local_rest_joints[idx] = rest_joints[idx] - rest_joints[parent_idx]
     return local_rest_joints
 
+def fk_se3_old(local_rest_joints, so3, edges, to_dq=True, local_rest_coord=None):
+    """Compute forward kinematics given joint angles on a skeleton.
+    If local_rest_rmat is None, assuming identity rotation in zero configuration.
+
+    Args:
+        local_rest_joints: (B, 3) Translations from parent to current joints,
+        so3: (..., B, 3) Axis-angles at each joint
+        edges (Dict(int, int)): Maps each joint to its parent joint
+        to_dq (bool): If True, output link rigid transforms as dual quaternions,
+            otherwise output SE(3)
+        local_rest_rot: (B, 3, 3) Local rotations
+    Returns:
+        out: Location of each joint. This is written as dual quaternions
+            ((..., B, 4), (..., B, 4)) if to_dq=True, otherwise it is written
+            as (..., B, 4, 4) SE(3) matrices.
+            link to global transforms X_global = T_1...T_k x X_k
+    """
+    assert local_rest_joints.shape == so3.shape
+    shape = so3.shape
+
+    # allocate global rtmat
+    identity_rt = torch.eye(4, device=so3.device)
+    identity_rt = identity_rt.view((1,) * (len(shape) - 2) + (-1, 4, 4))
+    identity_rt = identity_rt.expand(*shape[:-1], -1, -1).clone()
+    identity_rt_slice = identity_rt[..., 0, :, :].clone()
+    global_rt = identity_rt.clone()
+
+    if local_rest_coord is None:
+        local_rmat = so3_to_exp_map(so3)
+    else:
+        local_rmat = local_rest_coord[:, :3, :3]
+        local_rmat = local_rmat.view((1,) * (len(shape) - 2) + (-1, 3, 3))
+        local_rmat = local_rmat @ so3_to_exp_map(so3)
+
+    local_to_parent = torch.cat([local_rmat, local_rest_joints[..., None]], -1)
+    local_to_parent = torch.cat([local_to_parent, identity_rt[..., -1:, :]], -2)
+
+    # get local rt transformation: (..., k, 4, 4)
+    # parent ... child
+    # first rotate around joint i
+    # then translate wrt the relative position of the parent to i
+    for idx, parent_idx in edges.items():
+        if parent_idx > 0:
+            parent_to_global = global_rt[..., parent_idx - 1, :, :].clone()
+        else:
+            parent_to_global = identity_rt_slice
+        global_rt[..., idx - 1, :, :] = (
+            parent_to_global @ local_to_parent[..., idx - 1, :, :]
+        )
+
+    if to_dq:
+        global_quat = matrix_to_quaternion(global_rt[..., :3, :3])
+        global_dq = quaternion_translation_to_dual_quaternion(
+            global_quat, global_rt[..., :3, 3]
+        )
+        return global_dq
+    else:
+        return global_rt
 
 def fk_se3(local_rest_joints, exp, edges, to_dq=True, local_rest_coord=None):
     """Compute forward kinematics given joint angles on a skeleton.

@@ -1119,9 +1119,11 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             exp = self.so3(t_feat).reshape(
                 *t_embed.shape[:-1], self.num_se3, 3, 3
             )  # joint angles, so3 exp
+            # *t_embed.shape[:-1], self.num_se3, 3
         else:
             so3 = override_so3
             exp = so3_to_exp_map(so3)
+            # exp = so3
 
         if return_so3:
             so3 = quaternion_to_axis_angle(matrix_to_quaternion(exp))

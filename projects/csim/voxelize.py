@@ -27,6 +27,7 @@ try:
     from lab4d.utils.mesh_loader import MeshLoader
     from lab4d.config import load_flags_from_file
     from lab4d.engine.trainer import Trainer
+    from lab4d.utils.geom_utils import invert_se3
 except:
     pass
 
@@ -120,8 +121,16 @@ class BGField:
         # box.apply_translation([0.3, 1, -3])
         # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
 
-        # self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*" % logdir)
-        self.root_trajs, self.cam_trajs = get_trajs_from_log("%s/export_*" % logdir)
+        cameras = model.get_cameras()
+        self.cam_trajs = invert_se3(cameras["bg"])
+        self.root_trajs = self.cam_trajs @ cameras["fg"]
+        self.cam_trajs = self.cam_trajs.cpu().numpy()
+        self.root_trajs = self.root_trajs.cpu().numpy()
+        # remove first video
+        frame_offset = data_info["frame_info"]["frame_offset"]
+        self.root_trajs = self.root_trajs[frame_offset[1] :]
+        self.cam_trajs = self.cam_trajs[frame_offset[1] :]
+
         # voxel_grid.run_viser()
         self.voxel_grid.count_root_visitation(self.root_trajs[:, :3, 3])
         self.voxel_grid.count_cam_visitation(self.cam_trajs[:, :3, 3])
@@ -166,6 +175,16 @@ class BGField:
         # box = trimesh.creation.box((1, 1, 1))
         # box.apply_translation([0.3, 1, -3])
         # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
+
+
+class BGFieldPoly(BGField):
+    def __init__(self, load_logname="home-2023-curated3", use_default_mesh=False):
+        bg_mesh = trimesh.load(
+            "database/polycam/cat-pikachu/Oct5at10-49AM-poly/raw.ply"
+        )
+        bg_mesh.vertices = bg_mesh.vertices * np.asarray([[1, -1, -1]])
+        self.voxel_grid = VoxelGrid(bg_mesh)
+        self.bg_mesh = bg_mesh
 
 
 def get_trajs_from_log(dirpath):

@@ -61,8 +61,11 @@ def resolve_size_mismatch(model, ckpt_states):
         else:
             if k.endswith("time_embedding.mapping1.weight"):
                 # different number of freqs
-                model_v[..., : v.shape[-1]] = v
-                model_v[..., v.shape[-1] :] = 0
+                if v.shape[-1] > model_v.shape[-1]:
+                    model_v = v[..., : model_v.shape[-1]]
+                else:
+                    model_v[..., : v.shape[-1]] = v
+                    model_v[..., v.shape[-1] :] = 0
                 ckpt_states[k] = model_v
                 print("Warning: copying {} to {}".format(v.shape, model_v.shape))
             elif k.endswith("base_quat") or k.endswith("base_trans"):
