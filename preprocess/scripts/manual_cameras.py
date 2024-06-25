@@ -318,9 +318,7 @@ def load_fig(track):
 
 def caminfo_to_rotation(track):
     caminfo = track.fig.layout.scene.camera
-    final_R = np.zeros((4, 4))
-    final_R[2, 3] = 3
-    final_R[3, 3] = 1
+    final_R = np.eye(4)
     eye = np.asarray([caminfo.eye.x, caminfo.eye.y, caminfo.eye.z])
     center = np.asarray([caminfo.center.x, caminfo.center.y, caminfo.center.z])
     up = np.asarray([caminfo.up.x, caminfo.up.y, caminfo.up.z])
@@ -329,9 +327,18 @@ def caminfo_to_rotation(track):
     s = np.cross(L, up)
     s = s / np.linalg.norm(s)
     u = np.cross(s, L)
-    cam_R = np.array([s, u, -L])
-    final_R[0:3, 0:3] = cam_R @ track.R
-    final_R[0:3, 0:3] = final_R[0:3, 0:3].T  # field to camera
+    final_R[:3, :3] = np.array([s, u, -L]).T # camera x/y/z coordinate
+    final_R[:3, 3] = eye # camera center
+    final_R = np.linalg.inv(final_R) # object to camera
+
+    # user input adjustment
+    final_R[:3, :3] = final_R[:3, :3] @ track.R
+
+    # gl to cv camera coordinate
+    final_R[1:3, :] *= -1
+    # # gl to cv object coordinate
+    # final_R[:3,1:3] *= -1
+
     # debug_format(cam_R @ track.R)
 
     track.se3_dict[int(track.curr_frame)] = final_R.tolist()
