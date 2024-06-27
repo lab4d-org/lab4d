@@ -11,10 +11,6 @@ import tqdm
 import math
 import trimesh
 
-from diff_gaussian_rasterization import (
-    GaussianRasterizationSettings,
-    GaussianRasterizer,
-)
 from gsplat import rasterization
 
 sys.path.insert(0, os.getcwd())
@@ -824,7 +820,7 @@ class GSplatModel(nn.Module):
                 "reg_soft_deform" (0,), "reg_gauss_skin" (0,),
                 "reg_cam_prior" (0,), and "reg_skel_prior" (0,).
         """
-        if self.config["use_gui"]:
+        if get_local_rank()==0 and self.config["use_gui"]:
             self.gui.update()
         self.process_frameid(batch)
         cam_dict, Kmat, w2c = self.compute_camera_samples(

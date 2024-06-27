@@ -30,4 +30,4 @@ class GSplatConfig:
     flags.DEFINE_float("reg_lab4d_wt", 0.0, "weight for lab4d loss")
 
     # io
-    flags.DEFINE_boolean("use_gui", False, "check training progress with viser gui")
+    flags.DEFINE_boolean("use_gui", True, "check training progress with viser gui")

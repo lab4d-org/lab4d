@@ -40,3 +40,5 @@ dependencies:
     - open3d==0.17.0
     - geomloss==0.2.6
     - point-cloud-utils==0.30.0
+    - diffusers==0.27.2
+    - viser==0.1.13
