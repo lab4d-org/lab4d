@@ -23,6 +23,7 @@ parser.add_argument("--mode", default="", type=str, help="{shape, bone}")
 parser.add_argument("--compose_mode", default="", type=str, help="{object, scene}")
 parser.add_argument("--ghosting", action="store_true", help="ghosting")
 parser.add_argument("--view", default="bev", type=str, help="{ref, bev, front}")
+parser.add_argument("--remove_ceiling", action="store_true", help="remove ceiling when rendering")
 args = parser.parse_args()
 
 
@@ -52,7 +53,7 @@ def main():
 
         for frame_idx in tqdm.tqdm(range(len(loader))):
             # input dict
-            input_dict = loader.query_frame(frame_idx)
+            input_dict = loader.query_frame(frame_idx, remove_ceiling=args.remove_ceiling)
 
             if args.view == "bev":
                 # bev

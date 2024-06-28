@@ -154,7 +154,7 @@ class ViserViewer:
         @self.pause_time_button.on_click
         def _(_):
             self.pause_time = not self.pause_time
-            self.pause_training_button.name = (
+            self.pause_time_button.name = (
                 "Resume Time" if self.pause_time else "Pause Time"
             )
 

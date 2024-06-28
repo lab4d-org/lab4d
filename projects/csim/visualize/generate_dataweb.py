@@ -81,8 +81,7 @@ if __name__ == "__main__":
         )
 
         os.system(
-            "ffmpeg -y -i %s -vf \"scale='if(gt(a,1),-2,640)':'if(gt(a,1),640,-2)',"
-            'crop=480:640:180:0" %s' % (bev_vidpath, bev_vidpath_down)
+            "ffmpeg -y -i %s -vf \"scale=-2:640\" %s" % (bev_vidpath, bev_vidpath_down)
         )
 
         img_path = config.get("data_%d" % it, "img_path") + "/%05d.jpg"

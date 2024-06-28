@@ -10,5 +10,8 @@
 # python scripts/zip_dataset.py $filename;
 # manifold -vip -cert /mnt/home/$USER/my-user-cert.pem put $filename.zip codec-avatars-scratch/tree/gengshany/$filename.zip
 
-filename=Oct5at10-49AM-poly-cat
+# filename=Oct5at10-49AM-poly-cat
+# manifold -vip -cert /mnt/home/$USER/my-user-cert.pem put $filename.zip codec-avatars-scratch/tree/gengshany/$filename.zip --threads 12
+
+filename=human-2024-05
 manifold -vip -cert /mnt/home/$USER/my-user-cert.pem put $filename.zip codec-avatars-scratch/tree/gengshany/$filename.zip --threads 12

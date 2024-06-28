@@ -250,23 +250,42 @@ class GSplatModel(nn.Module):
             bg_color (torch.Tensor): Background color
             frameid (torch.Tensor): Frame id
         """
+        chunk_size = 100
         res = camera_dict["render_resolution"]
         bs = frameid.shape[0]
 
         # bs,... -> bs * 2
-        out_dict = self.render(
-            res,
-            Kmat.view(bs*2, 3, 3),
-            w2c.view(bs*2, 4, 4),
-            bg_color,
-            frameid.view(bs*2),
-            w2c.flip(1).view(bs*2, 4, 4),
-            frameid.flip(1).view(bs*2),
-            Kmat.flip(1).view(bs*2, 3, 3),
-        )
-        for k,v in out_dict.items():
-            out_dict[k] = v.view((bs, 2) + v.shape[1:])
-        return out_dict
+        out_dict_all = {}
+        for idx in range(0, bs, chunk_size):
+            Kmat_sub = Kmat[idx: idx + chunk_size]
+            w2c_sub = w2c[idx: idx + chunk_size]
+            frameid_sub = frameid[idx: idx + chunk_size]
+
+            Kmat_sub_n = Kmat_sub.flip(1).view(-1, 3, 3)
+            Kmat_sub = Kmat_sub.view(-1, 3, 3)
+            w2c_sub_n = w2c_sub.flip(1).view(-1, 4, 4)
+            w2c_sub = w2c_sub.view(-1, 4, 4)
+            frameid_sub_n = frameid_sub.flip(1).view(-1)
+            frameid_sub = frameid_sub.view(-1)
+
+            out_dict = self.render(
+                res,
+                Kmat_sub,
+                w2c_sub,
+                bg_color,
+                frameid_sub,
+                w2c_sub_n,
+                frameid_sub_n,
+                Kmat_sub_n,
+            )
+            for k,v in out_dict.items():
+                v = v.view((-1, 2) + v.shape[1:])
+                if k in out_dict_all:
+                    out_dict_all[k] = torch.cat([out_dict_all[k], v],0)
+                else:
+                    out_dict_all[k] = v
+            
+        return out_dict_all
 
     # @staticmethod
     # def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, rgbs, opacities, bg_color):

@@ -203,7 +203,7 @@ class MeshLoader:
         self.aabb_min = aabb_min
         self.aabb_max = aabb_max
 
-    def query_frame(self, frame_idx):
+    def query_frame(self, frame_idx, remove_ceiling=False):
         input_dict = {}
         input_dict["shape"] = self.mesh_dict[frame_idx]
         if self.mode == "bone":
@@ -213,11 +213,17 @@ class MeshLoader:
             input_dict["shape"].visual.vertex_colors[3:] = 128
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
-            # scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[224, 224, 54]])
-            # XYZ color
-            xyz = scene_mesh.vertices
-            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
-            scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
+            scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[0, 102, 153]])
+            # # XYZ color
+            # xyz = scene_mesh.vertices
+            # xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            # scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
+            if remove_ceiling:
+                # remove ceiling
+                bounds = np.asarray(scene_mesh.bounds.tolist())
+                bounds[0,1] = -1
+                box = trimesh.creation.box(bounds=bounds)
+                scene_mesh = scene_mesh.slice_plane(box.facets_origin, -box.facets_normal)
             input_dict["scene"] = scene_mesh
         if len(self.ghost_dict) > 0:
             ghost_mesh = trimesh.util.concatenate(self.ghost_dict[frame_idx])
