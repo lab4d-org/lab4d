@@ -17,6 +17,7 @@ if cwd not in sys.path:
 from lab4d.utils.camera_utils import construct_batch
 from lab4d.utils.vis_utils import img2color
 from lab4d.utils.geom_utils import K2inv, K2mat, mat2K
+from lab4d.utils.profile_utils import torch_profile
 
 
 def qvec2rotmat(qvec):
@@ -237,6 +238,10 @@ class ViserViewer:
                     outputs, _ = self.renderer.evaluate(
                         batch, is_pair=False, augment_nv=False
                     )
+                    # with torch_profile("tmp/", "profile", enabled=self.renderer.config["profile"]):
+                    #     outputs, _ = self.renderer.evaluate(
+                    #         batch, is_pair=False, augment_nv=False
+                    #     )
                     end_cuda.record()
                     torch.cuda.synchronize()
                     interval = start_cuda.elapsed_time(end_cuda) / 1000.0

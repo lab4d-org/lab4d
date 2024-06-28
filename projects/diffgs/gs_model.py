@@ -190,50 +190,6 @@ class GSplatModel(nn.Module):
             pass
         return screenspace_points
 
-    def get_rasterizer(self, camera_dict, Kmat, bg_color=None):
-        """
-        Kmat is (3,3)
-        """
-        image_height = int(camera_dict["render_resolution"])
-        image_width = int(camera_dict["render_resolution"])
-        # viewmatrix = torch.tensor(camera_dict["w2c"]).cuda()
-        # viewmatrix = viewmatrix.transpose(0, 1)
-        viewmatrix = torch.eye(4, dtype=torch.float32, device="cuda")
-
-        projmatrix = getProjectionMatrix_K(
-            znear=camera_dict["near"],
-            zfar=camera_dict["far"],
-            Kmat=Kmat,
-        )
-        projmatrix = projmatrix.transpose(0, 1).cuda()
-        projmatrix = viewmatrix @ projmatrix
-        # c2w = np.linalg.inv(camera_dict["w2c"])
-        # campos = -torch.tensor(c2w[:3, 3]).cuda()
-        campos = torch.zeros(3, dtype=torch.float32, device="cuda")
-
-        # Set up rasterization configuration
-        FoVx = focal_to_fov(Kmat[0, 0])
-        FoVy = focal_to_fov(Kmat[1, 1])
-        tanfovx = math.tan(FoVx * 0.5)
-        tanfovy = math.tan(FoVy * 0.5)
-
-        raster_settings = GaussianRasterizationSettings(
-            image_height=image_height,
-            image_width=image_width,
-            tanfovx=tanfovx,
-            tanfovy=tanfovy,
-            bg=torch.tensor([1, 1, 1],dtype=torch.float32,device="cuda") if bg_color is None else bg_color,
-            scale_modifier=1.0,
-            viewmatrix=viewmatrix,
-            projmatrix=projmatrix,
-            sh_degree=self.active_sh_degree,
-            campos=campos,
-            prefiltered=False,
-            debug=False,
-        )
-
-        rasterizer = GaussianRasterizer(raster_settings=raster_settings)
-        return rasterizer
 
     def render_pair(
         self,

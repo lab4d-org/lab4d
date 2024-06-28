@@ -968,6 +968,18 @@ class NeRF(nn.Module):
         )
         feat_dict.update(jacob_dict)
 
+
+        # def lerp(a, b, gamma):
+        #     return a * (1-gamma) + b*gamma
+
+        # # ray direction
+        # # removed since it is memory intensive, and did not give performance boost
+        # _, normal = self.compute_eikonal(xyz, inst_id=inst_id, sample_ratio=1)
+        # normal = F.normalize(normal, 2, -1)
+        # projected_area = torch.abs(-(dir * normal).sum(-1, keepdim=True))
+        # projected_area = lerp(0.5, projected_area, self.pos_embedding.alpha)
+        # feat_dict["density"] *= projected_area
+
         # canonical point
         feat_dict["xyz"] = xyz
         feat_dict["xyz_t"] = xyz_t
