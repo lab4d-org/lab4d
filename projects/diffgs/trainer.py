@@ -554,8 +554,11 @@ class GSplatTrainer(Trainer):
             "%s/%03d-all" % (self.save_dir, self.current_round)
         )
 
-        # if self.model.progress > self.opts["inc_warmup_ratio"]:
-        #     self.densify_and_prune()
+        # add some noise to improve convergence
+        if self.current_round !=0 and self.current_round % 10 == 0:
+            self.model.gaussians.reset_gaussian_scale()
+        if self.current_round !=0 and self.current_round % 10 == 0:
+            self.model.gaussians.randomize_gaussian_center()
 
     def densify_and_prune(self):
         # densify and prune

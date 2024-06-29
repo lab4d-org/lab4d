@@ -38,12 +38,7 @@ from lab4d.utils.quat_transform import (
 from lab4d.dataloader import data_utils
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
 from lab4d.third_party.guidance.zero123_utils import Zero123
-from projects.diffgs.gs_renderer import (
-    GaussianModel,
-    BasicPointCloud,
-    getProjectionMatrix_K,
-    gs_transform,
-)
+from projects.diffgs.gs_renderer import GaussianModel, gs_transform
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.diffgs.cam_utils import orbit_camera
 from projects.diffgs.viserviewer import ViserViewer
@@ -211,6 +206,7 @@ class GSplatModel(nn.Module):
 
         # bs,... -> bs * 2
         out_dict_all = {}
+        pts_dict_all = {}
         for idx in range(0, bs, chunk_size):
             Kmat_sub = Kmat[idx: idx + chunk_size]
             w2c_sub = w2c[idx: idx + chunk_size]
@@ -220,7 +216,7 @@ class GSplatModel(nn.Module):
             w2c_sub = w2c_sub.view(-1, 4, 4)
             frameid_sub = frameid_sub.view(-1)
 
-            out_dict = self.render(
+            out_dict, pts_dict = self.render(
                 res,
                 Kmat_sub,
                 w2c_sub,
@@ -235,7 +231,12 @@ class GSplatModel(nn.Module):
                 else:
                     out_dict_all[k] = v
             
-        return out_dict_all
+            for k,v in pts_dict.items():
+                if k in pts_dict_all:
+                    pts_dict_all[k] = torch.cat([pts_dict_all[k], v], 1)
+                else:
+                    pts_dict_all[k] = v
+        return out_dict_all, pts_dict_all
 
     @staticmethod
     def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, feat_dict, opacities, bg_color):
@@ -360,7 +361,9 @@ class GSplatModel(nn.Module):
                 feature_dict, opacity_fg, bg_color
             )
             out_dict["mask_fg"] = rendered_alpha_fg
-        return out_dict
+
+        pts_dict = {"xy_1": xy_1}
+        return out_dict, pts_dict
 
 
     def get_default_cam(self, render_resolution):
@@ -473,7 +476,7 @@ class GSplatModel(nn.Module):
         self.gaussians.update_trajectory(frameid)
 
         # render reference view
-        rendered = self.render_pair(self.config["train_res"], Kmat, w2c=w2c, frameid=frameid)
+        rendered, pts_dict = self.render_pair(self.config["train_res"], Kmat, w2c=w2c, frameid=frameid)
         self.reshape_batch(rendered)
 
         # prepare reference view GT
@@ -492,6 +495,9 @@ class GSplatModel(nn.Module):
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
+
+        # update per-point stats
+        self.gaussians.update_vis_stats(pts_dict)
         return loss_dict
 
     @staticmethod
@@ -602,7 +608,7 @@ class GSplatModel(nn.Module):
         Kmat_nv, ref_rgb_nv = self.sample_rand_Kmat_around(
             Kmat, crop2raw, crop_size, ref_rgb
         )
-        rendered = self.render(render_size, Kmat_nv, w2c=w2c_nv, frameid=frameid)
+        rendered, _ = self.render(render_size, Kmat_nv, w2c=w2c_nv, frameid=frameid)
         rgb_nv = rendered["rgb"]
         bg_color = F.interpolate(self.get_bg_color()[None], render_size)
         rgb_nv = rgb_nv * rendered["alpha"] + bg_color * (1 - rendered["alpha"])
@@ -719,7 +725,7 @@ class GSplatModel(nn.Module):
         for k in keys_mask_weighted:
             loss_dict[k] *= mask_pred.detach()
 
-        is_detected = batch["is_detected"].float()[:, None, None]
+        is_detected = batch["is_detected"].float()[:, None, None, None]
 
         # remove mask loss for frames without detection
         if config["field_type"] == "fg" or config["field_type"] == "comp":
@@ -858,7 +864,7 @@ class GSplatModel(nn.Module):
         w2c_nv = w2c_nv.reshape(-1, 2, 4, 4)
         Kmat_nv = Kmat[:1, :1].repeat(num_nv // 2, 2, 1, 1)
         frameid_nv = frameid[:1, :1].repeat(num_nv // 2, 2)
-        rendered_nv = self.render_pair(
+        rendered_nv,_ = self.render_pair(
             cam_dict, Kmat_nv, w2c=w2c_nv, frameid=frameid_nv
         )
         for k, v in rendered_nv.items():
@@ -885,7 +891,7 @@ class GSplatModel(nn.Module):
         # TODO: get deformation before rendering
         self.gaussians.update_trajectory(frameid)
 
-        rendered = self.render_pair(crop_size, Kmat, w2c=w2c, frameid=frameid)
+        rendered,_ = self.render_pair(crop_size, Kmat, w2c=w2c, frameid=frameid)
         # if augment_nv:
         #     self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
 
@@ -1122,7 +1128,7 @@ if __name__ == "__main__":
         w2c[:3, :3] = cv2.Rodrigues(
             np.asarray([0.0, 2 * np.pi * (0.25 + i / nframes), 0.0])
         )[0]
-        out = renderer.render(cam_dict, w2c=w2c)
+        out,_ = renderer.render(cam_dict, w2c=w2c)
         img = out["rgb"][0].permute(1, 2, 0).detach().cpu().numpy()
         frames.append(img)
         cv2.imwrite("tmp/%d.png" % i, img * 255)

@@ -233,6 +233,7 @@ def get_data_info(loader, load_imgs=False):
     # motion_scales = []
     rgb_imgs = []
 
+    feature_channels = 3 # avoid referenced before assignment error 
     for dataset in dataset_list:
         frame_info = FrameInfo(dataset.dict_list["ref"])
         frame_offset.append(frame_info.num_frames)

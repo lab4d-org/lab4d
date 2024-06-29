@@ -32,7 +32,7 @@ from lab4d.utils.quat_transform import (
     quaternion_translation_apply,
     quaternion_conjugate,
 )
-from lab4d.utils.geom_utils import rot_angle, decimate_mesh
+from lab4d.utils.geom_utils import rot_angle, extend_aabb
 from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 
 colormap = get_colormap()
@@ -556,7 +556,9 @@ class GaussianModel(nn.Module):
     @torch.no_grad()
     def update_geometry_aux(self):
         # add bone center / joints
-        self.proxy_geometry = self.create_mesh_visualization(all_pts=False)
+        dev = self.parameters().__next__().device
+        frameid = torch.tensor([0], device=dev)[0]
+        self.proxy_geometry = self.create_mesh_visualization(frameid=frameid,all_pts=False)
 
     @torch.no_grad()
     def export_geometry_aux(self, path):
@@ -572,31 +574,47 @@ class GaussianModel(nn.Module):
         mesh.export("%s-proxy.obj" % (path))
 
     @torch.no_grad()
-    def create_mesh_visualization(self, frameid=None, all_pts=True):
+    def create_mesh_visualization(self, frameid=None, all_pts=True, opacity_th=0.1, vis_portion=0.1):
         if self.is_leaf():
             meshes = []
             sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
             centers = self.get_xyz(frameid).cpu()
             orientations = self.get_rotation(frameid).cpu()
             scalings = self.get_scaling.cpu().numpy()
+            opacity = self.get_opacity.cpu().numpy()[...,0]
+            vis_ratio = self.get_vis_ratio.cpu().numpy()
+            visibility_th = np.quantile(vis_ratio, vis_portion) # use points with highest 95% vis
+
+            # select those with high opacity
+            select_idx = np.logical_and(opacity > opacity_th, vis_ratio > visibility_th)
+            scalings_sel = scalings[select_idx]
+            centers_sel = centers[select_idx]
+            orientations_sel = orientations[select_idx]
 
             # subsample if too many gaussians
             if not all_pts:
-                max_pts = 500
-                if len(scalings) > max_pts:
-                    rand_idx = np.random.permutation(scalings.shape[0])[:max_pts]
-                    scalings = scalings[rand_idx]
-                    centers = centers[rand_idx]
-                    orientations = orientations[rand_idx]
+                max_pts = 1000
+                if len(scalings_sel) > max_pts:
+                    rand_idx = np.random.permutation(scalings_sel.shape[0])[:max_pts]
+                    scalings_sel = scalings_sel[rand_idx]
+                    centers_sel = centers_sel[rand_idx]
+                    orientations_sel = orientations_sel[rand_idx]
 
-            for k, gauss in enumerate(scalings):
+            for k, gauss in enumerate(scalings_sel):
                 ellips = sph.copy()
                 ellips.vertices *= gauss[None]
                 ellips.visual.vertex_colors = colormap[k % len(colormap)]
-                articulation = quaternion_translation_to_se3(orientations[k], centers[k])
+                articulation = quaternion_translation_to_se3(orientations_sel[k], centers_sel[k])
                 ellips.apply_transform(articulation.numpy())
                 meshes.append(ellips)
-            meshes = trimesh.util.concatenate(meshes)
+            if len(meshes) == 0:
+                meshes = sph.copy()
+                # -1,1 to aabb
+                aabb = torch.stack([centers.min(0)[0], centers.max(0)[0]], 0).cpu().numpy()
+                meshes.vertices = (meshes.vertices + 1) / 2
+                meshes.vertices = meshes.vertices * (aabb[1:] - aabb[:1]) + aabb[:1]
+            else:
+                meshes = trimesh.util.concatenate(meshes)
             return meshes
         else:
             meshes = []
@@ -714,6 +732,16 @@ class GaussianModel(nn.Module):
         self.vis_denom = torch.zeros((self.get_num_pts, 1), device="cuda")
 
 
+    def update_vis_stats(self, pts_dict):
+        xy_1 = pts_dict["xy_1"]
+        bs = xy_1.shape[1]
+        is_visible = (xy_1.abs() < 1).sum(-1) == 2
+        visible_count = is_visible.sum(1, keepdims=True)
+
+        self.vis_denom += bs
+        self.xyz_vis_accum += visible_count
+
+
     def update_point_stats(self, prune_mask, clone_mask):
         dev = prune_mask.device
         valid_mask = ~prune_mask
@@ -744,30 +772,6 @@ class GaussianModel(nn.Module):
         self.xyz_vis_accum[:] = 0
         self.vis_denom[:] = 0
 
-    def densify_and_prune(
-        self, max_grad=1e-4, min_opacity=0.1, max_scale=0.1, min_grad=1e-8, min_vis=0.5
-    ):
-        grads = self.xyz_gradient_accum / (self.denom + 1e-6)
-        grads = grads[..., 0]
-        print("min grad: ", torch.min(grads))
-        print("max grad: ", torch.max(grads))
-        oom_ratio = (self.xyz_vis_accum / (self.vis_denom + 1e-6))[..., 0]
-
-        # Clone if grad is high
-        clone_mask = grads > max_grad
-
-        # Prune if opacity is low, scale if high, or grad is low
-        selected_trans_pts = (self.get_opacity < min_opacity).squeeze()
-        # selected_big_pts = self.get_scaling.max(dim=1).values > max_scale
-        selected_oog_pts = torch.logical_and(grads < min_grad, self.denom[..., 0] > 0)
-        selected_oom_pts = oom_ratio > min_vis  # 10% frames oom
-        # print("max scale: ", torch.max(self.get_scaling.max(dim=1).values))
-        # prune_mask = torch.logical_or(selected_trans_pts, selected_big_pts)
-        prune_mask = selected_trans_pts
-        prune_mask = torch.logical_or(prune_mask, selected_oog_pts)
-        prune_mask = torch.logical_or(prune_mask, selected_oom_pts)
-        return clone_mask, prune_mask
-
     def add_xyz_grad_stats(self, viewspace_point_grad, update_filter):
         """
         viewspace_point_grad: [N, 3]
@@ -786,14 +790,57 @@ class GaussianModel(nn.Module):
         self.xyz_vis_accum[update_filter] += xyz_vis
         self.vis_denom[update_filter] += 1
 
+    @property
+    def get_vis_ratio(self):
+        return (self.xyz_vis_accum / self.vis_denom)[...,0]
+
+    def reset_gaussian_scale(self, scale_val=0.04):
+        # reset the scale of large gaussians (for accuracy of flow rendering)
+        sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
+        self._scaling.data[sel_idx] = np.log(scale_val)
+        print("reset %d gaussian scale" % (sel_idx.sum()))
+
+    def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, vis_portion = 0.05, aabb_ratio=0.5):
+        dev = self.parameters().__next__().device
+        num_pts = int(self.get_num_pts * portion)
+        rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+
+        transparent_ptsid = (self.get_opacity[...,0] < opacity_th).cpu().numpy()
+        transparent_ptsid = np.where(transparent_ptsid)[0]
+
+        vis_ratio = self.get_vis_ratio.cpu().numpy()
+        visibility_th = np.quantile(vis_ratio, vis_portion) # remove points with lowest 10% vis
+        invis_ptsid = (vis_ratio < visibility_th)
+        invis_ptsid = np.where(invis_ptsid)[0]
+        sel_ptsid = np.concatenate([rand_ptsid, transparent_ptsid, invis_ptsid],0)
+
+        # reset values
+        rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
+        aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
+        aabb = extend_aabb(aabb, -aabb_ratio/2)
+        rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
+        self._xyz.data[sel_ptsid] = rand_xyz
+
+        # # randomize around proxy geometry
+        # valid_pts = self.proxy_geometry.vertices
+        # rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
+        # self._xyz.data[sel_ptsid] = torch.tensor(rand_xyz, device=dev, dtype=torch.float32)
+
+        self._scaling.data[sel_ptsid] = np.log(0.04)
+        self._opacity.data[sel_ptsid] = self.inverse_opacity_activation(torch.tensor([0.9], dtype=torch.float))
+
+
     @torch.no_grad()
     def get_aabb(self):
-        xyz = self.get_xyz()
-        aabb = (
-            xyz.min(dim=0).values,
-            xyz.max(dim=0).values,
-        )
-        aabb = torch.stack(aabb, dim=0).cpu().numpy()
+        # xyz = self.get_xyz()
+        # aabb = (
+        #     xyz.min(dim=0).values,
+        #     xyz.max(dim=0).values,
+        # )
+        # aabb = torch.stack(aabb, dim=0).cpu().numpy()
+        xyz = self.proxy_geometry.vertices
+        aabb = (xyz.min(0), xyz.max(0))
+        aabb = np.stack(aabb, 0)
         return aabb
 
     def randomize_frameid(self, frameid, frameid_2):
@@ -1021,7 +1068,7 @@ class GaussianModel(nn.Module):
                 frameid = self.frame_id_to_sub(frameid, inst_id)
                 inst_id = inst_id.clone() * 0  # assume all videos capture the same instance
 
-            if self.config["fg_motion"] == "rigid" or self.mode=="bg": return
+            if self.mode=="bg": return
             if isinstance(self.gs_camera_mlp, TrajPredictor):
                 raise NotImplementedError
                 # # image-based motion
@@ -1031,7 +1078,12 @@ class GaussianModel(nn.Module):
             elif self.config["fg_motion"] == "explicit":
                 motion = self._trajectory[:, frameid, 4:]
                 quat_delta = self._trajectory[:, frameid, :4]
-            elif self.mode=="fg":
+            elif self.config["fg_motion"] == "rigid":
+                frameid = frameid.reshape(-1)
+                motion = torch.zeros(self.get_num_pts, len(frameid), 3, device="cuda")
+                quat_delta = torch.zeros(self.get_num_pts, len(frameid), 4, device="cuda")
+                quat_delta[:, :, 0] = 1.0
+            else:
                 # lab4d model (fourier basis motion)
                 chunk_size = 64
                 xyz_t, dq_r, dq_t = [], [], []
@@ -1056,11 +1108,6 @@ class GaussianModel(nn.Module):
                 quat = quat.transpose(0, 1).contiguous()
                 rot = self.rotation_activation(self._rotation)
                 quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
-            else:
-                frameid = frameid.reshape(-1)
-                motion = torch.zeros(self.get_num_pts, len(frameid), 3, device="cuda")
-                quat_delta = torch.zeros(self.get_num_pts, len(frameid), 4, device="cuda")
-                quat_delta[:, :, 0] = 1.0
             
             trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
             self.trajectory_cache = {}
