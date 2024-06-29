@@ -485,18 +485,11 @@ class GSplatTrainer(Trainer):
             loss_dict = self.model(batch)
             total_loss = torch.sum(torch.stack(list(loss_dict.values())))
             total_loss.mean().backward()
-            # print(total_loss)
-            # self.print_sum_params()
 
             grad_dict = self.check_grad()
             self.optimizer.step()
             self.scheduler.step(self.current_steps)
             self.optimizer.zero_grad()
-
-            # # keep track of xyz spatial gradients for densification
-            # self.model.update_densification_stats()
-            # delete after update
-            del self.model.rendered_aux
 
             if get_local_rank() == 0:
                 # update scalar dict

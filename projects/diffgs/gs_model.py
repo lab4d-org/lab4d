@@ -193,7 +193,7 @@ class GSplatModel(nn.Module):
 
     def render_pair(
         self,
-        camera_dict,
+        res,
         Kmat,
         w2c,
         bg_color=None,
@@ -201,13 +201,12 @@ class GSplatModel(nn.Module):
     ):
         """Render a batch of view pairs given batch with shape (M,2,...)
         Args:
-            camera_dict (Dict): Camera parameters
+            res (Int): Render resolution
             w2c (torch.Tensor): World to camera matrix
             bg_color (torch.Tensor): Background color
             frameid (torch.Tensor): Frame id
         """
         chunk_size = 100
-        res = camera_dict["render_resolution"]
         bs = frameid.shape[0]
 
         # bs,... -> bs * 2
@@ -217,11 +216,8 @@ class GSplatModel(nn.Module):
             w2c_sub = w2c[idx: idx + chunk_size]
             frameid_sub = frameid[idx: idx + chunk_size]
 
-            Kmat_sub_n = Kmat_sub.flip(1).view(-1, 3, 3)
             Kmat_sub = Kmat_sub.view(-1, 3, 3)
-            w2c_sub_n = w2c_sub.flip(1).view(-1, 4, 4)
             w2c_sub = w2c_sub.view(-1, 4, 4)
-            frameid_sub_n = frameid_sub.flip(1).view(-1)
             frameid_sub = frameid_sub.view(-1)
 
             out_dict = self.render(
@@ -230,9 +226,7 @@ class GSplatModel(nn.Module):
                 w2c_sub,
                 bg_color,
                 frameid_sub,
-                w2c_sub_n,
-                frameid_sub_n,
-                Kmat_sub_n,
+                render_flow=True,
             )
             for k,v in out_dict.items():
                 v = v.view((-1, 2) + v.shape[1:])
@@ -242,242 +236,6 @@ class GSplatModel(nn.Module):
                     out_dict_all[k] = v
             
         return out_dict_all
-
-    # @staticmethod
-    # def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, rgbs, opacities, bg_color):
-    #     from gsplat import rasterization
-    #     Kmat_img = Kmat.clone()
-    #     Kmat_img[...,0,0] = Kmat_img[...,0,0] * res/2
-    #     Kmat_img[...,1,1] = Kmat_img[...,1,1] * res/2
-    #     Kmat_img[...,0,2] = Kmat_img[...,0,2] * res/2 + res / 2
-    #     Kmat_img[...,1,2] = Kmat_img[...,1,2] * res/2 + res / 2
-    #     quats / quats.norm(dim=-1, keepdim=True)
-    #     bs = means3D.shape[1]
-    #     # # single
-    #     # rendered_rgbds = []
-    #     # rendered_alphas = []
-    #     # for i in range(bs):
-    #     #     if rgbs.ndim==3:
-    #     #         colors = rgbs[:,i]
-    #     #     elif rgbs.ndim==2:
-    #     #         colors = rgbs
-    #     #     else:
-    #     #         raise ValueError
-    #     #     rendered_rgbd, rendered_alpha, meta = rasterization(
-    #     #         means=means3D[:,i], # [N, 3]
-    #     #         quats=quats[:,i], # [N, 4]
-    #     #         scales=scales, # [N, 3]
-    #     #         opacities=opacities[:,0], # [N]
-    #     #         colors=colors, # [N, 3]
-    #     #         viewmats=viewmat[i:i+1, ...], # [1, 4, 4]
-    #     #         Ks=Kmat_img[i:i+1, ...], # [1, 3, 3]
-    #     #         width=res,
-    #     #         height=res,
-    #     #         render_mode="RGB+D",
-    #     #         backgrounds=bg_color,
-    #     #         packed=False,
-    #     #     )
-    #     #     rendered_rgbds.append(rendered_rgbd)
-    #     #     rendered_alphas.append(rendered_alpha)
-    #     # rendered_rgbds = torch.cat(rendered_rgbds, 0) # bs, N, H,W,4
-    #     # rendered_alphas = torch.cat(rendered_alphas, 0) # bs, H,W,1
-
-    #     # batched
-    #     if rgbs.ndim==3:
-    #         colors = rgbs
-    #     elif rgbs.ndim==2:
-    #         colors = rgbs[:,None].repeat(1,bs,1) # N,bs,3
-    #     else:
-    #         raise ValueError
-    #     rendered_rgbds, rendered_alphas, meta = rasterization(
-    #         means=means3D, # [N, bs, 3]
-    #         quats=quats.view(-1,4), # [N*bs, 4]
-    #         scales=scales, # [N, 3]
-    #         opacities=opacities[:,0], # [N]
-    #         colors=colors.transpose(0,1), # [bs, N, 3]
-    #         viewmats=viewmat, # [1, 4, 4]
-    #         Ks=Kmat_img, # [1, 3, 3]
-    #         width=res,
-    #         height=res,
-    #         render_mode="RGB+D",
-    #         backgrounds=bg_color,
-    #         packed=False,
-    #     )
-
-    #     # merge
-    #     rendered_rgbds = rendered_rgbds.permute(0,3,1,2)
-    #     rendered_images = rendered_rgbds[:, :3]
-    #     rendered_depths = rendered_rgbds[:, 3:4]
-    #     rendered_alphas = rendered_alphas[:, None, ..., 0]
-    #     return rendered_images, rendered_depths, rendered_alphas
-
-    # def render(
-    #     self,
-    #     res,
-    #     Kmat,
-    #     w2c=None,
-    #     bg_color=None,
-    #     frameid=None,
-    #     w2c_2=None,
-    #     frameid_2=None,
-    #     Kmat_2=None,
-    # ):
-    #     # rasterizer = self.get_rasterizer(camera_dict, Kmat, bg_color)
-    #     screenspace_points = self.get_screenspace_pts_placeholder(self.gaussians)
-    #     means3D = self.gaussians.get_xyz(frameid)
-    #     means2D = screenspace_points
-    #     means2D_tmp = self.get_screenspace_pts_placeholder(self.gaussians)
-    #     opacity = self.gaussians.get_opacity
-    #     cov3D_precomp = None
-    #     scales = self.gaussians.get_scaling
-    #     rotations = self.gaussians.get_rotation(frameid)
-
-    #     if w2c is not None:
-    #         means3D, rotations = gs_transform(means3D, rotations, w2c)
-    #         xy_1 = pinhole_projection(Kmat, means3D.transpose(0,1)).transpose(0,1)
-    #     else:
-    #         raise NotImplementedError
-
-    #     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
-    #     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
-    #     shs = self.gaussians.get_features(frameid)
-
-    #     # # Rasterize visible Gaussians to image, obtain their radii (on screen).
-    #     # rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
-    #     #     means3D=means3D,
-    #     #     means2D=means2D,
-    #     #     shs=shs,
-    #     #     colors_precomp=None,
-    #     #     opacities=opacity,
-    #     #     scales=scales,
-    #     #     rotations=rotations,
-    #     #     cov3D_precomp=cov3D_precomp,
-    #     # )
-
-    #     identity_viewmat = torch.eye(4, dtype=torch.float32, device="cuda")
-    #     bs = frameid.shape[0]
-    #     identity_viewmat = identity_viewmat[None].repeat(bs, 1, 1)
-    #     rendered_image, rendered_depth, rendered_alpha = self.gsplat_render(
-    #         means3D, scales, rotations, identity_viewmat, Kmat, res,
-    #         SH2RGB(shs[...,0,:]), opacity, bg_color,
-    #     )
-
-    #     with torch.no_grad():
-    #         field_vals = self.gaussians.get_xyz()
-    #         #### render other quantities
-    #         # rasterizer_xyz = self.get_rasterizer(
-    #         #     camera_dict, Kmat, bg_color=torch.zeros_like(self.bg_color)
-    #         # )
-    #         # render_vals, _, _, _ = rasterizer_xyz(
-    #         #     means3D=means3D,
-    #         #     means2D=torch.zeros_like(means2D),
-    #         #     shs=None,
-    #         #     colors_precomp=field_vals,
-    #         #     opacities=opacity,
-    #         #     scales=scales,
-    #         #     rotations=rotations,
-    #         #     cov3D_precomp=cov3D_precomp,
-    #         # )
-    #         ####
-    #         render_vals, _, _ = self.gsplat_render(
-    #             means3D, scales, rotations, identity_viewmat, Kmat, res,
-    #             field_vals, opacity, bg_color
-    #         )
-
-    #     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-    #     # They will be excluded from value updates used in the splitting criteria.
-    #     out_dict = {
-    #         "rgb": rendered_image.clamp(0, 1),
-    #         "depth": rendered_depth,
-    #         "alpha": rendered_alpha,
-    #         # "viewspace_points": screenspace_points,
-    #         # "visibility_mask": radii > 0,
-    #         # "radii": radii,
-    #         # "reproj_xy": xy_1[None, ..., :2],
-    #     }
-    #     out_dict["rgb"] = out_dict["rgb"]
-    #     out_dict["depth"] = out_dict["depth"]
-    #     out_dict["alpha"] = out_dict["alpha"]
-    #     out_dict["xyz"] = render_vals
-
-    #     if self.config["field_type"] == "comp":
-    #         # render mask_fg
-    #         gaussians_fg = self.gaussians.gaussians[1]
-    #         means3D_fg = gaussians_fg.get_xyz(frameid)
-    #         means2D_fg = self.get_screenspace_pts_placeholder(gaussians_fg)
-    #         opacity_fg = gaussians_fg.get_opacity
-    #         scales_fg = gaussians_fg.get_scaling
-    #         rotations_fg = gaussians_fg.get_rotation(frameid)
-    #         shs_fg = gaussians_fg.get_features(frameid)
-
-    #         w2c_fg = gaussians_fg.get_extrinsics(frameid)
-    #         means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
-
-    #         # _, _, _, rendered_alpha_fg = rasterizer(
-    #         #     means3D=means3D_fg,
-    #         #     means2D=means2D_fg,
-    #         #     shs=shs_fg,
-    #         #     colors_precomp=None,
-    #         #     opacities=opacity_fg,
-    #         #     scales=scales_fg,
-    #         #     rotations=rotations_fg,
-    #         #     cov3D_precomp=None,
-    #         # )
-    #         _, _, rendered_alpha_fg = self.gsplat_render(
-    #             means3D_fg, scales_fg, rotations_fg, identity_viewmat, Kmat, res,
-    #             means3D_fg, opacity_fg, bg_color
-    #         )
-    #         out_dict["mask_fg"] = rendered_alpha_fg
-
-    #     # render flow
-    #     if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
-    #         # rasterizer_flow = self.get_rasterizer(
-    #         #     camera_dict, Kmat, torch.zeros_like(self.bg_color)
-    #         # )
-    #         means3D_2 = self.gaussians.get_xyz(frameid_2)
-    #         rotations_2 = self.gaussians.get_rotation(frameid_2)
-    #         means3D_2, rotations_2 = gs_transform(
-    #             means3D_2, rotations_2, w2c_2
-    #         )
-    #         xy_2 = pinhole_projection(Kmat_2, means3D_2.transpose(0,1)).transpose(0,1)
-    #         # flow, _, _, _ = rasterizer_flow(
-    #         #     means3D=means3D,
-    #         #     means2D=means2D_tmp,
-    #         #     shs=None,
-    #         #     colors_precomp=(xy_2 - xy_1),
-    #         #     opacities=opacity,
-    #         #     scales=scales,
-    #         #     rotations=rotations,
-    #         #     cov3D_precomp=cov3D_precomp,
-    #         # )
-    #         flow, _, _ = self.gsplat_render(
-    #             means3D, scales, rotations, identity_viewmat, Kmat, res,
-    #             (xy_2 - xy_1), opacity, bg_color
-    #         )
-    #         out_dict["flow"] = flow[:, :2] * res / 2
-    #         # out_dict["means2D_tmp"] = means2D_tmp
-            
-    #         # Gaussian Flow, 10x slower
-    #         # _, _, _, _, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2, _, _, _ = rasterizer_flow(
-    #         #     means3D=means3D_2,
-    #         #     means2D=means2D_tmp,
-    #         #     shs=None,
-    #         #     colors_precomp=(xy_2 - xy_1),
-    #         #     opacities=opacity,
-    #         #     scales=scales,
-    #         #     rotations=rotations_2,
-    #         #     cov3D_precomp=cov3D_precomp,
-    #         # )
-    #         # flow = self.compute_flow_gauss(proj_2D_t_1, cov2D_inv_t_1, gs_per_pixel, weight_per_gs_pixel, x_mu, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2)
-    #         # out_dict["flow"] = flow[None, :2]
-
-    #     # save aux for densification
-    #     if self.training:
-    #         if hasattr(self, "rendered_aux"):
-    #             self.rendered_aux.append(out_dict)
-    #         else:
-    #             self.rendered_aux = [out_dict]
-    #     return out_dict
 
     @staticmethod
     def gsplat_render(means3D, scales, quats, viewmat, Kmat, res, feat_dict, opacities, bg_color):
@@ -535,32 +293,20 @@ class GSplatModel(nn.Module):
         self,
         res,
         Kmat,
-        w2c=None,
+        w2c,
         bg_color=None,
         frameid=None,
-        w2c_2=None,
-        frameid_2=None,
-        Kmat_2=None,
+        render_flow=False,
     ):
-        screenspace_points = self.get_screenspace_pts_placeholder(self.gaussians)
-        means3D = self.gaussians.get_xyz(frameid)
-        means2D = screenspace_points
-        means2D_tmp = self.get_screenspace_pts_placeholder(self.gaussians)
         opacity = self.gaussians.get_opacity
-        cov3D_precomp = None
         scales = self.gaussians.get_scaling
+        means3D = self.gaussians.get_xyz(frameid)
         rotations = self.gaussians.get_rotation(frameid)
-
-        if w2c is not None:
-            means3D, rotations = gs_transform(means3D, rotations, w2c)
-            xy_1 = pinhole_projection(Kmat, means3D.transpose(0,1)).transpose(0,1)
-        else:
-            raise NotImplementedError
-
-        # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
-        # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
         shs = self.gaussians.get_features(frameid)
 
+        means3D, rotations = gs_transform(means3D, rotations, w2c)
+        xy_1 = pinhole_projection(Kmat, means3D.transpose(0,1)).transpose(0,1)[:,:,:2]   
+        
         identity_viewmat = torch.eye(4, dtype=torch.float32, device="cuda")
         bs = frameid.shape[0]
         identity_viewmat = identity_viewmat[None].repeat(bs, 1, 1)
@@ -570,15 +316,11 @@ class GSplatModel(nn.Module):
                         }
         
         # render flow
-        if w2c_2 is not None and frameid_2 is not None and Kmat_2 is not None:
-            means3D_2 = self.gaussians.get_xyz(frameid_2)
-            rotations_2 = self.gaussians.get_rotation(frameid_2)
-            means3D_2, rotations_2 = gs_transform(
-                means3D_2, rotations_2, w2c_2
-            )
-            xy_2 = pinhole_projection(Kmat_2, means3D_2.transpose(0,1)).transpose(0,1)
+        if render_flow:
+            means3D_2 = means3D.view(-1,bs//2,2, 3).flip(2).view(-1,bs,3)
+            xy_2 = xy_1.view(-1,bs//2,2,2).flip(2).view(-1,bs,2)
             # flow filtering
-            flow = (xy_2 - xy_1)[:, :, :2]
+            flow = (xy_2 - xy_1)
             invalid_pts = torch.logical_or(means3D[...,2] < 0.01, means3D_2[...,2] < 0.01)
             flow[invalid_pts] = 0
             # clip large flow
@@ -597,10 +339,6 @@ class GSplatModel(nn.Module):
             "depth": rendered_depth,
             "alpha": rendered_alpha,
             "xyz": rendered_image["xyz"].detach(),
-            # "viewspace_points": screenspace_points,
-            # "visibility_mask": radii > 0,
-            # "radii": radii,
-            # "reproj_xy": xy_1[None, ..., :2],
         }
         if "flow" in feature_dict:
             out_dict["flow"] = rendered_image["flow"]
@@ -609,11 +347,9 @@ class GSplatModel(nn.Module):
             # render mask_fg
             gaussians_fg = self.gaussians.gaussians[1]
             means3D_fg = gaussians_fg.get_xyz(frameid)
-            means2D_fg = self.get_screenspace_pts_placeholder(gaussians_fg)
             opacity_fg = gaussians_fg.get_opacity
             scales_fg = gaussians_fg.get_scaling
             rotations_fg = gaussians_fg.get_rotation(frameid)
-            shs_fg = gaussians_fg.get_features(frameid)
 
             w2c_fg = gaussians_fg.get_extrinsics(frameid)
             means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
@@ -624,61 +360,8 @@ class GSplatModel(nn.Module):
                 feature_dict, opacity_fg, bg_color
             )
             out_dict["mask_fg"] = rendered_alpha_fg
-
-        # save aux for densification
-        if self.training:
-            if hasattr(self, "rendered_aux"):
-                self.rendered_aux.append(out_dict)
-            else:
-                self.rendered_aux = [out_dict]
         return out_dict
 
-    @staticmethod
-    def compute_flow_gauss(proj_2D_t_1, cov2D_inv_t_1, gs_per_pixel, weights, x_mu, proj_2D_t_2, cov2D_inv_t_2, cov2D_t_2):
-        gs_per_pixel = gs_per_pixel.long()
-        weights = weights[:,None]
-        cov2D_t_2_mtx = torch.zeros([cov2D_t_2.shape[0], 2, 2]).cuda()
-        cov2D_t_2_mtx[:, 0, 0] = cov2D_t_2[:, 0]
-        cov2D_t_2_mtx[:, 0, 1] = cov2D_t_2[:, 1]
-        cov2D_t_2_mtx[:, 1, 0] = cov2D_t_2[:, 1]
-        cov2D_t_2_mtx[:, 1, 1] = cov2D_t_2[:, 2]
-
-        cov2D_inv_t_1_mtx = torch.zeros([cov2D_inv_t_1.shape[0], 2, 2]).cuda()
-        cov2D_inv_t_1_mtx[:, 0, 0] = cov2D_inv_t_1[:, 0]
-        cov2D_inv_t_1_mtx[:, 0, 1] = cov2D_inv_t_1[:, 1]
-        cov2D_inv_t_1_mtx[:, 1, 0] = cov2D_inv_t_1[:, 1]
-        cov2D_inv_t_1_mtx[:, 1, 1] = cov2D_inv_t_1[:, 2]
-
-        # B_t_2
-        U_t_2 = torch.svd(cov2D_t_2_mtx)[0]
-        S_t_2 = torch.svd(cov2D_t_2_mtx)[1]
-        V_t_2 = torch.svd(cov2D_t_2_mtx)[2]
-        B_t_2 = torch.bmm(torch.bmm(U_t_2, torch.diag_embed(S_t_2)**(1/2)), V_t_2.transpose(1,2))
-
-        # B_t_1 ^(-1)
-        U_inv_t_1 = torch.svd(cov2D_inv_t_1_mtx)[0]
-        S_inv_t_1 = torch.svd(cov2D_inv_t_1_mtx)[1]
-        V_inv_t_1 = torch.svd(cov2D_inv_t_1_mtx)[2]
-        B_inv_t_1 = torch.bmm(torch.bmm(U_inv_t_1, torch.diag_embed(S_inv_t_1)**(1/2)), V_inv_t_1.transpose(1,2))
-
-        # calculate B_t_2*B_inv_t_1
-        B_t_2_B_inv_t_1 = torch.bmm(B_t_2, B_inv_t_1)
-
-        # calculate cov2D_t_2*cov2D_inv_t_1
-        # cov2D_t_2cov2D_inv_t_1 = torch.zeros([cov2D_inv_t_2.shape[0],2,2]).cuda()
-        # cov2D_t_2cov2D_inv_t_1[:, 0, 0] = cov2D_t_2[:, 0] * cov2D_inv_t_1[:, 0] + cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 1]
-        # cov2D_t_2cov2D_inv_t_1[:, 0, 1] = cov2D_t_2[:, 0] * cov2D_inv_t_1[:, 1] + cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 2]
-        # cov2D_t_2cov2D_inv_t_1[:, 1, 0] = cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 0] + cov2D_t_2[:, 2] * cov2D_inv_t_1[:, 1]
-        # cov2D_t_2cov2D_inv_t_1[:, 1, 1] = cov2D_t_2[:, 1] * cov2D_inv_t_1[:, 1] + cov2D_t_2[:, 2] * cov2D_inv_t_1[:, 2]
-
-        # # isotropic version of GaussianFlow
-        # predicted_flow_by_gs = (proj_2D_t_2[gs_per_pixel] - proj_2D_t_1[gs_per_pixel].detach()).permute(0,3,1,2) * weights.detach()
-
-        # full formulation of GaussianFlow
-        cov_multi = (B_t_2_B_inv_t_1[gs_per_pixel] @ x_mu.permute(0,2,3,1).unsqueeze(-1).detach()).squeeze()
-        predicted_flow_by_gs = (cov_multi + proj_2D_t_2[gs_per_pixel] - proj_2D_t_1[gs_per_pixel].detach()).permute(0,3,1,2) - x_mu.detach()
-        predicted_flow_by_gs = predicted_flow_by_gs * weights.detach()
-        return predicted_flow_by_gs.sum(0)
 
     def get_default_cam(self, render_resolution):
         # focal=1 corresponds to 90 degree fov and identity projection matrix
@@ -720,13 +403,12 @@ class GSplatModel(nn.Module):
         else:
             Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs))
         Kmat_unit = self.compute_render_Kmat(crop_size, crop2raw, Kmat_raw)
-        cam_dict = self.get_default_cam(crop_size)
         if "field2cam" in batch:
             w2c = batch["field2cam"]["fg"]
             w2c = quaternion_translation_to_se3(w2c[..., :4], w2c[..., 4:])
         else:
             w2c = self.gaussians.get_extrinsics(frameid_abs)
-        return cam_dict, Kmat_unit, w2c
+        return Kmat_unit, w2c
 
     def compute_recon_losses(self, loss_dict, rendered, batch):
         # reference view loss
@@ -763,20 +445,6 @@ class GSplatModel(nn.Module):
         # cv2.imwrite("tmp/0.jpg", flow_vis)
         # cv2.imwrite("tmp/1.jpg", flow_vis_gt)
 
-    def update_visibility_stats(self, rendered, batch):
-        """update pts visibility"""
-        # oom: pts not in ref_mask and pts inside of vis2d
-        reproj_xy = rendered["reproj_xy"][:, :, None]
-        # resample ref_mask based of reproj_xy
-        mask = batch["mask"].float()
-        # dilate the mask
-        mask = F.max_pool2d(mask, 3, stride=1, padding=1)
-        outside_mask = F.grid_sample(mask, reproj_xy, align_corners=True) == 0
-        # inside_vis2d = F.grid_sample(ref_vis2d, reproj_xy, align_corners=True) > 0
-        # is_oom = (outside_mask & inside_vis2d)[:, 0, :].float().mean(0)
-        is_oom = outside_mask[:, 0, :].float().mean(0)
-        self.gaussians.add_xyz_vis_stats(is_oom, torch.ones_like(is_oom[..., 0]) > 0)
-
     def forward(self, batch):
         """Run forward pass and compute losses
 
@@ -798,16 +466,14 @@ class GSplatModel(nn.Module):
         if get_local_rank()==0 and self.config["use_gui"]:
             self.gui.update()
         self.process_frameid(batch)
-        cam_dict, Kmat, w2c = self.compute_camera_samples(
-            batch, self.config["train_res"]
-        )
+        Kmat, w2c = self.compute_camera_samples(batch, self.config["train_res"])
         frameid = batch["frameid"]
 
         # TODO: get deformation before rendering
         self.gaussians.update_trajectory(frameid)
 
         # render reference view
-        rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
+        rendered = self.render_pair(self.config["train_res"], Kmat, w2c=w2c, frameid=frameid)
         self.reshape_batch(rendered)
 
         # prepare reference view GT
@@ -826,8 +492,6 @@ class GSplatModel(nn.Module):
 
         # weight each loss term
         self.apply_loss_weights(loss_dict, self.config)
-
-        # self.update_visibility_stats(rendered, batch)
         return loss_dict
 
     @staticmethod
@@ -916,8 +580,7 @@ class GSplatModel(nn.Module):
         render_size = crop_size
         frameid = batch["frameid"]
         # NOTE: gradient from diffusion might make the camera optimization unstable
-        cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
-        cam_dict["render_resolution"] = render_size
+        Kmat, w2c = self.compute_camera_samples(batch, crop_size)
 
         # prepare for diffusion, only use one frame
         frameid = frameid[0]
@@ -1216,13 +879,13 @@ class GSplatModel(nn.Module):
             crop_size = self.config["render_res"]
         else:
             crop_size = self.config["eval_res"]
-        cam_dict, Kmat, w2c = self.compute_camera_samples(batch, crop_size)
+        Kmat, w2c = self.compute_camera_samples(batch, crop_size)
         frameid = batch["frameid"]
 
         # TODO: get deformation before rendering
         self.gaussians.update_trajectory(frameid)
 
-        rendered = self.render_pair(cam_dict, Kmat, w2c=w2c, frameid=frameid)
+        rendered = self.render_pair(crop_size, Kmat, w2c=w2c, frameid=frameid)
         # if augment_nv:
         #     self.augment_visualization_nv(rendered, cam_dict, Kmat, w2c, frameid)
 
@@ -1426,22 +1089,6 @@ class GSplatModel(nn.Module):
         aabb = {}
         aabb["fg"] = self.gaussians.get_aabb()[None]
         return aabb
-
-    def update_densification_stats(self):
-        grads = []
-        vis_masks = []
-        for aux in self.rendered_aux:
-            if aux["viewspace_points"].grad is None:
-                continue
-            grad = aux["viewspace_points"].grad
-            # if "means2D_tmp" in aux.keys():
-            #     grad = grad + aux["means2D_tmp"].grad
-            grads.append(grad)
-            vis_masks.append(aux["visibility_mask"])
-        len_grads = len(grads)
-        for grad, vis_mask in zip(grads, vis_masks):
-            # d(L1+L2)/dx = dL1/dx + dL2/dx
-            self.gaussians.add_xyz_grad_stats(grad * len_grads, vis_mask)
 
     def mlp_init(self):
         """Initialize camera transforms, geometry, articulations, and camera

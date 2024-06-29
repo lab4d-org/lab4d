@@ -1033,7 +1033,6 @@ class GaussianModel(nn.Module):
                 quat_delta = self._trajectory[:, frameid, :4]
             elif self.mode=="fg":
                 # lab4d model (fourier basis motion)
-                # xyz_t, warp_dict = field.warp(xyz_repeated_in, frameid, inst_id, return_aux=True)
                 chunk_size = 64
                 xyz_t, dq_r, dq_t = [], [], []
                 for idx in range(0, len(frameid), chunk_size):
