@@ -66,6 +66,7 @@ def load_lab4d(config):
     for cate, field in model.fields.field_params.items():
         color = field.extract_canonical_color(meshes[cate])
         meshes[cate].visual.vertex_colors[:,:3] = color * 255
+    model = model.cpu()
     return model, meshes
 
 def fake_a_pair(tensor):

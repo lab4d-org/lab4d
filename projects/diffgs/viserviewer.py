@@ -205,7 +205,7 @@ class ViserViewer:
                         min(self.frameid_sub_slider.value, self.sublen[inst_id]-1)
                     ]
                     if not self.pause_time:
-                        self.frameid_sub_slider.value += 1
+                        self.frameid_sub_slider.value = min(self.frameid_sub_slider.value+1, self.sublen[inst_id]-1)
                     frameid = self.frame_offset[inst_id] + frameid_sub
 
                     intrinsics = self.intrinsics

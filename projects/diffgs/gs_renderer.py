@@ -283,20 +283,18 @@ class GaussianModel(nn.Module):
             num_pts = config["num_pts"]
             if self.mode == "bg":
                 num_pts *= 10
-            if self.lab4d_model is None:
-                mean_depth = data_info["rtmat"][1][:, 2, 3].mean()
-                self.initialize(num_pts=num_pts, radius=mean_depth * 0.2)
-            else:
-                mesh = lab4d_meshes[self.mode]
-                pts, _, colors = trimesh.sample.sample_surface(mesh, num_pts, sample_color=True)
-                scale_field = self.lab4d_model.fields.field_params[self.mode]
-                self.scale_field = scale_field.logscale.exp()
-                pcd = BasicPointCloud(
-                    pts / self.scale_field.detach().cpu().numpy(),
-                    colors[:, :3] / 255,
-                    np.zeros((pts.shape[0], 3)),
-                )
-                self.initialize(input=pcd)
+            
+            # initialize with lab4d
+            mesh = lab4d_meshes[self.mode]
+            pts, _, colors = trimesh.sample.sample_surface(mesh, num_pts, sample_color=True)
+            scale_field = self.lab4d_model.fields.field_params[self.mode]
+            self.register_buffer("scale_field", scale_field.logscale.exp())
+            pcd = BasicPointCloud(
+                pts / self.scale_field.detach().cpu().numpy(),
+                colors[:, :3] / 255,
+                np.zeros((pts.shape[0], 3)),
+            )
+            self.initialize(input=pcd)
 
             # # DEBUG
             # mesh = trimesh.load("tmp/0.obj")
@@ -341,6 +339,9 @@ class GaussianModel(nn.Module):
 
         # extrinsics
         self.construct_extrinsics(config, data_info)
+
+        # init proxy
+        self.update_geometry_aux()
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -558,6 +559,7 @@ class GaussianModel(nn.Module):
         # add bone center / joints
         dev = self.parameters().__next__().device
         frameid = torch.tensor([0], device=dev)[0]
+        self.update_trajectory(frameid)
         self.proxy_geometry = self.create_mesh_visualization(frameid=frameid,all_pts=False)
 
     @torch.no_grad()
