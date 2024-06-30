@@ -66,6 +66,9 @@ def load_lab4d(config):
     for cate, field in model.fields.field_params.items():
         color = field.extract_canonical_color(meshes[cate])
         meshes[cate].visual.vertex_colors[:,:3] = color * 255
+        # # from scratch
+        # if len(flags_path) == 0 and cate=="fg":
+        #     meshes[cate].apply_scale(0.5)
     model = model.cpu()
     return model, meshes
 
@@ -304,7 +307,7 @@ class GSplatModel(nn.Module):
         scales = self.gaussians.get_scaling
         means3D = self.gaussians.get_xyz(frameid)
         rotations = self.gaussians.get_rotation(frameid)
-        shs = self.gaussians.get_features(frameid)
+        shs = self.gaussians.get_colors(frameid)
 
         means3D, rotations = gs_transform(means3D, rotations, w2c)
         xy_1 = pinhole_projection(Kmat, means3D.transpose(0,1)).transpose(0,1)[:,:,:2]   
@@ -314,7 +317,8 @@ class GSplatModel(nn.Module):
         identity_viewmat = identity_viewmat[None].repeat(bs, 1, 1)
         feature_dict = {
                         "rgb": SH2RGB(shs[...,0,:]),
-                        "xyz": self.gaussians.get_xyz(),
+                        "xyz": self.gaussians.get_xyz().detach(),
+                        "feat": self.gaussians.get_features,
                         }
         
         # render flow
@@ -339,8 +343,10 @@ class GSplatModel(nn.Module):
         out_dict = {
             "rgb": rendered_image["rgb"].clamp(0, 1),
             "depth": rendered_depth,
+            "feature": rendered_image["feat"],
+            "feature_fg": rendered_image["feat"],
             "alpha": rendered_alpha,
-            "xyz": rendered_image["xyz"].detach(),
+            "xyz": rendered_image["xyz"],
         }
         if "flow" in feature_dict:
             out_dict["flow"] = rendered_image["flow"]
@@ -416,12 +422,13 @@ class GSplatModel(nn.Module):
 
     def compute_recon_losses(self, loss_dict, rendered, batch):
         # reference view loss
+        config = self.config
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
-        if self.config["field_type"]=="bg":
+        if config["field_type"]=="bg":
             loss_dict["mask"] = (rendered["alpha"] - 1).pow(2)
-        elif self.config["field_type"]=="fg":
+        elif config["field_type"]=="fg":
             loss_dict["mask"] = (rendered["alpha"] - batch["mask"].float()).pow(2)
-        elif self.config["field_type"]=="comp":
+        elif config["field_type"]=="comp":
             rendered_fg_mask = rendered["mask_fg"]
             loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] += (rendered["alpha"] - 1).pow(2)
@@ -429,6 +436,13 @@ class GSplatModel(nn.Module):
         loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
         loss_dict["depth"] = (rendered["depth"] - batch["depth"]).abs()
         loss_dict["depth"] = loss_dict["depth"] * (batch["depth"] > 0).float()
+        
+        if config["field_type"] == "fg" or config["field_type"] == "comp":
+            feature_loss_fg = F.normalize(rendered["feature_fg"], 2,1) - batch["feature"]
+            feature_loss_fg = feature_loss_fg.norm(2, 1, keepdim=True)
+            feature_loss_fg = feature_loss_fg * batch["mask"].float()
+            loss_dict["feature"] = feature_loss_fg
+
         # mask_balance_wt = get_mask_balance_wt(
         #     batch["mask"], batch["vis2d"], batch["is_detected"]
         # )
@@ -487,6 +501,13 @@ class GSplatModel(nn.Module):
         loss_dict = {}
         self.compute_recon_losses(loss_dict, rendered, batch)
         self.mask_losses(loss_dict, batch, rendered["alpha"], self.config)
+
+        # sampled recon loss
+        if self.config["xyz_wt"] > 0:
+            loss_dict["xyz"],_,_ = self.gaussians.feature_matching_loss(
+                                            batch["feature"], 
+                                            rendered["xyz"], 
+                                            batch["mask"])
 
         # compute regularization loss
         self.compute_reg_loss(loss_dict, frameid)
@@ -678,6 +699,12 @@ class GSplatModel(nn.Module):
         if self.config["reg_lab4d_wt"] > 0:
             loss_dict["reg_lab4d"] = self.gaussians.get_lab4d_loss(frameid)
 
+        if self.config["reg_gauss_skin_wt"] > 0:
+            loss_dict["reg_gauss_skin"] = self.gaussians.gauss_skin_consistency_loss()
+
+        if self.config["reg_skel_prior_wt"] > 0:
+            loss_dict["reg_skel_prior"] = self.gaussians.skel_prior_loss()
+
     @staticmethod
     def mask_losses(loss_dict, batch, mask_pred, config):
         """Apply segmentation mask on dense losses
@@ -700,9 +727,9 @@ class GSplatModel(nn.Module):
         # always mask-out non-visible (out-of-frame) pixels
         keys_allpix = ["mask"]
         # field type specific keys
-        keys_type_specific = ["flow", "rgb", "depth"]
+        keys_type_specific = ["flow", "rgb", "depth", "feature"]
         # rendered-mask weighted losses
-        keys_mask_weighted = ["flow", "rgb", "depth"]
+        keys_mask_weighted = ["flow", "rgb", "depth", "feature"]
 
         # type-specific masking rules
         if config["field_type"] == "bg":
@@ -731,6 +758,7 @@ class GSplatModel(nn.Module):
         # remove mask loss for frames without detection
         if config["field_type"] == "fg" or config["field_type"] == "comp":
             loss_dict["mask"] = loss_dict["mask"] * is_detected
+            loss_dict["feature"] = loss_dict["feature"] * is_detected
 
     @staticmethod
     def apply_loss_weights(loss_dict, config):
@@ -903,7 +931,7 @@ class GSplatModel(nn.Module):
             rendered[k] = v[:, 0]
 
         scalars = {}
-        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": []}
+        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": []}
         for k, v in rendered.items():
             if k in out_dict.keys():
                 out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()
@@ -1102,6 +1130,7 @@ class GSplatModel(nn.Module):
         intrinsics for all neural fields from external priors
         """
         self.gaussians.init_camera_mlp()
+        self.gaussians.init_deform_mlp()
 
 
 if __name__ == "__main__":

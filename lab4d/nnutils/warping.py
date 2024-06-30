@@ -579,11 +579,11 @@ class SkinningWarp(IdentityWarp):
         density = density[..., None]
         return density
 
-    def get_gauss_pts(self):
+    def get_gauss_pts(self, radius=1):
         """Sample points from Gaussian bones"""
         articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
         articulation = (articulation[0][0], articulation[1][0])
-        pts = self.skinning_model.get_gauss_pts(articulation)
+        pts = self.skinning_model.get_gauss_pts(articulation, radius=radius)
         return pts
 
     def get_gauss_vis(self, show_joints=False):

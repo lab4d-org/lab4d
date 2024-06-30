@@ -7,7 +7,8 @@ import open3d as o3d
 import open3d.core as o3c
 import pdb
 
-# from plyfile import PlyData, PlyElement
+os.environ["CUDA_PATH"] = sys.prefix  # needed for geomloss
+from geomloss import SamplesLoss
 
 import torch
 from torch import nn
@@ -18,9 +19,11 @@ from simple_knn._C import distCUDA2
 sys.path.insert(0, os.getcwd())
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.predictor.predictor import CameraPredictor, TrajPredictor
+from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.base import CondMLP, ScaleLayer
 from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
-from lab4d.nnutils.pose import CameraConst, CameraExplicit
+from lab4d.nnutils.pose import CameraConst, CameraExplicit, CameraMLP_so3
+from lab4d.nnutils.warping import SkinningWarp
 from lab4d.utils.quat_transform import (
     quaternion_translation_to_se3,
     quaternion_mul,
@@ -89,6 +92,8 @@ def inverse_sigmoid(x):
 def normalize_quaternion(q):
     return torch.nn.functional.normalize(q, 2, -1)
 
+def normalize_feature(feat):
+    return F.normalize(feat, 2, -1)
 
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
@@ -269,11 +274,12 @@ class GaussianModel(nn.Module):
         if self.is_leaf():
             self.max_sh_degree = sh_degree
             self._xyz = torch.empty(0)
-            self._features_dc = torch.empty(0)
-            self._features_rest = torch.empty(0)
+            self._color_dc = torch.empty(0)
+            self._color_rest = torch.empty(0)
             self._scaling = torch.empty(0)
             self._rotation = torch.empty(0)
             self._opacity = torch.empty(0)
+            self._feature = torch.empty(0)
             self.xyz_gradient_accum = torch.empty(0)
             self.denom = torch.empty(0)
             self.xyz_vis_accum = torch.empty(0)
@@ -358,6 +364,8 @@ class GaussianModel(nn.Module):
         self.opacity_activation = torch.sigmoid
         self.inverse_opacity_activation = inverse_sigmoid
 
+        self.feature_activation = normalize_feature
+
         self.rotation_activation = normalize_quaternion
 
     def initialize(self, input=None, num_pts=5000, radius=0.5):
@@ -384,8 +392,18 @@ class GaussianModel(nn.Module):
     def init_camera_mlp(self):
         if isinstance(self.gs_camera_mlp, CameraPredictor):
             self.gs_camera_mlp.init_weights()
+        if isinstance(self.gs_camera_mlp, CameraMLP_so3):
+            self.gs_camera_mlp.mlp_init()
         for gaussians in self.gaussians:
             gaussians.init_camera_mlp()
+
+    def init_deform_mlp(self):
+        if self.is_leaf():
+            field = self.lab4d_model.fields.field_params[self.mode]
+            if "skel-" in field.fg_motion or "urdf-" in field.fg_motion:
+                field.warp.articulation.mlp_init()
+        for gaussians in self.gaussians:
+            gaussians.init_deform_mlp()
 
     def frame_id_to_sub(self, frame_id, inst_id):
         """Convert frame id to frame id relative to the video.
@@ -405,10 +423,18 @@ class GaussianModel(nn.Module):
         """
         transormation from current node to parent node
         """
-        if frameid is not None and not torch.is_tensor(frameid):
-            dev = self.parameters().__next__().device
-            frameid = torch.tensor(frameid, dtype=torch.long, device=dev)
-        quat, trans = self.gs_camera_mlp.get_vals(frameid)
+        if frameid is not None:
+            if not torch.is_tensor(frameid):
+                dev = self.parameters().__next__().device
+                frameid = torch.tensor(frameid, dtype=torch.long, device=dev)
+
+            shape = frameid.shape
+            quat, trans = self.gs_camera_mlp.get_vals(frameid.view(-1))
+            quat = quat.view(shape+(4,))
+            trans = trans.view(shape+(3,))
+        else:
+            quat, trans = self.gs_camera_mlp.get_vals(frameid)
+
         if return_qt:
             return (quat, trans)
         else:
@@ -509,12 +535,12 @@ class GaussianModel(nn.Module):
                 rt_tensor.append(xyz)
             return torch.cat(rt_tensor, dim=0)
 
-    def get_features(self, frameid=None):
+    def get_colors(self, frameid=None):
         if self.is_leaf():
             # N, k, 3
-            features_dc = self._features_dc
-            features_rest = self._features_rest
-            shs = torch.cat((features_dc, features_rest), dim=1)
+            color_dc = self._color_dc
+            color_rest = self._color_rest
+            shs = torch.cat((color_dc, color_rest), dim=1)
 
             if frameid is None:
                 return shs
@@ -534,7 +560,7 @@ class GaussianModel(nn.Module):
         else:
             rt_tensor = []
             for gaussians in self.gaussians:
-                rt_tensor.append(gaussians.get_features(frameid))
+                rt_tensor.append(gaussians.get_colors(frameid))
             return torch.cat(rt_tensor, dim=0)
 
     @property
@@ -545,6 +571,16 @@ class GaussianModel(nn.Module):
             rt_tensor = []
             for gaussians in self.gaussians:
                 rt_tensor.append(gaussians.get_opacity)
+            return torch.cat(rt_tensor, dim=0)
+
+    @property
+    def get_features(self):
+        if self.is_leaf():
+            return self.feature_activation(self._feature)
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_features)
             return torch.cat(rt_tensor, dim=0)
 
     @property
@@ -574,6 +610,14 @@ class GaussianModel(nn.Module):
         mesh = mesh_cat(mesh_geo, mesh_cam)
 
         mesh.export("%s-proxy.obj" % (path))
+
+        if self.mode=="fg":
+            field = self.lab4d_model.fields.field_params["fg"]
+            if isinstance(field.warp, SkinningWarp):
+                mesh_gauss = field.warp.get_gauss_vis()
+                scale_fg = self.scale_field.detach().cpu().numpy()
+                mesh_gauss.apply_scale(1./scale_fg)
+                mesh_gauss.export("%s-gauss.obj" % path)
 
     @torch.no_grad()
     def create_mesh_visualization(self, frameid=None, all_pts=True, opacity_th=0.1, vis_portion=0.1):
@@ -656,28 +700,36 @@ class GaussianModel(nn.Module):
         features[:, :3, 0] = shs
         features[:, 3:, 1:] = 0.0
 
-        self._features_dc = nn.Parameter(
+        self._color_dc = nn.Parameter(
             features[:, :, 0:1].transpose(1, 2).contiguous()
         )
-        self._features_rest = nn.Parameter(
+        self._color_rest = nn.Parameter(
             features[:, :, 1:].transpose(1, 2).contiguous()
         )
 
+        Npts = pts.shape[0]
         if scales is None:
-            scales = torch.zeros((pts.shape[0], 3))
+            scales = torch.zeros((Npts, 3))
             scales[:] = np.log(np.sqrt(0.002))
         elif not torch.is_tensor(scales):
             scales = torch.tensor(scales, dtype=torch.float)
         self._scaling = nn.Parameter(scales)
 
-        rots = torch.zeros((pts.shape[0], 4))
+        rots = torch.zeros((Npts, 4))
         rots[:, 0] = 1
         self._rotation = nn.Parameter(rots)
 
         opacities = self.inverse_opacity_activation(
-            0.9 * torch.ones((pts.shape[0], 1), dtype=torch.float)
+            0.9 * torch.ones((Npts, 1), dtype=torch.float)
         )
         self._opacity = nn.Parameter(opacities)
+
+        features = torch.ones((Npts, 16), dtype=torch.float)
+        features = torch.randn_like(features)
+        self._feature = nn.Parameter(features)
+        # temperature
+        sigma = torch.tensor([1.0])
+        self._logsigma = nn.Parameter(sigma.log())
 
     # @property
     # def get_num_frames(self):
@@ -707,13 +759,15 @@ class GaussianModel(nn.Module):
                     raise NotImplementedError
                 rtmat = data_info["rtmat"][trajectory_id]
 
+        if not config["use_init_cam"]:
+            rtmat[:, :3, :3] = np.eye(3)
         frame_info = data_info["frame_info"]
         if config["extrinsics_type"] == "const":
             self.gs_camera_mlp = CameraConst(rtmat, frame_info)
         elif config["extrinsics_type"] == "explicit":
-            if not config["use_init_cam"]:
-                rtmat[:, :3, :3] = np.eye(3)
             self.gs_camera_mlp = CameraExplicit(rtmat, frame_info=frame_info)
+        elif config["extrinsics_type"] == "mlp":
+            self.gs_camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
         elif config["extrinsics_type"] == "image":
             if config["fg_motion"] == "image":
                 self.gs_camera_mlp = TrajPredictor(
@@ -1174,3 +1228,99 @@ class GaussianModel(nn.Module):
     #     # loss = loss + loss_xyz
 
     #     return loss
+
+    def feature_matching(self, feat_px, num_grad=256):
+        """
+        return 3D points in the canonical space
+        """
+        feat_canonical = self.get_features # N, F
+        xyz_canonical = self.get_xyz().detach() # N,3
+
+        score = (feat_px[:,None] * feat_canonical[None]).sum(-1) # M, N
+
+        # find top K candidates
+        if num_grad > 0:
+            num_grad = min(num_grad, score.shape[1])
+            score, idx = torch.topk(score, num_grad, dim=1, largest=True)
+            xyz_canonical = xyz_canonical[idx]
+        else:
+            xyz_canonical = xyz_canonical[None]
+
+        score = score * self._logsigma.exp() # temperature scaling
+        prob = torch.softmax(score, dim=-1) # normalize along pts dimension
+        xyz_match = torch.sum(prob[:,:,None] * xyz_canonical, dim=1) # M, N, 3 => M, 3
+        
+        return xyz_match
+
+    def sample_feature_px(self, mask_px, nsamp=1024):
+        bs = mask_px.shape[0]
+        nsamp = bs * nsamp # total sample
+
+        mask_px = mask_px.view(-1)
+        valid_idx = torch.where(mask_px>0)[0]
+        samp_idx = valid_idx[torch.randperm(len(valid_idx))[:nsamp]]
+        return samp_idx
+
+    def feature_matching_loss(self, feat_px, xyz_px, mask_px, nsamp=1024):
+        """
+        return 3D points in the canonical space
+        """
+        shape = feat_px.shape # bs, F, ... => bs, M, F
+        bs = shape[0]
+        nfeat = shape[1]
+
+        samp_idx = self.sample_feature_px(mask_px, nsamp=nsamp)
+        feat_px = feat_px.view(bs, nfeat, -1).transpose(-1,-2).reshape(-1,nfeat)
+        xyz_px = xyz_px.view(bs, 3, -1).transpose(-1,-2).reshape(-1,3)
+        feat_px = feat_px[samp_idx] # M, F
+        xyz_px = xyz_px[samp_idx] # M,3
+
+        xyz_match = self.feature_matching(feat_px)
+        xyz_loss = (xyz_px - xyz_match).norm(2,-1).mean()
+        return xyz_loss, xyz_px, xyz_match
+
+    def get_lab4d_field(self):
+        return self.lab4d_model.fields.field_params[self.mode]
+
+    def gauss_skin_consistency_loss(self, nsample=1024):
+        if self.is_leaf():
+            field = self.get_lab4d_field()
+            if isinstance(field.warp, SkinningWarp):
+                scale = self.scale_field.detach()
+                # optimal transport loss
+                device = self.parameters().__next__().device
+                pts = self.get_xyz().detach()
+                pts = pts[np.random.choice(len(pts), nsample)]
+                pts_gauss = field.warp.get_gauss_pts(radius=0.3) / scale
+                samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1)
+                loss = samploss(2 * pts_gauss, 2 * pts).mean()\
+
+                # articulation = field.warp.articulation.get_mean_vals()  # (1,K,4,4)
+                # _, pts_gauss = dual_quaternion_to_quaternion_translation(articulation)
+                # pts_gauss = pts_gauss[0] / scale
+                # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
+                # loss = samploss(2*pts_gauss, 2*pts).mean()
+
+            else:
+                loss = torch.tensor(0.0, device=self.parameters().__next__().device)
+            return loss
+        else:
+            loss = []
+            for gaussians in self.gaussians:
+                loss.append(gaussians.gauss_skin_consistency_loss())
+            return torch.cat(loss).mean()
+
+        
+    def skel_prior_loss(self):
+        if self.is_leaf():
+            field = self.get_lab4d_field()
+            if "urdf-" in field.fg_motion or "skel-" in field.fg_motion:
+                loss = field.warp.articulation.skel_prior_loss()
+            else:
+                loss = torch.tensor(0.0, device=self.parameters().__next__().device)
+            return loss
+        else:
+            loss = []
+            for gaussians in self.gaussians:
+                loss.append(gaussians.skel_prior_loss())
+            return torch.cat(loss).mean()

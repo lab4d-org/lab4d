@@ -270,8 +270,8 @@ class GSplatTrainer(Trainer):
         self.grad_queue = {}
         self.param_clip_startwith = {
             # "module.gaussians._xyz": 5,
-            # "module.gaussians._features_dc": 5,
-            # "module.gaussians._features_rest": 5,
+            # "module.gaussians._color_dc": 5,
+            # "module.gaussians._color_rest": 5,
             # "module.gaussians._scaling": 5,
             # "module.gaussians._rotation": 5,
             # "module.gaussians._opacity": 5,
@@ -395,8 +395,8 @@ class GSplatTrainer(Trainer):
                 "module.bg_color": lr_base * 5,
             }
             param_lr_with = {
-                "._features_dc": lr_base,
-                "._features_rest": lr_base * 0.05,
+                "._color_dc": lr_base,
+                "._color_rest": lr_base * 0.05,
                 "._trajectory": lr_base,
                 ".gs_camera_mlp": lr_base * 2,
             }
@@ -404,6 +404,9 @@ class GSplatTrainer(Trainer):
             if opts["extrinsics_type"] == "image":
                 camera_lr = lr_base * 0.1
                 xyz_lr = lr_base * 0.2
+            elif opts["extrinsics_type"] == "mlp":
+                camera_lr = lr_base * 0.5
+                xyz_lr = lr_base
             else:
                 camera_lr = lr_base * 2
                 xyz_lr = lr_base
@@ -413,11 +416,13 @@ class GSplatTrainer(Trainer):
             }
             param_lr_with = {
                 "._xyz": xyz_lr,
-                "._features_dc": lr_base,
-                "._features_rest": lr_base * 0.05,
+                "._color_dc": lr_base,
+                "._color_rest": lr_base * 0.05,
                 "._scaling": lr_base * 0.5,
                 "._rotation": lr_base * 0.5,
                 "._opacity": lr_base * 5,
+                "._feature": lr_base,
+                "._logsigma": lr_base,
                 "._trajectory": lr_base * 0.5,
                 ".gs_camera_mlp": camera_lr * 0.1,
                 ".lab4d_model": lr_base * 0.1,
@@ -625,3 +630,24 @@ class GSplatTrainer(Trainer):
             param = torch.cat((param, param[clone_mask]))[valid_mask]
             param = nn.Parameter(param.requires_grad_(True))
             set_nested_attr(self.model, name, param)
+
+
+    def model_eval(self):
+        """Evaluate the current model"""
+        ref_dict, rendered = super().model_eval()
+
+        # # do feature matching
+        # # randomly sample px
+        # dev = self.device
+        # feat_px = torch.tensor(ref_dict["ref_feature"], device=dev)
+        # xyz_px = torch.tensor(rendered["xyz"], device=dev)
+        # mask_px = torch.tensor(ref_dict["ref_mask"], device=dev)
+
+        # samp_idx = self.model.gaussians.sample_feature_px(mask_px)
+        # xyz_px = xyz_px.view(-1,3)
+        # feat_px = feat_px.view(-1,feat_px.shape[-1])
+        # feat_px = feat_px[samp_idx] # M, F
+        # xyz_px = xyz_px[samp_idx] # M,3
+
+        # xyz_match = self.model.gaussians.feature_matching(feat_px)
+        # self.visualize_matches(xyz_px, xyz_match, tag="xyz")

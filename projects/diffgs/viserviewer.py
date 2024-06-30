@@ -111,7 +111,7 @@ class ViserViewer:
         )
 
         self.toggle_outputs = self.server.add_gui_dropdown(
-            "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'flow', 'mask_fg'), initial_value="rgb"
+            "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'flow', 'feature', 'mask_fg'), initial_value="rgb"
         )
 
         self.fps = self.server.add_gui_text("FPS", initial_value="-1", disabled=True)
@@ -179,8 +179,6 @@ class ViserViewer:
 
     def set_renderer(self, renderer):
         self.renderer = renderer
-        self.intrinsics = renderer.get_intrinsics(0)[None].cpu().numpy()
-        self.extrinsics = renderer.gaussians.get_extrinsics().detach().cpu().numpy()
 
     @torch.no_grad()
     def update(self):
@@ -205,10 +203,12 @@ class ViserViewer:
                         min(self.frameid_sub_slider.value, self.sublen[inst_id]-1)
                     ]
                     if not self.pause_time:
-                        self.frameid_sub_slider.value = min(self.frameid_sub_slider.value+1, self.sublen[inst_id]-1)
+                        self.frameid_sub_slider.value = int(min(self.frameid_sub_slider.value+1, self.sublen[inst_id]-1))
                     frameid = self.frame_offset[inst_id] + frameid_sub
 
-                    intrinsics = self.intrinsics
+                    intrinsics = self.renderer.get_intrinsics(frameid).cpu().numpy()
+                    extrinsics = self.renderer.gaussians.get_extrinsics(frameid).cpu().numpy()
+
                     if "render_res" in self.renderer.config:
                         res = self.renderer.config["render_res"]
                     else:
@@ -220,7 +220,7 @@ class ViserViewer:
                     crop2raw[:, 0] = W * ratio / res
                     crop2raw[:, 1] = H * ratio / res
                     intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
-                    field2cam = {"fg": w2c[None] @ self.extrinsics[frameid]}
+                    field2cam = {"fg": w2c[None] @ extrinsics}
                     # field2cam = None
                     # crop2raw=np.asarray([[focal_x, focal_y, W/2, H/2]])
                     crop2raw = None
@@ -248,7 +248,7 @@ class ViserViewer:
 
                     toggle_outputs = self.toggle_outputs.value
                     out = outputs[toggle_outputs][0].astype(np.float32)
-                    out = img2color(toggle_outputs, out)
+                    out = img2color(toggle_outputs, out, pca_fn=self.renderer.data_info["apply_pca_fn"])
                 except RuntimeError as e:
                     print(e)
                     interval = 1

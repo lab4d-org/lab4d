@@ -18,6 +18,7 @@ class GSplatConfig:
     flags.DEFINE_integer("sh_degree", 0, "spherical harmonics degree")
     flags.DEFINE_integer("num_pts", 5000, "number of points on the mesh")
     flags.DEFINE_float("inc_warmup_ratio", 0.0, "incremental warmup percentage")
+    flags.DEFINE_float("xyz_wt", 0.1, "weight for feature matching loss")
 
     # init
     flags.DEFINE_bool("use_init_cam", False, "init from provided cam")

@@ -632,6 +632,7 @@ class Trainer:
         #         rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
         #     )
         self.add_scalar(self.log, scalars, self.current_round)
+        return ref_dict, rendered
 
     def visualize_matches(self, xyz, xyz_matches, tag):
         """Visualize dense correspondences outputted by canonical registration
@@ -644,8 +645,8 @@ class Trainer:
         """
         if len(xyz_matches) == 0:
             return
-        xyz = xyz[6].view(-1, 3).detach().cpu().numpy()
-        xyz_matches = xyz_matches[6].view(-1, 3).detach().cpu().numpy()
+        xyz = xyz.view(-1, 3).detach().cpu().numpy()
+        xyz_matches = xyz_matches.view(-1, 3).detach().cpu().numpy()
 
         nsample = 100
         idx = np.random.permutation(len(xyz))[:nsample]

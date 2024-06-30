@@ -167,7 +167,7 @@ class SkinningField(nn.Module):
         log_gauss = log_gauss + self.logscale
         return log_gauss.exp()
 
-    def get_gauss_pts(self, articulation):
+    def get_gauss_pts(self, articulation, radius=1):
         """
         Compute gaussian points (differentiable wrt articulation)
         Args:
@@ -178,7 +178,7 @@ class SkinningField(nn.Module):
         gaussians = self.get_gauss()  # B,3
 
         # append gaussians
-        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        sph = trimesh.creation.uv_sphere(radius=radius, count=[4, 4])
         pts = torch.tensor(sph.vertices, device=dev, dtype=torch.float32)
         pts = pts[:, None] * gaussians[None]  # N,B,3
 
@@ -192,7 +192,7 @@ class SkinningField(nn.Module):
         return pts
 
     @torch.no_grad()
-    def draw_gaussian(self, articulation, edges, show_joints=False):
+    def draw_gaussian(self, articulation, edges, show_joints=False, radius=1):
         """Visualize Gaussian bones as a mesh
 
         Args:
@@ -210,7 +210,7 @@ class SkinningField(nn.Module):
         articulation[:, :3, 3] = trans.cpu().numpy()
 
         # add bone center / joints
-        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        sph = trimesh.creation.uv_sphere(radius=radius, count=[4, 4])
         colormap = get_colormap(self.num_coords, repeat=sph.vertices.shape[0])
         for k, gauss in enumerate(gaussians):
             ellips = sph.copy()
