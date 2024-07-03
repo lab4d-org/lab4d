@@ -135,4 +135,8 @@ To export meshes and motion parameters, run::
       </model-viewer>
   </div>
 
+.. note::
+
+  The default setting may produce broken meshes. To get better one as shown above, train for more iterations by adding `--num_rounds 120`. Also see `this <https://github.com/lab4d-org/lab4d/issues/46#issuecomment-2206518886>`_ for an explanation.
+
 Visit other `tutorials </lab4d/tutorials/#content>`_.
