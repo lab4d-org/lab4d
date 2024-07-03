@@ -9,6 +9,7 @@ echo "using "$ngpu "gpus"
 
 # assign random port
 # https://github.com/pytorch/pytorch/issues/73320
+# torchrun \
 CUDA_VISIBLE_DEVICES=$dev torchrun \
         --nproc_per_node $ngpu --nnodes 1 --rdzv_backend c10d --rdzv_endpoint localhost:0 \
         $main_func \

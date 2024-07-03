@@ -1,0 +1,13 @@
+# download all test data
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/5wfbc692qhpejhyo8u9r0/car-turnaround-2.zip?rlkey=riq060i3wm5raynxryf8g2hcw&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/6w0qgeuc6gh02ix1o1tck/finch.zip?rlkey=jkz09o6ipw0yb78s7qnt9l1n6&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/s/mb7zgk73oomix4s/cat-pikachu-0.zip?dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/mitk5e36hz4anmbksmgki/squirrel.zip?rlkey=xwgee3bc5t0e9lyu8r9oz3oag&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/8yc8vuaimpzctiiszdbku/dog-robolounge.zip?rlkey=ky21wq5ah0na4xutqks6lwzvy&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/s/3w0vhh05olzwwn4/cat-pikachu.zip?dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/5ok2s27p1d1q6wg47ljiu/shiba-haru.zip?rlkey=qqmk353oysw1q05l6xepjw01m&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/yse6ohs6cinot228fup9p/human-cap.zip?rlkey=zwf5t8pefcp0ndebphlyngt9t&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/lgljmx9ckmfif7ovajv6q/penguin.zip?rlkey=rmakdtigf06mqdbu0omr0w569&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/c6lrg2aaabat4gu57avbq/human-48.zip?rlkey=ezpc3k13qgm1yqzm4v897whcj&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/xfaot22qbzz0o0ncl5bna/cat-85.zip?rlkey=wcer6lf0u4en7tjzaonj5v96q&dl=0"
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/h2m7f3jqzm4a2u3lpxhki/dog-98.zip?rlkey=x4fy74mbk7qrhc5ovmt4lwpkg&dl=0"

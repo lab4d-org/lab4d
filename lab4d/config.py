@@ -10,27 +10,28 @@ class TrainModelConfig:
     # weights of reconstruction terms
     flags.DEFINE_float("mask_wt", 0.1, "weight for silhouette loss")
     flags.DEFINE_float("rgb_wt", 0.1, "weight for color loss")
-    flags.DEFINE_float("depth_wt", 1e-4, "weight for depth loss")
+    flags.DEFINE_float("depth_wt", 0.0, "weight for depth loss")
+    flags.DEFINE_float("normal_wt", 0.0, "weight for normal loss")
     flags.DEFINE_float("flow_wt", 0.5, "weight for flow loss")
     flags.DEFINE_float("vis_wt", 1e-2, "weight for visibility loss")
     flags.DEFINE_float("feature_wt", 1e-2, "weight for feature reconstruction loss")
-    flags.DEFINE_float("feat_reproj_wt", 5e-2, "weight for feature reprojection loss")
+    flags.DEFINE_float("feat_reproj_wt", 0.05, "weight for feature reprojection loss")
 
     # weights of regularization terms
     flags.DEFINE_float(
         "reg_visibility_wt", 1e-4, "weight for visibility regularization"
     )
-    flags.DEFINE_float("reg_eikonal_wt", 1e-3, "weight for eikonal regularization")
+    flags.DEFINE_float("reg_eikonal_wt", 0.01, "weight for eikonal regularization")
+    flags.DEFINE_float("reg_eikonal_scale_max", 1, "max scaling for eikonal reg")
     flags.DEFINE_float(
-        "reg_deform_cyc_wt", 0.01, "weight for deform cyc regularization"
+        "reg_deform_cyc_wt", 0.05, "weight for deform cyc regularization"
     )
-    flags.DEFINE_float("reg_delta_skin_wt", 5e-3, "weight for delta skinning reg")
-    flags.DEFINE_float("reg_skin_entropy_wt", 5e-4, "weight for delta skinning reg")
-    flags.DEFINE_float(
-        "reg_gauss_skin_wt", 1e-3, "weight for gauss skinning consistency"
-    )
+    flags.DEFINE_float("reg_delta_skin_wt", 1e-3, "weight for delta skinning reg")
+    flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
+    flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
+    # flags.DEFINE_float("reg_gauss_skin_wt", 0.0, "weight for gauss density loss in 3D")
     flags.DEFINE_float("reg_cam_prior_wt", 0.1, "weight for camera regularization")
-    flags.DEFINE_float("reg_skel_prior_wt", 0.1, "weight for skeleton regularization")
+    flags.DEFINE_float("reg_skel_prior_wt", 0.01, "weight for skeleton regularization")
     flags.DEFINE_float(
         "reg_gauss_mask_wt", 0.01, "weight for gauss mask regularization"
     )
@@ -41,7 +42,8 @@ class TrainModelConfig:
     flags.DEFINE_string(
         "fg_motion", "rigid", "{rigid, dense, bob, skel-human, skel-quad}"
     )
-    flags.DEFINE_bool("single_inst", True, "assume the same morphology over objs")
+    flags.DEFINE_bool("single_inst", True, "assume the same morphology over videos")
+    flags.DEFINE_bool("single_scene", True, "assume the same scene over videos")
 
 
 class TrainOptConfig:
@@ -57,22 +59,25 @@ class TrainOptConfig:
     flags.DEFINE_string("feature_type", "dinov2", "{dinov2, cse}")
     flags.DEFINE_string("load_path", "", "path to load pretrained model")
 
-    # accuracy-related
+    # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")
     flags.DEFINE_integer("num_rounds", 20, "number of rounds to train")
+    flags.DEFINE_integer("num_rounds_cam_init", 10, "number of rounds for camera init")
     flags.DEFINE_integer("iters_per_round", 200, "number of iterations per round")
     flags.DEFINE_integer("imgs_per_gpu", 128, "images samples per iter, per gpu")
     flags.DEFINE_integer("pixels_per_image", 16, "pixel samples per image")
     # flags.DEFINE_integer("imgs_per_gpu", 1, "size of minibatches per iter")
     # flags.DEFINE_integer("pixels_per_image", 4096, "number of pixel samples per image")
-    flags.DEFINE_boolean(
-        "freeze_bone_len", False, "do not change bone length of skeleton"
-    )
+    flags.DEFINE_boolean("use_freq_anneal", True, "whether to use frequency annealing")
     flags.DEFINE_boolean(
         "reset_steps",
         True,
         "reset steps of loss scheduling, set to False if resuming training",
     )
+    flags.DEFINE_boolean("pose_correction", False, "whether to execute pose correction")
+    flags.DEFINE_boolean("alter_flow", False, "alternatve between flow and all terms")
+    flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")
+    flags.DEFINE_boolean("absorb_base", True, "whether to absorb se3 into base")
 
     # efficiency-related
     flags.DEFINE_integer("ngpu", 1, "number of gpus to use")

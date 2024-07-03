@@ -7,8 +7,9 @@ dependencies:
   - python=3.9
   - setuptools=66.0.0
   - pip
-  - pytorch==2.0.0=py3.9_cuda11.7_cudnn8.5.0_0
-  - torchvision
+  - pytorch=2.0.0
+  - pytorch-cuda=11.7
+  - torchvision=0.15.2
   - cudatoolkit-dev=11.7
   - gcc_linux-64=10
   - gxx_linux-64=10
@@ -38,3 +39,5 @@ dependencies:
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
     - openmim
     - pyrender
+    - open3d==0.17.0
+    - geomloss==0.2.6

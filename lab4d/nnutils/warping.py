@@ -6,13 +6,23 @@ from torch.nn import functional as F
 
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
-from lab4d.nnutils.pose import ArticulationFlatMLP, ArticulationSkelMLP
+from lab4d.nnutils.pose import (
+    ArticulationFlatMLP,
+    ArticulationSkelMLP,
+    ArticulationURDFMLP,
+)
 from lab4d.nnutils.skinning import SkinningField
 from lab4d.third_party.nvp import NVP
-from lab4d.utils.geom_utils import dual_quaternion_skinning, marching_cubes, extend_aabb
+from lab4d.utils.geom_utils import (
+    dual_quaternion_skinning,
+    marching_cubes,
+    extend_aabb,
+    linear_blend_skinning,
+)
 from lab4d.utils.quat_transform import dual_quaternion_inverse, dual_quaternion_mul
 from lab4d.utils.transforms import get_xyz_bone_distance, get_bone_coords
 from lab4d.utils.loss_utils import entropy_loss, cross_entropy_skin_loss
+from lab4d.utils.torch_utils import flip_pair
 
 
 def create_warp(fg_motion, data_info):
@@ -41,7 +51,13 @@ def create_warp(fg_motion, data_info):
     elif fg_motion.startswith("skel-"):
         warp = SkinningWarp(
             frame_info,
-            skel_type=fg_motion.split("-")[1],
+            skel_type=fg_motion,
+            joint_angles=joint_angles,
+        )
+    elif fg_motion.startswith("urdf-"):
+        warp = SkinningWarp(
+            frame_info,
+            skel_type=fg_motion,
             joint_angles=joint_angles,
         )
     elif fg_motion.startswith("comp"):
@@ -71,14 +87,14 @@ class IdentityWarp(nn.Module):
         self.num_inst = len(frame_info["frame_offset"]) - 1
 
     def forward(
-        self, xyz, frame_id, inst_id, backward=False, samples_dict={}, return_aux=False
+        self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
     ):
         """
         Args:
             xyz: (M,N,D,3) Points in object canonical space
             frame_id: (M,) Frame id. If None, warp for all frames
             inst_id: (M,) Instance id. If None, warp for the average instance
-            backward (bool): Forward (=> deformed) or backward (=> canonical)
+            type (str): Forward (=> deformed), backward (=> canonical), or flow (t1=>t2)
             samples_dict (Dict): Only used for SkeletonWarp
         Returns:
             xyz: (M,N,D,3) Warped xyz coordinates
@@ -141,14 +157,14 @@ class DenseWarp(IdentityWarp):
         )
 
     def forward(
-        self, xyz, frame_id, inst_id, backward=False, samples_dict={}, return_aux=False
+        self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
     ):
         """
         Args:
             xyz: (M,N,D,3) Points in object canonical space
             frame_id: (M,) Frame id. If None, warp for all frames
             inst_id: (M,) Instance id. If None, warp for the average instance
-            backward (bool): Forward (=> deformed) or backward (=> canonical)
+            type (str): Forward (=> deformed), backward (=> canonical), or flow (t1=>t2)
             samples_dict (Dict): Only used for SkeletonWarp
         Returns:
             xyz: (M,N,D,3) Warped xyz coordinates
@@ -158,11 +174,25 @@ class DenseWarp(IdentityWarp):
         t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
         t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
         embed = torch.cat([xyz_embed, t_embed], dim=-1)
-        if backward:
+        if type == "backward":
             motion = self.backward_map(embed, inst_id)
-        else:
+            out = xyz + motion * 0.1  # control the scale
+        elif type == "forward":
             motion = self.forward_map(embed, inst_id)
-        out = xyz + motion * 0.1  # control the scale
+            out = xyz + motion * 0.1  # control the scale
+        elif type == "flow":
+            # TODO: use dx/dt to compute flow
+            raise NotImplementedError
+            # motion = self.backward_map(embed, inst_id)
+            # xyz_canonical = xyz + motion * 0.1
+            # xyz_canonical_embed = self.pos_embedding(xyz_canonical)
+            # t_embed_flip = flip_pair(t_embed)
+            # embed_flip = torch.cat([xyz_canonical_embed, t_embed_flip], dim=-1)
+            # motion = self.forward_map(embed_flip, inst_id)
+            # out = xyz_canonical + motion * 0.1  # control the scale
+        else:
+            raise NotImplementedError
+
         warp_dict = {}
         if return_aux:
             return out, warp_dict
@@ -199,14 +229,14 @@ class NVPWarp(IdentityWarp):
         )
 
     def forward(
-        self, xyz, frame_id, inst_id, backward=False, samples_dict={}, return_aux=False
+        self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
     ):
         """
         Args:
             xyz: (M,N,D,3) Points in object canonical space
             frame_id: (M) Frame id. If None, warp for all frames
             inst_id: (M) Instance id. If None, warp for the average instance
-            backward (bool): Forward (=> deformed) or backward (=> canonical)
+            type (str): Forward (=> deformed), backward (=> canonical), or flow (t1=>t2)
             samples_dict (Dict): Only used for SkeletonWarp
         Returns:
             out: (..., 3) Warped xyz coordinates
@@ -215,10 +245,18 @@ class NVPWarp(IdentityWarp):
         t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
         t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))  # (M, N, D, x)
         t_embed = t_embed[:, 0]  # (M, D, x) vs (M, N, D, 3)
-        if backward:
+        if type == "backward":
             out = self.map.inverse(t_embed, xyz)
-        else:
+        elif type == "forward":
             out = self.map.forward(t_embed, xyz)
+        elif type == "flow":
+            # TODO: use dx/dt to compute flow
+            raise NotImplementedError
+            # out = self.map.inverse(t_embed, xyz)
+            # t_embed_flip = flip_pair(t_embed)
+            # out = self.map.forward(t_embed_flip, out)
+        else:
+            raise NotImplementedError
         warp_dict = {}
         if return_aux:
             return out, warp_dict
@@ -257,10 +295,21 @@ class SkinningWarp(IdentityWarp):
         if skel_type == "flat":
             self.articulation = ArticulationFlatMLP(frame_info, num_se3)
             symm_idx = None
-        else:
+        elif skel_type.startswith("skel-"):
+            skel_type = skel_type.split("-")[1]
             self.articulation = ArticulationSkelMLP(frame_info, skel_type, joint_angles)
             num_se3 = self.articulation.num_se3
             symm_idx = self.articulation.symm_idx
+        elif skel_type.startswith("urdf-"):
+            skel_type = skel_type.split("-")[1]
+            self.articulation = ArticulationURDFMLP(frame_info, skel_type, joint_angles)
+            num_se3 = self.articulation.num_se3
+            symm_idx = self.articulation.symm_idx
+            init_gauss_scale = (
+                self.articulation.bone_sizes * self.articulation.logscale.exp()
+            )
+        else:
+            raise NotImplementedError
 
         self.skinning_model = SkinningField(
             num_se3,
@@ -275,7 +324,7 @@ class SkinningWarp(IdentityWarp):
         self.logibeta = nn.Parameter(-beta.log())  # beta: transparency
 
     def forward(
-        self, xyz, frame_id, inst_id, backward=False, samples_dict={}, return_aux=False
+        self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
     ):
         """Warp points according to a skinning field and articulated bones
 
@@ -283,7 +332,7 @@ class SkinningWarp(IdentityWarp):
             xyz: (M,N,D,3) Points in object canonical space
             frame_id: (M,) Frame id. If None, warp for all frames
             inst_id: (M,) Instance id. If None, warp for the mean instance
-            backward (bool): Forward (=> deformed) or backward (=> canonical)
+            type (str): Forward (=> deformed), backward (=> canonical), or flow (t1=>t2)
             samples_dict: Time-dependent bone articulations. Keys:
                 "rest_articulation": ((M,B,4), (M,B,4)) and
                 "t_articulation": ((M,B,4), (M,B,4))
@@ -301,17 +350,25 @@ class SkinningWarp(IdentityWarp):
             ) = self.articulation.get_vals_and_mean(frame_id)
 
         # compute per bone se3
-        if backward:
+        if type == "backward":
             se3 = dual_quaternion_mul(
                 rest_articulation, dual_quaternion_inverse(t_articulation)
             )
             articulation = t_articulation
-        else:
+        elif type == "forward":
             se3 = dual_quaternion_mul(
                 t_articulation, dual_quaternion_inverse(rest_articulation)
             )
             articulation = rest_articulation
             frame_id = None
+        elif type == "flow":
+            t_articulation_flip = flip_pair(t_articulation)
+            se3 = dual_quaternion_mul(
+                t_articulation_flip, dual_quaternion_inverse(t_articulation)
+            )
+            articulation = t_articulation
+        else:
+            raise NotImplementedError
 
         articulation = (
             articulation[0][:, None, None].expand(xyz.shape[:3] + (-1, -1)),
@@ -320,13 +377,22 @@ class SkinningWarp(IdentityWarp):
 
         # skinning weights
         skin, delta_skin = self.skinning_model(xyz, articulation, frame_id, inst_id)
+        # # debug: hard selection
+        # max_bone = 3
+        # topk, indices = skin.topk(max_bone, 3, largest=True)
+        # skin = torch.zeros_like(skin).fill_(-torch.inf)
+        # skin = skin.scatter(3, indices, topk)
         skin_prob = skin.softmax(-1)
 
         # left-multiply per-point se3
         out = dual_quaternion_skinning(se3, xyz, skin_prob)
 
+        # # linear blend skinning
+        # out = linear_blend_skinning(se3, xyz, skin_prob)
+
         warp_dict = {}
-        warp_dict["skin_entropy"] = cross_entropy_skin_loss(skin)[..., None]
+        # warp_dict["skin_entropy"] = cross_entropy_skin_loss(skin)[..., None]
+        warp_dict["skin_entropy"] = torch.zeros_like(skin[..., :1])  # TODO: remove
         if delta_skin is not None:
             # (M, N, D, 1)
             warp_dict["delta_skin"] = delta_skin.pow(2).mean(-1, keepdims=True)
@@ -352,6 +418,27 @@ class SkinningWarp(IdentityWarp):
         sdf = sdf + bias
         return sdf
 
+    def get_xyz_bone_distance(self, xyz, bone2obj=None):
+        """
+        Args:
+            xyz: (N, 3) Points in object canonical space
+            bone2obj: ((1/N,B,4), (M,B,4)) Bone-to-object SE(3) transforms,
+        Returns:
+            dist2: (N,B) Squared distance to each bone
+        """
+        if isinstance(self.articulation, ArticulationURDFMLP):
+            # gauss bones + skinning
+            xyz = xyz[:, None, None]  # (N,1,1,3)
+            bone2obj = (
+                bone2obj[0][:, None, None].expand(xyz.shape[0], -1, -1, -1, -1),
+                bone2obj[1][:, None, None].expand(xyz.shape[0], -1, -1, -1, -1),
+            )  # (N,1,1,K,4)
+            dist2 = -self.skinning_model.forward(xyz, bone2obj, None, None)[0][:, 0, 0]
+        else:
+            dist2 = get_xyz_bone_distance(xyz, bone2obj)  # N,K
+            dist2 = dist2 / (0.01) ** 2  # assuming spheres of radius 0.01
+        return dist2
+
     def get_gauss_density(self, xyz, bone2obj=None):
         """Sample volumetric density at Gaussian bones
 
@@ -364,27 +451,40 @@ class SkinningWarp(IdentityWarp):
         """
         if bone2obj is None:
             bone2obj = self.articulation.get_mean_vals()  # 1,K,4,4
-
-        dist2 = get_xyz_bone_distance(xyz, bone2obj)  # N,K
-        dist2 = dist2 / (0.01) ** 2  # assuming spheres of radius 0.01
-
-        # # gauss bones
-        # xyz = xyz[:, None, None]  # (N,1,1,3)
-        # bone2obj = (
-        #     bone2obj[0][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-        #     bone2obj[1][None, None].repeat(xyz.shape[0], 1, 1, 1, 1),
-        # )  # (N,1,1,K,4)
-        # dist2 = -self.skinning_model.forward(
-        #     xyz, bone2obj, None, None, normalize=False
-        # )[0][:, 0, 0]
-
+        dist2 = self.get_xyz_bone_distance(xyz, bone2obj)  # (N,K)
         score = (-0.5 * dist2).exp()  # (N,K)
 
-        # hard selection
-        density = score.max(-1)[0]  # (N,)
+        # # hard selection
+        # density = score.max(-1)[0]  # (N,)
+
+        # soften the density selection
+        mix_prob = F.softmax(-dist2, -1)
+        density = (score * mix_prob).sum(-1)
 
         density = density[..., None]
         return density
+
+    def get_gauss_pts(self):
+        """Sample points from Gaussian bones"""
+        articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
+        articulation = (articulation[0][0], articulation[1][0])
+        pts = self.skinning_model.get_gauss_pts(articulation)
+        return pts
+
+    def get_gauss_vis(self, show_joints=False):
+        """Visualize Gaussians as meshes.
+
+        Args:
+            aabb: (2,3) Axis-aligned bounding box
+        Returns:
+            mesh_gauss (Trimesh): Gaussian density mesh
+        """
+        articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
+        articulation = (articulation[0][0], articulation[1][0])
+        mesh_gauss = self.skinning_model.draw_gaussian(
+            articulation, self.articulation.edges, show_joints=show_joints
+        )
+        return mesh_gauss
 
     def get_template_vis(self, aabb):
         """Visualize Gaussian density and SDF as meshes.
@@ -395,14 +495,10 @@ class SkinningWarp(IdentityWarp):
             mesh_gauss (Trimesh): Gaussian density mesh
             mesh_sdf (Trimesh): SDF mesh
         """
-        articulation = self.articulation.get_mean_vals()  # (1,K,4,4)
-        articulation = (articulation[0][0], articulation[1][0])
-        mesh_gauss = self.skinning_model.draw_gaussian(
-            articulation, self.articulation.edges
-        )
+        mesh_gauss = self.get_gauss_vis()
 
         sdf_func = lambda xyz: self.get_gauss_sdf(xyz)
-        mesh_sdf = marching_cubes(sdf_func, aabb, level=0.005)
+        mesh_sdf = marching_cubes(sdf_func, aabb, level=0.0)
         return mesh_gauss, mesh_sdf
 
 
@@ -427,14 +523,14 @@ class ComposedWarp(SkinningWarp):
         # e.g., comp_skel-human_dense, limited to skel+another type of field
         type_list = warp_type.split("_")[1:]
         assert len(type_list) == 2
-        assert type_list[0] in ["skel-human", "skel-quad"]
+        assert type_list[0] in ["skel-human", "skel-quad", "urdf-human", "urdf-quad"]
         assert type_list[1] in ["bob", "dense"]
         if type_list[1] == "bob":
             raise NotImplementedError
 
         super().__init__(
             frame_info,
-            skel_type=type_list[0].split("-")[1],
+            skel_type=type_list[0],
             joint_angles=joint_angles,
         )
         # self.post_warp = DenseWarp(frame_info, D=2, W=64)
@@ -443,7 +539,7 @@ class ComposedWarp(SkinningWarp):
         # self.post_warp = NVPWarp(frame_info)
 
     def forward(
-        self, xyz, frame_id, inst_id, backward=False, samples_dict={}, return_aux=False
+        self, xyz, frame_id, inst_id, type="forward", samples_dict={}, return_aux=False
     ):
         """Warp points according to a skinning field and articulated bones
 
@@ -451,7 +547,7 @@ class ComposedWarp(SkinningWarp):
             xyz: (M,N,D,3) Points in object canonical space
             frame_id: (M,) Frame id. If None, warp for all frames
             inst_id: (M,) Instance id. If None, warp for the mean instance
-            backward (bool): Forward (=> deformed) or backward (=> canonical)
+            type (str): Forward (=> deformed), backward (=> canonical), or flow (t1=>t2)
             samples_dict: Time-dependent bone articulations. Keys:
                 "rest_articulation": ((M,B,4), (M,B,4)) and
                 "t_articulation": ((M,B,4), (M,B,4))
@@ -459,23 +555,25 @@ class ComposedWarp(SkinningWarp):
             out: (M,N,D,3) Warped xyz coordinates
         """
         # if forward, and has frame_id
-        if not backward and frame_id is not None:
+        if type == "flow":
+            raise NotImplementedError
+        if (type == "forward" or type == "flow") and frame_id is not None:
             xyz = self.post_warp.forward(
-                xyz, frame_id, inst_id, backward=False, samples_dict=samples_dict
+                xyz, frame_id, inst_id, type="forward", samples_dict=samples_dict
             )
 
         out, warp_dict = super().forward(
             xyz,
             frame_id,
             inst_id,
-            backward=backward,
+            type=type,
             samples_dict=samples_dict,
             return_aux=True,
         )
 
-        if backward and frame_id is not None:
+        if (type == "backward" or type == "flow") and frame_id is not None:
             out = self.post_warp.forward(
-                out, frame_id, inst_id, backward=True, samples_dict=samples_dict
+                out, frame_id, inst_id, type="backward", samples_dict=samples_dict
             )
         if return_aux:
             return out, warp_dict
@@ -493,11 +591,11 @@ class ComposedWarp(SkinningWarp):
         Returns:
             dist2: (M, ...) Squared soft deformation distance
         """
-        xyz_t = self.post_warp.forward(xyz, frame_id, inst_id, backward=False)
+        xyz_t = self.post_warp.forward(xyz, frame_id, inst_id, type="forward")
         dist2 = (xyz_t - xyz).pow(2).sum(-1)
 
         # additional cycle consistency regularization for soft deformation
         if isinstance(self.post_warp, DenseWarp):
-            xyz_back = self.post_warp.forward(xyz_t, frame_id, inst_id, backward=True)
+            xyz_back = self.post_warp.forward(xyz_t, frame_id, inst_id, type="backward")
             dist2 = (dist2 + (xyz_t - xyz_back).pow(2).sum(-1)) * 0.5
         return dist2

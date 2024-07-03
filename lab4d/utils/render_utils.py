@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 
-def sample_cam_rays(hxy, Kinv, near_far, n_depth=64, depth=None, perturb=False):
+def sample_cam_rays(hxy, Kinv, near_far, n_depth, depth=None, perturb=False):
     """Sample NeRF rays in camera space
 
     Args:
@@ -14,7 +14,7 @@ def sample_cam_rays(hxy, Kinv, near_far, n_depth=64, depth=None, perturb=False):
         near_far: (M,2) Location of near/far planes per frame
         n_depth (int): Number of points to sample along each ray
         depth: (M,N,D,1) If provided, use these Z-coordinates for each ray sample
-        perturb (bool): If True, use stratified sampling and perturb depth samples
+        perturb (bool): If True, perturb depth samples
     Returns:
         xyz: (M,N,D,3) Ray points in camera space
         dir: (M,N,D,3) Ray directions in camera space
@@ -73,20 +73,18 @@ def render_pixel(field_dict, deltas):
 
     # auxiliary outputs
     if "eikonal" in field_dict:
-        rendered["eikonal"] = field_dict["eikonal"].mean(dim=(-1, -2))  # (M, N)
+        # rendered["eikonal"] = field_dict["eikonal"].mean(dim=(-1, -2))  # (M, N)
+        rendered["eikonal"] = (field_dict["eikonal"][..., 0] * weights.detach()).sum(-1)
 
     if "delta_skin" in field_dict:
         rendered["delta_skin"] = field_dict["delta_skin"].mean(dim=(-1, -2))
 
     # visibility loss
+    is_visible = (transmit[..., None] > 0.4).float()  # a loose threshold
     # part of binary cross entropy: -label * log(sigmoid(vis)), where label is transmit
-    transmit = transmit[..., None].detach()
-    # sharpness = 20  # 0.6->0.88
-    # is_visible = torch.sigmoid(sharpness * (transmit - 0.5))
-    is_visible = transmit
     vis_loss = -(F.logsigmoid(field_dict["vis"]) * is_visible).mean(-2)
     # normalize by the number of visible points
-    vis_loss = vis_loss / is_visible.mean().detach()
+    vis_loss = vis_loss / is_visible.mean()
     rendered["vis"] = vis_loss
 
     # mask for gaussian density
@@ -110,19 +108,19 @@ def compute_weights(density, deltas):
     alpha_p = 1 - torch.exp(-density)  # (M, N, D)
     alpha_p = torch.cat(
         [alpha_p, torch.ones_like(alpha_p[:, :, :1])], dim=-1
-    )  # (M, N, D), [a1,a2,a3,...,an,1]
+    )  # (M, N, D+1), [a1,a2,a3,...,an,1], adding a inf seg at the end
 
     transmit = torch.cumsum(density, dim=-1)
     transmit = torch.exp(-transmit)  # (M, N, D)
     transmit = torch.cat(
         [torch.ones_like(transmit[:, :, :1]), transmit], dim=-1
-    )  # (M, N, D), [1, (1-a1), (1-a1)(1-a2), ..., (1-a1)(1-a2)...(1-an)]
+    )  # (M, N, D+1), [1, (1-a1), (1-a1)(1-a2), ..., (1-a1)(1-a2)...(1-an)]
 
     # aggregate: sum to 1
     # [a1, (1-a1)a2, (1-a1)(1-a2)a3, ..., (1-a1)(1-a2)...(1-an)1]
     weights = alpha_p * transmit  # (M, N, D+1)
-    weights = weights[..., :-1]  # (M, N, D), only take the first D weights
-    transmit = transmit[..., 1:]  # (M, N, D), only take the first D transmits
+    weights = weights[..., :-1]  # (M, N, D), first D weights (might not sum up to 1)
+    transmit = transmit[..., 1:]  # (M, N, D)
     return weights, transmit
 
 
@@ -190,7 +188,7 @@ def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
     Sample @N_importance samples from @bins with distribution defined by @weights.
 
     Inputs:
-        bins: (N_rays, n_samples1) where n_samples is "the number of coarse samples per ray - 2"
+        bins: (N_rays, n_samples+1) where n_samples is "the number of coarse samples per ray - 2"
         weights: (N_rays, n_samples)
         N_importance: the number of samples to draw from the distribution
         det: deterministic or not

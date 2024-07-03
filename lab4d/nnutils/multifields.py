@@ -8,10 +8,12 @@ from torch import nn
 
 from lab4d.nnutils.deformable import Deformable
 from lab4d.nnutils.nerf import NeRF
-from lab4d.nnutils.pose import ArticulationSkelMLP
+from lab4d.nnutils.bgnerf import BGNeRF
+from lab4d.nnutils.pose import ArticulationSkelMLP, CameraMLP_so3
 from lab4d.nnutils.warping import ComposedWarp, SkinningWarp
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
 from lab4d.utils.vis_utils import draw_cams, mesh_cat
+from lab4d.utils.geom_utils import extend_aabb
 
 
 class MultiFields(nn.Module):
@@ -22,10 +24,8 @@ class MultiFields(nn.Module):
         field_type (str): Field type ("comp", "fg", or "bg")
         fg_motion (str): Foreground motion type ("rigid", "dense", "bob",
             "skel-{human,quad}", or "comp_skel-{human,quad}_{bob,dense}")
-        num_inst (int): Number of distinct object instances. If --nosingle_inst
-            is passed, this is equal to the number of videos, as we assume each
-            video captures a different instance. Otherwise, we assume all videos
-            capture the same instance and set this to 1.
+        single_inst (bool): If True, assume the same morphology over videos
+        single_scene (bool): If True, assume the same scene over videos
     """
 
     def __init__(
@@ -33,7 +33,8 @@ class MultiFields(nn.Module):
         data_info,
         field_type="bg",
         fg_motion="rigid",
-        num_inst=None,
+        single_inst=True,
+        single_scene=True,
     ):
         vis_info = data_info["vis_info"]
 
@@ -41,7 +42,8 @@ class MultiFields(nn.Module):
         field_params = nn.ParameterDict()
         self.field_type = field_type
         self.fg_motion = fg_motion
-        self.num_inst = num_inst
+        self.single_inst = single_inst
+        self.single_scene = single_scene
 
         # specify field type
         if field_type == "comp":
@@ -72,6 +74,7 @@ class MultiFields(nn.Module):
         # which is identical to video frameid if # instance=1
         data_info["rtmat"] = data_info["rtmat"][tracklet_id]
         data_info["geom_path"] = data_info["geom_path"][tracklet_id]
+        num_inst = len(data_info["frame_info"]["frame_offset"]) - 1
         if category == "fg":
             # TODO add a flag to decide rigid fg vs deformable fg
             nerf = Deformable(
@@ -79,17 +82,23 @@ class MultiFields(nn.Module):
                 data_info,
                 num_freq_dir=-1,
                 appr_channels=32,
-                num_inst=self.num_inst,
+                num_inst=1 if self.single_inst else num_inst,
                 init_scale=0.2,
             )
             # no directional encoding
         elif category == "bg":
-            nerf = NeRF(
+            if self.single_scene:
+                bg_arch = NeRF
+            else:
+                bg_arch = BGNeRF
+            nerf = bg_arch(
                 data_info,
-                num_freq_xyz=6,
+                D=8,
                 num_freq_dir=0,
                 appr_channels=0,
-                init_scale=0.1,
+                num_inst=num_inst,
+                init_scale=0.05,
+                # init_scale=0.2,
             )
         else:  # exit with an error
             raise ValueError("Invalid category")
@@ -115,6 +124,13 @@ class MultiFields(nn.Module):
             field.pos_embedding.set_alpha(alpha)
             field.pos_embedding_color.set_alpha(alpha)
 
+    def set_importance_sampling(self, use_importance_sampling):
+        """
+        Set inverse sampling for all child fields
+        """
+        for field in self.field_params.values():
+            field.use_importance_sampling = use_importance_sampling
+
     def set_beta_prob(self, beta_prob):
         """Set beta probability for all child fields. This determines the
         probability of instance code swapping
@@ -136,6 +152,7 @@ class MultiFields(nn.Module):
     def reset_geometry_aux(self):
         """Reset proxy geometry and bounds for all child fields"""
         for field in self.field_params.values():
+            print("resetting geometry aux for %s" % field.category)
             field.update_proxy()
             field.update_aabb(beta=0)
             field.update_near_far(beta=0)
@@ -146,7 +163,7 @@ class MultiFields(nn.Module):
         grid_size=64,
         level=0.0,
         inst_id=None,
-        use_visibility=True,
+        vis_thresh=0.0,
         use_extend_aabb=True,
     ):
         """Extract canonical mesh using marching cubes for all child fields
@@ -155,9 +172,8 @@ class MultiFields(nn.Module):
             grid_size (int): Marching cubes resolution
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
-            inst_id: (M,) Instance id. If None, extract for the average instance
-            use_visibility (bool): If True, use visibility mlp to mask out invisible
-              region.
+            inst_id: (int) Instance id. If None, extract for the average instance
+            vis_thresh (float): threshold for visibility value to mask out invisible points.
             use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
               Used at training time.
         Returns:
@@ -169,7 +185,7 @@ class MultiFields(nn.Module):
                 grid_size=grid_size,
                 level=level,
                 inst_id=inst_id,
-                use_visibility=use_visibility,
+                vis_thresh=vis_thresh,
                 use_extend_aabb=use_extend_aabb,
             )
             meshes[category] = mesh
@@ -184,7 +200,7 @@ class MultiFields(nn.Module):
         """
         for category, field in self.field_params.items():
             # print(field.near_far)
-            mesh_geo = field.proxy_geometry
+            mesh_geo = field.get_proxy_geometry()
             quat, trans = field.camera_mlp.get_vals()
             rtmat = quaternion_translation_to_se3(quat, trans).cpu()
             # evenly pick max 200 cameras
@@ -194,7 +210,8 @@ class MultiFields(nn.Module):
             mesh_cam = draw_cams(rtmat)
             mesh = mesh_cat(mesh_geo, mesh_cam)
             if category == "fg":
-                mesh_gauss, mesh_sdf = field.warp.get_template_vis(aabb=field.aabb)
+                aabb = extend_aabb(field.aabb, factor=0.5)
+                mesh_gauss, mesh_sdf = field.warp.get_template_vis(aabb=aabb)
                 mesh_gauss.export("%s-%s-gauss.obj" % (path, category))
                 mesh_sdf.export("%s-%s-sdf.obj" % (path, category))
             mesh.export("%s-%s-proxy.obj" % (path, category))
@@ -410,13 +427,19 @@ class MultiFields(nn.Module):
             field2cam[cate] = quaternion_translation_to_se3(quat, trans)
         return field2cam
 
-    def get_aabb(self):
+    def get_aabb(self, inst_id=None):
         """Compute axis aligned bounding box
+        Args:
+            inst_id (int or tensor): Instance id. If None, return aabb for all instances
 
         Returns:
-            aabb (Dict): Maps field names ("fg" or "bg") to (2,3) aabb
+            aabb (Dict): Maps field names ("fg" or "bg") to (1/N,2,3) aabb
         """
+        if inst_id is not None:
+            if not torch.is_tensor(inst_id):
+                inst_id = torch.tensor(inst_id, dtype=torch.long)
+            inst_id = inst_id.view(-1)
         aabb = {}
         for cate, field in self.field_params.items():
-            aabb[cate] = field.aabb / field.logscale.exp()
+            aabb[cate] = field.get_aabb(inst_id=inst_id) / field.logscale.exp()
         return aabb
