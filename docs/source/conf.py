@@ -7,9 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "Lab4D"
-copyright = (
-    "2023, Gengshan Yang, Jeff Tan, Alex Lyons, Neehar Peri, Carnegie Mellon University"
-)
+copyright = "2023, Gengshan Yang, Jeff Tan, Alex Lyons, Neehar Peri, Deva Ramanan, Carnegie Mellon University"
 release = "0.0.0"
 
 # -- General configuration ---------------------------------------------------

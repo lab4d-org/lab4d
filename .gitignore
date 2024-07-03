@@ -11,6 +11,7 @@ run-long.sh
 lab4d.egg-info
 __pycache__/
 *.pth
+*.ckpt
 
 preprocess/third_party/vcnplus/vcn_rob.pth
 preprocess/third_party/viewpoint/human.pth
