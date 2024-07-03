@@ -1,8 +1,8 @@
 seqname=$1
 dev=$2
-fg_motion=urdf-human
+fg_motion=bob
 
-logname2=fg-urdf-b8-05
+logname2=$fg_motion
 rm -rf logdir/$seqname-$logname2
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2 \
   --fg_motion $fg_motion --num_rounds 20 --depth_wt 1e-3 --feature_type cse --freeze_scale --intrinsics_type const --init_scale_fg 0.4 \

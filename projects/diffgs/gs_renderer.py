@@ -280,10 +280,6 @@ class GaussianModel(nn.Module):
             self._rotation = torch.empty(0)
             self._opacity = torch.empty(0)
             self._feature = torch.empty(0)
-            self.xyz_gradient_accum = torch.empty(0)
-            self.denom = torch.empty(0)
-            self.xyz_vis_accum = torch.empty(0)
-            self.vis_denom = torch.empty(0)
 
             # load geometry
             num_pts = config["num_pts"]
@@ -782,10 +778,10 @@ class GaussianModel(nn.Module):
             raise NotImplementedError
 
     def construct_stat_vars(self):
-        self.xyz_gradient_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
-        self.denom = torch.zeros((self.get_num_pts, 1), device="cuda")
-        self.xyz_vis_accum = torch.zeros((self.get_num_pts, 1), device="cuda")
-        self.vis_denom = torch.zeros((self.get_num_pts, 1), device="cuda")
+        self.register_buffer("xyz_gradient_accum", torch.zeros((self.get_num_pts, 1), device="cuda"))
+        self.register_buffer("denom", torch.zeros((self.get_num_pts, 1), device="cuda"))
+        self.register_buffer("xyz_vis_accum", torch.zeros((self.get_num_pts, 1), device="cuda"))
+        self.register_buffer("vis_denom",  torch.zeros((self.get_num_pts, 1), device="cuda"))
 
 
     def update_vis_stats(self, pts_dict):
@@ -850,7 +846,7 @@ class GaussianModel(nn.Module):
     def get_vis_ratio(self):
         return (self.xyz_vis_accum / self.vis_denom)[...,0]
 
-    def reset_gaussian_scale(self, scale_val=0.04):
+    def reset_gaussian_scale(self, scale_val=0.01):
         # reset the scale of large gaussians (for accuracy of flow rendering)
         sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
         self._scaling.data[sel_idx] = np.log(scale_val)
@@ -875,14 +871,15 @@ class GaussianModel(nn.Module):
         aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
         aabb = extend_aabb(aabb, -aabb_ratio/2)
         rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
-        self._xyz.data[sel_ptsid] = rand_xyz
-
+        print("reset %d gaussian scale" % (len(sel_ptsid)))
+        
         # # randomize around proxy geometry
         # valid_pts = self.proxy_geometry.vertices
         # rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
         # self._xyz.data[sel_ptsid] = torch.tensor(rand_xyz, device=dev, dtype=torch.float32)
 
-        self._scaling.data[sel_ptsid] = np.log(0.04)
+        self._xyz.data[sel_ptsid] = rand_xyz
+        self._scaling.data[sel_ptsid] = np.log(0.01)
         self._opacity.data[sel_ptsid] = self.inverse_opacity_activation(torch.tensor([0.9], dtype=torch.float))
 
 
@@ -1252,7 +1249,7 @@ class GaussianModel(nn.Module):
         
         return xyz_match
 
-    def sample_feature_px(self, mask_px, nsamp=1024):
+    def sample_feature_px(self, mask_px, nsamp):
         bs = mask_px.shape[0]
         nsamp = bs * nsamp # total sample
 
@@ -1261,7 +1258,7 @@ class GaussianModel(nn.Module):
         samp_idx = valid_idx[torch.randperm(len(valid_idx))[:nsamp]]
         return samp_idx
 
-    def feature_matching_loss(self, feat_px, xyz_px, mask_px, nsamp=1024):
+    def feature_matching_loss(self, feat_px, xyz_px, mask_px, nsamp=128):
         """
         return 3D points in the canonical space
         """
@@ -1293,7 +1290,7 @@ class GaussianModel(nn.Module):
                 pts = pts[np.random.choice(len(pts), nsample)]
                 pts_gauss = field.warp.get_gauss_pts(radius=0.3) / scale
                 samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1)
-                loss = samploss(2 * pts_gauss, 2 * pts).mean()\
+                loss = samploss(2 * pts_gauss, 2 * pts).mean()
 
                 # articulation = field.warp.articulation.get_mean_vals()  # (1,K,4,4)
                 # _, pts_gauss = dual_quaternion_to_quaternion_translation(articulation)
