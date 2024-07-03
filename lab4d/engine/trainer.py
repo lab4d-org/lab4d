@@ -783,7 +783,7 @@ class Trainer:
             log.add_scalar(k, v, step)
 
     @staticmethod
-    def construct_test_model(opts, model_class=dvr_model, return_refs=True):
+    def construct_test_model(opts, model_class=dvr_model, return_refs=True, force_reload=True):
         """Load a model at test time
 
         Args:
@@ -792,10 +792,25 @@ class Trainer:
         # io
         logname = "%s-%s" % (opts["seqname"], opts["logname"])
 
-        # construct dataset
-        eval_dict = Trainer.construct_dataset_opts(opts, is_eval=True)
-        evalloader = data_utils.eval_loader(eval_dict)
-        data_info, _ = data_utils.get_data_info(evalloader)
+        if return_refs and force_reload:
+            # construct dataset
+            eval_dict = Trainer.construct_dataset_opts(opts, is_eval=True)
+            evalloader = data_utils.eval_loader(eval_dict)
+
+        import pickle
+        meta_filename = "tmp/%s.pkl"%logname
+        if os.path.exists(meta_filename) and not force_reload:
+            # this will miss pca function
+            with open(meta_filename, 'rb') as handle:
+                data_info = pickle.load(handle)
+        else:
+            data_info, _ = data_utils.get_data_info(evalloader)
+
+            # save data_info to tmp file
+            data_info_save = data_info.copy()
+            del data_info_save["apply_pca_fn"]
+            with open(meta_filename, 'wb') as handle:
+                pickle.dump(data_info_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         # construct DVR model
         model = model_class(opts, data_info)

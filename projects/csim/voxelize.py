@@ -35,13 +35,14 @@ except:
 class BGField:
     def __init__(self, load_logname="home-2023-curated3", use_default_mesh=False):
         # TODO delete this hack
-        # load the model with good pca
-        logdir = "logdir/%s-bg-adapt1/" % load_logname
-        opts = load_flags_from_file("%s/opts.log" % logdir)
-        opts["load_suffix"] = "latest"
-        opts["logroot"] = "logdir"
-        _, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
-        pca_fn = data_info["apply_pca_fn"]
+        # # load the model with good pca
+        # logdir = "logdir/%s-bg-adapt1/" % load_logname
+        # opts = load_flags_from_file("%s/opts.log" % logdir)
+        # opts["load_suffix"] = "latest"
+        # opts["logroot"] = "logdir"
+        # _, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+        # pca_fn = data_info["apply_pca_fn"]
+        pca_fn = None
 
         # load flags from file with absl
         # logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
@@ -58,7 +59,7 @@ class BGField:
         # opts["vis_thresh"] = -10
         opts["extend_aabb"] = False
 
-        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False, force_reload=False)
         bg_field = model.fields.field_params["bg"]
         self.bg_field = bg_field
 
