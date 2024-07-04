@@ -40,7 +40,7 @@ class BGField:
         # opts = load_flags_from_file("%s/opts.log" % logdir)
         # opts["load_suffix"] = "latest"
         # opts["logroot"] = "logdir"
-        # _, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+        # model_bg, data_info, _ = Trainer.construct_test_model(opts, return_refs=False, force_reload=False)
         # pca_fn = data_info["apply_pca_fn"]
         pca_fn = None
 
@@ -60,8 +60,6 @@ class BGField:
         opts["extend_aabb"] = False
 
         model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False, force_reload=False)
-        bg_field = model.fields.field_params["bg"]
-        self.bg_field = bg_field
 
         self.bg_meshes = {}
         self.voxel_grids = {}
@@ -88,6 +86,7 @@ class BGField:
             else:
                 print("extracting voxel from %s" % dirpath)
                 bg_voxel = VoxelGrid(bg_mesh)
+                self.compute_feat(model, bg_voxel, inst_id=inst_id)
                 pkl.dump(bg_voxel, open(bgvoxel_path, "wb"))
 
             # save to dict
@@ -136,8 +135,15 @@ class BGField:
         self.voxel_grid.count_root_visitation(self.root_trajs[:, :3, 3])
         self.voxel_grid.count_cam_visitation(self.cam_trajs[:, :3, 3])
 
-    def compute_feat(self, x):
-        return self.bg_field.compute_feat(x)["feature"]
+    @staticmethod
+    def compute_feat(model, voxel_grid, inst_id = 0):
+        device = model.device
+        bg_field = model.fields.field_params["bg"]
+
+        bg_xyz = torch.tensor(voxel_grid.to_pts(), device=device, dtype=torch.float32)
+        inst_id = torch.tensor([inst_id], device=device)
+        bg_feature = bg_field.compute_feat(bg_xyz, inst_id=inst_id)["feature"]
+        voxel_grid.bg_feature = bg_feature.T.view((-1,) + voxel_grid.data.shape)
 
     def get_bg_mesh(self):
         return self.bg_mesh
