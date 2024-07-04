@@ -29,7 +29,7 @@ class ArticulationLoader(MeshLoader):
         self.opts = opts
 
         # get rest mesh
-        model, data_info, ref_dict = Trainer.construct_test_model(opts)
+        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False, force_reload=False)
         meshes_rest = model.fields.extract_canonical_meshes(
             grid_size=opts["grid_size"],
             level=opts["level"],
