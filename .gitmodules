@@ -14,6 +14,6 @@
 [submodule "projects/ppr/eval/third_party/ChamferDistancePytorch"]
 	path = projects/ppr/eval/third_party/ChamferDistancePytorch
 	url = https://github.com/ThibaultGROUEIX/ChamferDistancePytorch
-[submodule "projects/gd-mdm"]
-	path = projects/gd-mdm
-	url = https://github.com/gengshan-y/gd-mdm.git
+[submodule "projects/gdmdm"]
+	path = projects/gdmdm
+	url = https://github.com/gengshan-y/gdmdm.git
