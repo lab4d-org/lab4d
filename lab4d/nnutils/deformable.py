@@ -111,7 +111,7 @@ class Deformable(FeatureNeRF):
         if "smpl" in self.fg_motion:
             scale = self.logscale.detach().exp()[0]
 
-            sys.path.insert(0, "projects/gd-mdm/")
+            sys.path.insert(0, "projects/gdmdm/")
             from smpl import SMPL
             self.smpl_model = SMPL().eval()
             global_orient = torch.eye(3)
@@ -582,7 +582,7 @@ class Deformable(FeatureNeRF):
             return
         # time-varying sdf initialization
         from pysdf import SDF
-        sys.path.insert(0, "projects/gd-mdm/")
+        sys.path.insert(0, "projects/gdmdm/")
         from smpl import SMPL
 
         # smpl
