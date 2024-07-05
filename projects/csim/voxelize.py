@@ -140,10 +140,11 @@ class BGField:
         device = model.device
         bg_field = model.fields.field_params["bg"]
 
-        bg_xyz = torch.tensor(voxel_grid.to_pts(), device=device, dtype=torch.float32)
-        inst_id = torch.tensor([inst_id], device=device)
-        bg_feature = bg_field.compute_feat(bg_xyz, inst_id=inst_id)["feature"]
-        voxel_grid.bg_feature = bg_feature.T.view((-1,) + voxel_grid.data.shape)
+        with torch.no_grad():
+            bg_xyz = torch.tensor(voxel_grid.to_pts(), device=device, dtype=torch.float32)
+            inst_id = torch.tensor([inst_id], device=device)
+            bg_feature = bg_field.compute_feat(bg_xyz, inst_id=inst_id)["feature"]
+            voxel_grid.bg_feature = bg_feature.T.view((-1,) + voxel_grid.data.shape)
 
     def get_bg_mesh(self):
         return self.bg_mesh
