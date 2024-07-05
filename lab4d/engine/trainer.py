@@ -5,7 +5,7 @@ from collections import defaultdict
 from copy import deepcopy
 import gc
 import tqdm
-
+import pickle
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -791,19 +791,17 @@ class Trainer:
         """
         # io
         logname = "%s-%s" % (opts["seqname"], opts["logname"])
+        meta_filename = "tmp/%s.pkl"%logname
 
-        if return_refs and force_reload:
+        if not os.path.exists(meta_filename):
+            force_reload = True
+
+        if return_refs or force_reload:
             # construct dataset
             eval_dict = Trainer.construct_dataset_opts(opts, is_eval=True)
             evalloader = data_utils.eval_loader(eval_dict)
 
-        import pickle
-        meta_filename = "tmp/%s.pkl"%logname
-        if os.path.exists(meta_filename) and not force_reload:
-            # this will miss pca function
-            with open(meta_filename, 'rb') as handle:
-                data_info = pickle.load(handle)
-        else:
+        if force_reload:
             data_info, _ = data_utils.get_data_info(evalloader)
 
             # save data_info to tmp file
@@ -811,6 +809,10 @@ class Trainer:
             del data_info_save["apply_pca_fn"]
             with open(meta_filename, 'wb') as handle:
                 pickle.dump(data_info_save, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        else:
+            # this will miss pca function
+            with open(meta_filename, 'rb') as handle:
+                data_info = pickle.load(handle)
 
         # construct DVR model
         model = model_class(opts, data_info)

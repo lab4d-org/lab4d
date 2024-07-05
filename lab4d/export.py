@@ -274,7 +274,7 @@ def extract_motion_params(model, opts, data_info):
 
 @torch.no_grad()
 def export(opts, Trainer=Trainer):
-    model, data_info, ref_dict = Trainer.construct_test_model(opts, return_refs=False)
+    model, data_info, ref_dict = Trainer.construct_test_model(opts, return_refs=False, force_reload=False)
     save_dir = make_save_dir(opts, sub_dir="export_%04d" % (opts["inst_id"]))
 
     # save motion paramters
@@ -312,7 +312,7 @@ def export(opts, Trainer=Trainer):
     cmd = "python lab4d/render_mesh.py --mode shape --testdir %s" % (save_dir)
     print("Running: %s" % cmd)
     os.system(cmd)
-    cmd = "python lab4d/render_mesh.py --view bev --testdir %s" % (save_dir)
+    cmd = "python lab4d/render_mesh.py --mode shape --view bev --testdir %s" % (save_dir)
     print("Running: %s" % cmd)
     os.system(cmd)
 

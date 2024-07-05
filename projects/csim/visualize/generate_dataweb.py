@@ -118,4 +118,4 @@ if __name__ == "__main__":
 
     # fast forward video
     concat_path = "%s/fast_forward.mp4"%input_dir
-    concatenate_and_speedup_videos(concat_paths, concat_path, 10)
+    concatenate_and_speedup_videos(concat_paths, concat_path, 5)
