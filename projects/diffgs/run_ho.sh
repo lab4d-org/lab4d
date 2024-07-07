@@ -13,7 +13,7 @@ bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname
   --num_rounds 120 --iters_per_round 200 --learning_rate 5e-3 \
   --feature_type cse --intrinsics_type const --extrinsics_type explicit --fg_motion bob \
   --use_init_cam --lab4d_path $lab4d_path --use_timesync \
-  --reg_arap_wt 0.0 --num_pts 20000 --depth_wt 0.1
+  --reg_arap_wt 0.0 --num_pts 20000 --depth_wt 1e-3
   # --depth_wt 0.01 --flow_wt 0.1
   # --flow_wt 0 --depth_wt 0.1
   # --load_path logdir/$seqname-gsplat-ref-lab4d-comp3/ckpt_latest.pth

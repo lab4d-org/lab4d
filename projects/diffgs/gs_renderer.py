@@ -616,7 +616,7 @@ class GaussianModel(nn.Module):
                 mesh_gauss.export("%s-gauss.obj" % path)
 
     @torch.no_grad()
-    def create_mesh_visualization(self, frameid=None, all_pts=True, opacity_th=0.1, vis_portion=0.1):
+    def create_mesh_visualization(self, frameid=None, all_pts=True, opacity_th=0.1, vis_portion=0.2):
         if self.is_leaf():
             meshes = []
             sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
@@ -871,7 +871,7 @@ class GaussianModel(nn.Module):
         aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
         aabb = extend_aabb(aabb, -aabb_ratio/2)
         rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
-        print("reset %d gaussian scale" % (len(sel_ptsid)))
+        print("reset %d gaussian values" % (len(sel_ptsid)))
         
         # # randomize around proxy geometry
         # valid_pts = self.proxy_geometry.vertices

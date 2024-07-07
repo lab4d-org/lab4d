@@ -16,3 +16,5 @@ logname = logpath.strip("/").split("/")[-1]
 print(logname)
 
 run_bash_command(f"zip log-{logname}.zip {logpath}/*")
+run_bash_command(f"zip log-{logname}.zip tmp/{logname}.pkl")
+run_bash_command(f"zip log-{logname}.zip database/motion/{logname}*.pkl")

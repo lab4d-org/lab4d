@@ -48,7 +48,7 @@ class BGField:
         # logdir = "logdir/home-2023-11-bg-adapt1/"  # old one
         # logdir = "logdir/home-2023-curated3-compose-ft/"  # dino, but bg is too similar
         # logdir = "logdir/home-2023-curated3-compose-ft-old/"  # cse feature
-        logdir = "logdir/%s-compose-ft/" % load_logname
+        logdir = "logdir/%s/" % load_logname
         opts = load_flags_from_file("%s/opts.log" % logdir)
         opts["load_suffix"] = "latest"
         opts["logroot"] = "logdir"

@@ -253,7 +253,8 @@ class Trainer:
             param_lr_with.update(param_lr_with_freeze_scale)
 
         if pose_correction:
-            del param_lr_with[".logscale"]
+            if ".logscale" in param_lr_with:
+               del param_lr_with[".logscale"]
             del param_lr_with[".log_gauss"]
             param_lr_with_pose_correction = {
                 "module.fields.field_params.fg.basefield.": 0.0,

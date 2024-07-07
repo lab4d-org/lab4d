@@ -369,12 +369,14 @@ class dvr_model(nn.Module):
 
         # blend with mask: render = render * mask + 0*(1-mask)
         for k, v in rendered.items():
-            if "mask" in k:
+            if "mask" in k or "xyz_matches" in k and "xyz_reproj" in k:
                 continue
-            elif (
-                "xyz_matches" in k or "xyz_reproj" in k
-            ) and "mask_id-fg" in rendered.keys():
-                rendered[k] = rendered[k] * (rendered["mask_id-fg"] > 0.5).float()
+            # if "mask" in k:
+            #     continue
+            # elif (
+            #     "xyz_matches" in k or "xyz_reproj" in k
+            # ) and "mask_id-fg" in rendered.keys():
+            #     rendered[k] = rendered[k] * (rendered["mask_id-fg"] > 0.5).float()
             elif "xy_reproj" in k:
                 mask = batch["feature"][::div_factor].norm(2, -1, keepdim=True) > 0
                 res = rendered[k].shape[1]

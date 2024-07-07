@@ -103,6 +103,15 @@ class FeatureNeRF(NeRF):
             final_act=False,
         )
 
+        # self.canonical_mapper = CondMLP(
+        #     num_inst=self.num_inst,
+        #     D=5,
+        #     W=128,
+        #     in_channels=feature_channels,
+        #     out_channels=3,
+        #     final_act=False,
+        # )
+
         sigma = torch.tensor([1.0])
         self.logsigma = nn.Parameter(sigma.log())
         self.set_match_region(sample_around_surface=True)
@@ -148,6 +157,9 @@ class FeatureNeRF(NeRF):
             sdf = feat_dict["sdf"]
             feature, xyz = self.propose_matches(feature, xyz.detach(), sdf)
             xyz_matches = self.global_match(samples_dict["feature"], feature, xyz)
+            # #TODO: replace above with an MLP function
+            # xyz_matches = self.canonical_mapper(samples_dict["feature"])
+
             xy_reproj, xyz_reproj = self.forward_project(
                 xyz_matches,
                 field2cam,
