@@ -57,18 +57,22 @@ def load_lab4d(config):
         model = dvr_model(config, data_info)
         model.cuda()
         model.eval()
+        meshes = {}
+        for cate, field in model.fields.field_params.items():
+            meshes[cate] = field.proxy_geometry
     else:
         opts = load_flags_from_file(flags_path)
         opts["load_suffix"] = "latest"
         model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
-    meshes = model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
+        meshes = model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
     # color
     for cate, field in model.fields.field_params.items():
         color = field.extract_canonical_color(meshes[cate])
         meshes[cate].visual.vertex_colors[:,:3] = color * 255
-        # # from scratch
-        # if len(flags_path) == 0 and cate=="fg":
-        #     meshes[cate].apply_scale(0.5)
+        # # GT mesh
+        # mesh = trimesh.load("/home/gengshay/code/vid2sim/database/processed/Meshes/Full-Resolution/eagle-s-8f-0000/00000.obj")
+        # mesh = mesh.apply_scale(field.logscale.exp().detach().cpu().numpy())
+        # meshes[cate] = mesh
     model = model.cpu()
     return model, meshes
 
@@ -134,7 +138,8 @@ class GSplatModel(nn.Module):
 
 
         # intrinsics
-        self.construct_intrinsics()
+        # self.construct_intrinsics(self.data_info["intrinsics"])
+        self.construct_intrinsics(lab4d_model.intrinsics.get_vals().detach().cpu().numpy())
 
         # diffusion
         if config["guidance_sd_wt"] > 0:
@@ -160,12 +165,12 @@ class GSplatModel(nn.Module):
     def get_bg_color(self):
         return self.bg_color
 
-    def construct_intrinsics(self):
+    def construct_intrinsics(self, intrinsics):
         """Construct camera intrinsics module"""
         config = self.config
         if config["intrinsics_type"] == "const":
             self.intrinsics = IntrinsicsConst(
-                self.data_info["intrinsics"],
+                intrinsics,
                 frame_info=self.data_info["frame_info"],
             )
         else:
@@ -319,6 +324,7 @@ class GSplatModel(nn.Module):
                         "rgb": SH2RGB(shs[...,0,:]),
                         "xyz": self.gaussians.get_xyz().detach(),
                         "feat": self.gaussians.get_features,
+                        "vis2d": self.gaussians.get_vis_ratio[...,None].float(),
                         }
         
         # render flow
@@ -347,6 +353,7 @@ class GSplatModel(nn.Module):
             "feature_fg": rendered_image["feat"],
             "alpha": rendered_alpha,
             "xyz": rendered_image["xyz"],
+            "vis2d": rendered_image["vis2d"],
         }
         if "flow" in feature_dict:
             out_dict["flow"] = rendered_image["flow"]
@@ -411,7 +418,8 @@ class GSplatModel(nn.Module):
         if "Kinv" in batch.keys():
             Kmat_raw = batch["Kinv"].inverse()
         else:
-            Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs))
+            shape = frameid_abs.shape
+            Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs.view(-1)).view(*shape, 4))
         Kmat_unit = self.compute_render_Kmat(crop_size, crop2raw, Kmat_raw)
         if "field2cam" in batch:
             w2c = batch["field2cam"]["fg"]
@@ -483,6 +491,8 @@ class GSplatModel(nn.Module):
         """
         if get_local_rank()==0 and self.config["use_gui"]:
             self.gui.update()
+            while self.gui.pause_training:
+                self.gui.update()
         self.process_frameid(batch)
         Kmat, w2c = self.compute_camera_samples(batch, self.config["train_res"])
         frameid = batch["frameid"]
@@ -931,7 +941,7 @@ class GSplatModel(nn.Module):
             rendered[k] = v[:, 0]
 
         scalars = {}
-        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": []}
+        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": [], "vis2d": []}
         for k, v in rendered.items():
             if k in out_dict.keys():
                 out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()

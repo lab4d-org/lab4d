@@ -13,6 +13,7 @@ from geomloss import SamplesLoss
 import torch
 from torch import nn
 from torch.nn import functional as F
+import torch.distributed as dist
 
 from simple_knn._C import distCUDA2
 
@@ -289,8 +290,8 @@ class GaussianModel(nn.Module):
             # initialize with lab4d
             mesh = lab4d_meshes[self.mode]
             pts, _, colors = trimesh.sample.sample_surface(mesh, num_pts, sample_color=True)
-            scale_field = self.lab4d_model.fields.field_params[self.mode]
-            self.register_buffer("scale_field", scale_field.logscale.exp())
+            scale_field = self.lab4d_model.fields.field_params[self.mode].logscale.exp()
+            self.register_buffer("scale_field", scale_field)
             pcd = BasicPointCloud(
                 pts / self.scale_field.detach().cpu().numpy(),
                 colors[:, :3] / 255,
@@ -587,12 +588,12 @@ class GaussianModel(nn.Module):
             return sum([gaussians.get_num_pts for gaussians in self.gaussians])
 
     @torch.no_grad()
-    def update_geometry_aux(self):
+    def update_geometry_aux(self, all_pts=False):
         # add bone center / joints
         dev = self.parameters().__next__().device
         frameid = torch.tensor([0], device=dev)[0]
         self.update_trajectory(frameid)
-        self.proxy_geometry = self.create_mesh_visualization(frameid=frameid,all_pts=False)
+        self.proxy_geometry = self.create_mesh_visualization(frameid=frameid,all_pts=all_pts)
 
     @torch.no_grad()
     def export_geometry_aux(self, path):
@@ -616,7 +617,7 @@ class GaussianModel(nn.Module):
                 mesh_gauss.export("%s-gauss.obj" % path)
 
     @torch.no_grad()
-    def create_mesh_visualization(self, frameid=None, all_pts=True, opacity_th=0.1, vis_portion=0.2):
+    def create_mesh_visualization(self, frameid=None, all_pts=True, opacity_th=0.1, visibility_th=0.8):
         if self.is_leaf():
             meshes = []
             sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
@@ -625,7 +626,6 @@ class GaussianModel(nn.Module):
             scalings = self.get_scaling.cpu().numpy()
             opacity = self.get_opacity.cpu().numpy()[...,0]
             vis_ratio = self.get_vis_ratio.cpu().numpy()
-            visibility_th = np.quantile(vis_ratio, vis_portion) # use points with highest 95% vis
 
             # select those with high opacity
             select_idx = np.logical_and(opacity > opacity_th, vis_ratio > visibility_th)
@@ -778,10 +778,8 @@ class GaussianModel(nn.Module):
             raise NotImplementedError
 
     def construct_stat_vars(self):
-        self.register_buffer("xyz_gradient_accum", torch.zeros((self.get_num_pts, 1), device="cuda"))
-        self.register_buffer("denom", torch.zeros((self.get_num_pts, 1), device="cuda"))
-        self.register_buffer("xyz_vis_accum", torch.zeros((self.get_num_pts, 1), device="cuda"))
-        self.register_buffer("vis_denom",  torch.zeros((self.get_num_pts, 1), device="cuda"))
+        self.register_buffer("xyz_vis_accum", torch.ones((self.get_num_pts, 1), device="cuda"))
+        self.register_buffer("vis_denom",  torch.ones((self.get_num_pts, 1), device="cuda"))
 
 
     def update_vis_stats(self, pts_dict):
@@ -794,94 +792,57 @@ class GaussianModel(nn.Module):
         self.xyz_vis_accum += visible_count
 
 
-    def update_point_stats(self, prune_mask, clone_mask):
-        dev = prune_mask.device
-        valid_mask = ~prune_mask
-        clone_mask = torch.logical_and(valid_mask, clone_mask)
-        valid_mask = torch.cat(
-            (valid_mask, torch.ones(clone_mask.sum(), device=dev).bool())
-        )
-
-        # first clone
-        self.xyz_gradient_accum = torch.cat(
-            [self.xyz_gradient_accum, self.xyz_gradient_accum[clone_mask]], 0
-        )
-        self.denom = torch.cat([self.denom, self.denom[clone_mask]], 0)
-        self.xyz_vis_accum = torch.cat(
-            [self.xyz_vis_accum, self.xyz_vis_accum[clone_mask]], 0
-        )
-        self.vis_denom = torch.cat([self.vis_denom, self.vis_denom[clone_mask]], 0)
-
-        # then prune
-        self.xyz_gradient_accum = self.xyz_gradient_accum[valid_mask]
-        self.denom = self.denom[valid_mask]
-        self.xyz_vis_accum = self.xyz_vis_accum[valid_mask]
-        self.vis_denom = self.vis_denom[valid_mask]
-
-        # reset
-        self.xyz_gradient_accum[:] = 0
-        self.denom[:] = 0
-        self.xyz_vis_accum[:] = 0
-        self.vis_denom[:] = 0
-
-    def add_xyz_grad_stats(self, viewspace_point_grad, update_filter):
-        """
-        viewspace_point_grad: [N, 3]
-        update_filter: [N], bool
-        """
-        self.xyz_gradient_accum[update_filter] += torch.norm(
-            viewspace_point_grad[update_filter, :2], dim=-1, keepdim=True
-        )
-        self.denom[update_filter] += 1
-
-    def add_xyz_vis_stats(self, xyz_vis, update_filter):
-        """
-        xyz_vis: [N, 1]
-        update_filter: [N], bool
-        """
-        self.xyz_vis_accum[update_filter] += xyz_vis
-        self.vis_denom[update_filter] += 1
-
     @property
     def get_vis_ratio(self):
         return (self.xyz_vis_accum / self.vis_denom)[...,0]
 
     def reset_gaussian_scale(self, scale_val=0.01):
+        #TODO do it for a tree
         # reset the scale of large gaussians (for accuracy of flow rendering)
-        sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
-        self._scaling.data[sel_idx] = np.log(scale_val)
-        print("reset %d gaussian scale" % (sel_idx.sum()))
+        dist.barrier()
+        if get_local_rank() == 0:
+            sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
+            self._scaling.data[sel_idx] = np.log(scale_val)
+            print("reset %d gaussian scale" % (sel_idx.sum()))
+            dist.broadcast(self._scaling.data, 0)
+        dist.barrier()
 
-    def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, vis_portion = 0.05, aabb_ratio=0.5):
-        dev = self.parameters().__next__().device
-        num_pts = int(self.get_num_pts * portion)
-        rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+    def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, visibility_th = 0.8, aabb_ratio=0.0):
+        #TODO do it for a tree
+        print(self.get_vis_ratio)
+        dist.barrier()
+        if get_local_rank() == 0:
+            dev = self.parameters().__next__().device
+            num_pts = int(self.get_num_pts * portion)
+            rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
 
-        transparent_ptsid = (self.get_opacity[...,0] < opacity_th).cpu().numpy()
-        transparent_ptsid = np.where(transparent_ptsid)[0]
+            transparent_ptsid = (self.get_opacity[...,0] < opacity_th).cpu().numpy()
+            transparent_ptsid = np.where(transparent_ptsid)[0]
 
-        vis_ratio = self.get_vis_ratio.cpu().numpy()
-        visibility_th = np.quantile(vis_ratio, vis_portion) # remove points with lowest 10% vis
-        invis_ptsid = (vis_ratio < visibility_th)
-        invis_ptsid = np.where(invis_ptsid)[0]
-        sel_ptsid = np.concatenate([rand_ptsid, transparent_ptsid, invis_ptsid],0)
+            vis_ratio = self.get_vis_ratio.cpu().numpy()
+            invis_ptsid = (vis_ratio < visibility_th)
+            invis_ptsid = np.where(invis_ptsid)[0]
+            sel_ptsid = np.concatenate([rand_ptsid, transparent_ptsid, invis_ptsid],0)
 
-        # reset values
-        rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
-        aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
-        aabb = extend_aabb(aabb, -aabb_ratio/2)
-        rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
-        print("reset %d gaussian values" % (len(sel_ptsid)))
-        
-        # # randomize around proxy geometry
-        # valid_pts = self.proxy_geometry.vertices
-        # rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
-        # self._xyz.data[sel_ptsid] = torch.tensor(rand_xyz, device=dev, dtype=torch.float32)
+            # reset values
+            # randomize around good points
+            valid_pts = self._xyz.data[vis_ratio > visibility_th]
+            if len(valid_pts) == 0:
+                rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
+                aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
+                aabb = extend_aabb(aabb, -aabb_ratio/2)
+                rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
+            else:
+                rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
+                rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * 0.01
+            print("reset %d gaussian values" % (len(sel_ptsid)))
 
-        self._xyz.data[sel_ptsid] = rand_xyz
-        self._scaling.data[sel_ptsid] = np.log(0.01)
-        self._opacity.data[sel_ptsid] = self.inverse_opacity_activation(torch.tensor([0.9], dtype=torch.float))
-
+            self._xyz.data[sel_ptsid] = rand_xyz
+            self._scaling.data[sel_ptsid] = np.log(0.01)
+            self._opacity.data[sel_ptsid] = self.inverse_opacity_activation(torch.tensor([0.9], dtype=torch.float))
+            self.vis_denom[:] = 1
+            self.xyz_vis_accum[:] = 1
+        dist.barrier()
 
     @torch.no_grad()
     def get_aabb(self):
@@ -895,6 +856,11 @@ class GaussianModel(nn.Module):
         aabb = (xyz.min(0), xyz.max(0))
         aabb = np.stack(aabb, 0)
         return aabb
+
+    def get_scale(self):
+        """Get scale of the proxy geometry"""
+        aabb = self.get_aabb()
+        return (aabb[1] - aabb[0]).mean()
 
     def randomize_frameid(self, frameid, frameid_2):
         if frameid is None:
@@ -1133,8 +1099,9 @@ class GaussianModel(nn.Module):
                 quat_delta = self._trajectory[:, frameid, :4]
             elif self.config["fg_motion"] == "rigid":
                 frameid = frameid.reshape(-1)
-                motion = torch.zeros(self.get_num_pts, len(frameid), 3, device="cuda")
-                quat_delta = torch.zeros(self.get_num_pts, len(frameid), 4, device="cuda")
+                dev = frameid.device
+                motion = torch.zeros(self.get_num_pts, len(frameid), 3, device=dev)
+                quat_delta = torch.zeros(self.get_num_pts, len(frameid), 4, device=dev)
                 quat_delta[:, :, 0] = 1.0
             else:
                 # lab4d model (fourier basis motion)
@@ -1287,10 +1254,12 @@ class GaussianModel(nn.Module):
                 # optimal transport loss
                 device = self.parameters().__next__().device
                 pts = self.get_xyz().detach()
-                pts = pts[np.random.choice(len(pts), nsample)]
-                pts_gauss = field.warp.get_gauss_pts(radius=0.3) / scale
+                pts = pts[np.random.choice(len(pts), nsample)] * scale
+                pts_gauss = field.warp.get_gauss_pts(radius=0.3)
+                # normalize to 1
+                scale_proxy = self.get_scale() * scale
                 samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1)
-                loss = samploss(2 * pts_gauss, 2 * pts).mean()
+                loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
 
                 # articulation = field.warp.articulation.get_mean_vals()  # (1,K,4,4)
                 # _, pts_gauss = dual_quaternion_to_quaternion_translation(articulation)

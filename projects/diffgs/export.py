@@ -69,7 +69,7 @@ def extract_motion_params(model, opts):
     motion_tuples = {}
     for field, cate in model.gaussians.get_all_children():
         if cate == "": continue
-        field.update_geometry_aux()
+        field.update_geometry_aux(all_pts=True)
         meshes_rest[cate] = field.proxy_geometry
         motion_tuples[cate] = extract_deformation(field, frame_ids, use_timesync=opts["use_timesync"])
     return meshes_rest, motion_tuples

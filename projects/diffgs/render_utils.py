@@ -58,5 +58,7 @@ def render_flow(renderer, verts, faces, verts_n):
     flow = torch.cat([flow, rendered_sil[..., None]], -1)
 
     flow[rendered_sil < 1] = 0.0
-    flow[..., -1] = 0.0  # discard the last channel
+    # flow[..., -1] = 0.0  # discard the last channel
+    flow[..., -1][rendered_sil==1] = -1  # uncertainty
+    flow[..., -1][rendered_sil!=1] = 1
     return flow

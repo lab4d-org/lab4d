@@ -405,7 +405,7 @@ class GSplatTrainer(Trainer):
                 camera_lr = lr_base * 0.1
                 xyz_lr = lr_base * 0.2
             elif opts["extrinsics_type"] == "mlp":
-                camera_lr = lr_base * 0.5
+                camera_lr = lr_base
                 xyz_lr = lr_base
             else:
                 camera_lr = lr_base * 2
@@ -562,38 +562,8 @@ class GSplatTrainer(Trainer):
         # add some noise to improve convergence
         if self.current_round !=0 and self.current_round % 10 == 0:
             self.model.gaussians.reset_gaussian_scale()
-        if self.current_round !=0 and self.current_round % 10 == 0:
+        if self.current_round > 5:
             self.model.gaussians.randomize_gaussian_center()
-
-    def densify_and_prune(self):
-        # densify and prune
-        clone_mask, prune_mask = self.model.gaussians.densify_and_prune()
-
-        # update stats
-        self.model.gaussians.update_point_stats(prune_mask, clone_mask)
-
-        if prune_mask.sum() or clone_mask.sum():
-            self.prune_parameters(~prune_mask, clone_mask)
-            vlist = []
-            for i in range(len(self.optimizer.param_groups)):
-                vlist.append(self.optimizer.state[self.optimizer.param_groups[i]['params'][0]])
-
-            # self.model.update_geometry_aux()
-            # self.model.export_geometry_aux(
-            #     "%s/%03d-post" % (self.save_dir, self.current_round)
-            # )
-            print("cloned %d/%d" % (clone_mask.sum(), clone_mask.shape[0]))
-            print("pruned %d/%d" % (prune_mask.sum(), prune_mask.shape[0]))
-            # torch.cuda.empty_cache()
-            # self.reset_opacity()
-
-            # update optimizer
-            self.optimizer_init()
-            # restore optimizer stats
-            for i,v in enumerate(vlist):
-                self.optimizer.state[self.optimizer.param_groups[i]['params'][0]] = v
-            self.scheduler.last_epoch = self.current_steps  # specific to onecyclelr
-            self.scheduler.step(self.current_steps)
 
     def prune_parameters(self, valid_mask, clone_mask):
         """

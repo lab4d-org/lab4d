@@ -56,7 +56,7 @@ def img2color(tag, img, pca_fn=None):
         img = pca_fn(img, normalize=True)
 
     if "xyz" in tag:
-        img = minmax_normalize(img)
+        img = minmax_normalize(img, dim=(0,1))
 
     if "vis2d" in tag:
         img = minmax_normalize(img)
@@ -64,7 +64,7 @@ def img2color(tag, img, pca_fn=None):
     if "xy_reproj" in tag:
         img = minmax_normalize(img)
 
-    if "mask" in tag or "alpha" in tag:
+    if "mask" in tag or "alpha" in tag or "vis2d" in tag:
         img = np.tile(img, (1,)*len(img.shape[:-1]) + (3,))
     return img
 
@@ -288,7 +288,7 @@ def make_image_grid(img):
     return collage
 
 
-def minmax_normalize(data):
+def minmax_normalize(data, dim=None):
     """Normalize a tensor or array within 0 to 1
 
     Args:
@@ -296,7 +296,12 @@ def minmax_normalize(data):
     Returns:
         normalized_data: (...,) Normalized data
     """
-    normalized_data = (data - data.min()) / (data.max() - data.min() + 1e-6)
+    if dim is None:
+        normalized_data = (data - data.min()) / (data.max() - data.min() + 1e-6)
+    else:
+        normalized_data = (data - data.min(dim, keepdims=True)) / (
+            data.max(dim, keepdims=True) - data.min(dim, keepdims=True) + 1e-6
+        )
     return normalized_data
 
 

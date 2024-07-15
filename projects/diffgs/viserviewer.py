@@ -75,14 +75,6 @@ class ViserViewer:
 
         self.pause_time = True
         self.pause_training = False
-        self.train_viewer_update_period_slider = self.server.add_gui_slider(
-            "Train Viewer Update Period",
-            min=1,
-            max=100,
-            step=1,
-            initial_value=10,
-            disabled=self.pause_training,
-        )
 
         self.pause_training_button = self.server.add_gui_button("Pause Training")
         self.pause_time_button = self.server.add_gui_button("Pause Time")
@@ -92,12 +84,6 @@ class ViserViewer:
         self.resolution_slider = self.server.add_gui_slider(
             "Resolution", min=384, max=4096, step=2, initial_value=1024
         )
-        self.near_plane_slider = self.server.add_gui_slider(
-            "Near", min=0.1, max=30, step=0.5, initial_value=0.1
-        )
-        self.far_plane_slider = self.server.add_gui_slider(
-            "Far", min=30.0, max=1000.0, step=10.0, initial_value=1000.0
-        )
         self.inst_id_slider = self.server.add_gui_slider(
             "Video ID", min=0, max=len(self.sublen)-1, step=1, initial_value=0
         )
@@ -106,29 +92,16 @@ class ViserViewer:
             "Frame ID", min=0, max=max(self.sublen)-1, step=1, initial_value=0
         )
 
-        self.show_train_camera = self.server.add_gui_checkbox(
-            "Show Train Camera", initial_value=False
+        self.toggle_outputs = self.server.add_gui_dropdown(
+            "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'flow', 'feature', 'mask_fg', 'vis2d'), initial_value="rgb"
         )
 
-        self.toggle_outputs = self.server.add_gui_dropdown(
-            "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'flow', 'feature', 'mask_fg'), initial_value="rgb"
-        )
+        self.toggle_view_sel = self.server.add_gui_dropdown("Toggle view control", ('rotation', 'all'), initial_value="rotation")
+        self.toggle_viewpoint = self.server.add_gui_dropdown("Toggle viewpoint", ('ref', 'bev'), initial_value="ref")
 
         self.fps = self.server.add_gui_text("FPS", initial_value="-1", disabled=True)
 
-        @self.show_train_camera.on_update
-        def _(_):
-            self.need_update = True
-
         @self.resolution_slider.on_update
-        def _(_):
-            self.need_update = True
-
-        @self.near_plane_slider.on_update
-        def _(_):
-            self.need_update = True
-
-        @self.far_plane_slider.on_update
         def _(_):
             self.need_update = True
 
@@ -144,23 +117,21 @@ class ViserViewer:
         def _(_):
             self.need_update = True
 
+        @self.toggle_view_sel.on_update
+        def _(_):
+            self.need_update = True
+
+        @self.toggle_viewpoint.on_update
+        def _(_):
+            self.need_update = True
+
         @self.pause_training_button.on_click
         def _(_):
             self.pause_training = not self.pause_training
-            self.train_viewer_update_period_slider.disabled = not self.pause_training
-            self.pause_training_button.name = (
-                "Resume Training" if self.pause_training else "Pause Training"
-            )
 
         @self.pause_time_button.on_click
         def _(_):
             self.pause_time = not self.pause_time
-            self.pause_time_button.name = (
-                "Resume Time" if self.pause_time else "Pause Time"
-            )
-
-        self.c2ws = []
-        self.camera_infos = []
 
         @self.resolution_slider.on_update
         def _(_):
@@ -174,7 +145,9 @@ class ViserViewer:
 
             # initialize cameras
             client.camera.wxyz = np.array([1.0, 0.0, 0.0, 0.0])
-            client.camera.position = np.array([0.0, 0.0, 1.0])
+            client.camera.position = np.array([0.0, 0.0, 0.0])
+            # look at affects the rotation of the viewer
+            client.camera.look_at = np.array([0.0, 0.0, 3.0])
         self.debug_idx = 0
 
     def set_renderer(self, renderer):
@@ -203,7 +176,11 @@ class ViserViewer:
                         min(self.frameid_sub_slider.value, self.sublen[inst_id]-1)
                     ]
                     if not self.pause_time:
-                        self.frameid_sub_slider.value = int(min(self.frameid_sub_slider.value+1, self.sublen[inst_id]-1))
+                        time.sleep(0.2)
+                        curr_frame_value = self.frameid_sub_slider.value+1
+                        if curr_frame_value >= self.sublen[inst_id]:
+                            curr_frame_value = 0
+                        self.frameid_sub_slider.value = int(curr_frame_value)
                     frameid = self.frame_offset[inst_id] + frameid_sub
 
                     intrinsics = self.renderer.get_intrinsics(frameid).cpu().numpy()
@@ -220,7 +197,20 @@ class ViserViewer:
                     crop2raw[:, 0] = W * ratio / res
                     crop2raw[:, 1] = H * ratio / res
                     intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
-                    field2cam = {"fg": w2c[None] @ extrinsics}
+
+                    if self.toggle_view_sel.value == "all":
+                        extrinsics = w2c[None] @ extrinsics
+                    elif self.toggle_view_sel.value == "rotation":
+                        extrinsics[:,:3,:3] = w2c[:3,:3][None] @ extrinsics[:,:3,:3]
+                    else:
+                        raise ValueError("Invalid view selection")
+                    
+                    if self.toggle_viewpoint.value == "bev":
+                        rot_offset = np.asarray([np.pi/2,0.,0.])
+                        rot_offset = cv2.Rodrigues(rot_offset)[0]
+                        extrinsics[:,:3,:3] = rot_offset[None] @ extrinsics[:,:3,:3]
+
+                    field2cam = {"fg": extrinsics}
                     # field2cam = None
                     # crop2raw=np.asarray([[focal_x, focal_y, W/2, H/2]])
                     crop2raw = None

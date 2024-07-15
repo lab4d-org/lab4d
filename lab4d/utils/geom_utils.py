@@ -93,6 +93,29 @@ def rot_angle(mat):
     return angle
 
 
+def align_root_pose_from_bgcam(rtmat, bg_rtmat, frame_offset):
+    """
+    transform rtmat according to bg_rtmat
+    inputs are torch tensors
+    """
+    # camk vs cam1 x cam1_to_k_gt
+    rtmat0 = rtmat[frame_offset[0] : frame_offset[1]]
+    bg_rtmat0 = bg_rtmat[frame_offset[0] : frame_offset[1]]
+    bg_rtmat0_inv = se3_inv((bg_rtmat0))
+    rtmat_aligned = [rtmat0]
+    for i in range(1, len(frame_offset) - 1):
+        bg_cami = bg_rtmat[frame_offset[i] : frame_offset[i + 1]]
+        leni = len(bg_cami)
+        cam1_to_cami = bg_cami @ bg_rtmat0_inv[:leni]
+        cami_gt = cam1_to_cami @ rtmat0[:leni] # new camera
+        rtmat_aligned.append(cami_gt)
+    if torch.is_tensor(rtmat):
+        rtmat_aligned = torch.cat(rtmat_aligned, 0)
+    else:
+        rtmat_aligned = np.concatenate(rtmat_aligned, 0)
+    return rtmat_aligned
+
+
 def dual_quaternion_skinning(dual_quat, pts, skin):
     """Attach points to dual-quaternion bones according to skinning weights
 
@@ -928,7 +951,7 @@ def se3_inv(rtmat):
         rtmat_inv: (..., 4, 4) Inverse SE(3) matrix
     """
     rmat, tmat = se3_mat2rt(rtmat)
-    rmat = rmat.transpose(-1, -2)
+    rmat = rmat.swapaxes(-1, -2)
     tmat = -rmat @ tmat[..., None]
     rtmat[..., :3, :3] = rmat
     rtmat[..., :3, 3] = tmat[..., 0]

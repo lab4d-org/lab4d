@@ -101,6 +101,13 @@ class Trainer:
 
         self.data_info, self.data_path_dict = data_utils.get_data_info(self.evalloader)
 
+        if opts["align_root_pose_from_bgcam"]:
+            from lab4d.utils.geom_utils import align_root_pose_from_bgcam
+            bg_rtmat = self.data_info["rtmat"][0]
+            rtmat = self.data_info["rtmat"][1]
+            frame_offset = self.data_info["frame_info"]["frame_offset_raw"]
+            self.data_info["rtmat"][1] = align_root_pose_from_bgcam(rtmat, bg_rtmat, frame_offset)
+
         self.total_steps = opts["num_rounds"] * min(
             opts["iters_per_round"], len(self.trainloader)
         )

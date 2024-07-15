@@ -203,6 +203,7 @@ def get_bbox(img_path, component_id):
 def compute_flow_uct(occ, flow0, hp1, hp0):
     """
     hp1: homogeneous coord displaced by 2nd frame flow backwards
+    flow_uct: 1: high confidence
     """
     # cycle uncertainty: distance = ||disp_bw(disp_fw(x,y)) - (x,y)||
     img_size = occ.shape[0]

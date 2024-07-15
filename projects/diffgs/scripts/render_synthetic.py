@@ -177,10 +177,10 @@ if __name__ == "__main__":
 
         # obj-cam transform
         verts_view = obj_to_cam(verts, rtk[None])
-        # mesh_cam = trimesh.Trimesh(
-        #     vertices=verts_view[0].cpu().numpy(), faces=faces[0].cpu().numpy()
-        # )
-        # trimesh.repair.fix_inversion(mesh_cam)
+        mesh = trimesh.Trimesh(
+            vertices=verts[0].cpu().numpy(), faces=faces[0].cpu().numpy()
+        )
+        trimesh.repair.fix_inversion(mesh)
 
         # pespective projection
         verts = pinhole_projection(Kmat[None], verts_view, keep_depth=True)
@@ -215,9 +215,9 @@ if __name__ == "__main__":
             "%s/Annotations/Full-Resolution/%s/%05d.npy" % (filedir, args.outdir, i),
             (rendered_sil > 0).astype(np.int8),
         )
-        # mesh_cam.export(
-        #     "%s/Meshes/Full-Resolution/%s/%05d.obj" % (filedir, args.outdir, i)
-        # )
+        mesh.export(
+            "%s/Meshes/Full-Resolution/%s/%05d.obj" % (filedir, args.outdir, i)
+        )
         np.save(
             "%s/Depth/Full-Resolution/%s/%05d.npy" % (filedir, args.outdir, i),
             rendered_depth,

@@ -77,8 +77,11 @@ class TrainOptConfig:
     flags.DEFINE_string("load_path", "", "path to load pretrained model")
     flags.DEFINE_string("load_path_bg", "", "path to load pretrained model")
     flags.DEFINE_integer("bg_vid", -1, "background video ids")
+
+    # multiview related
     flags.DEFINE_boolean("use_timesync", False, "enforce same pose across all vids")
     flags.DEFINE_float("reg_timesync_cam_wt", 0.0, "regularize root-cam pose by camera")
+    flags.DEFINE_boolean("align_root_pose_from_bgcam", False, "use bg cam to align root")
 
     # optimization-related
     flags.DEFINE_float("learning_rate", 5e-4, "learning rate")
@@ -105,7 +108,7 @@ class TrainOptConfig:
     flags.DEFINE_boolean("freeze_field_fgbg", False, "whether to freeze fg+bg field")
     flags.DEFINE_boolean("freeze_camera_bg", False, "whether to freeze bg camera")
     flags.DEFINE_boolean("freeze_camera_fg", False, "whether to freeze fg camera")
-    flags.DEFINE_boolean("freeze_scale", False, "whether to freeze scale")
+    flags.DEFINE_boolean("freeze_scale", True, "whether to freeze scale")
     flags.DEFINE_boolean("alter_flow", False, "alternatve between flow and all terms")
     flags.DEFINE_boolean("freeze_intrinsics", False, "whether to freeze intrinsics")
     flags.DEFINE_boolean("absorb_base", True, "whether to absorb se3 into base")

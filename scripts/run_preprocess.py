@@ -29,6 +29,7 @@ from preprocess.scripts.extract_dinov2 import extract_dinov2
 from preprocess.scripts.extract_frames import extract_frames
 from preprocess.scripts.tsdf_fusion import tsdf_fusion
 from preprocess.scripts.write_config import write_config
+from preprocess.scripts.cotracker import compute_tracks
 from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
@@ -81,8 +82,9 @@ def run_extract_frames(seqname, outdir, infile, use_filter_frames):
 def run_extract_priors(seqname, outdir, obj_class_cam):
     print("extracting priors: ", seqname)
     # flow
-    for dframe in [1, 2, 4, 8]:
-        compute_flow(seqname, outdir, dframe)
+    # for dframe in [1, 2, 4, 8]:
+    #     compute_flow(seqname, outdir, dframe)
+    compute_tracks(seqname, outdir, [1, 2, 4, 8])
 
     # depth
     extract_depth(seqname)
