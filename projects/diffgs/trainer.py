@@ -490,6 +490,7 @@ class GSplatTrainer(Trainer):
             loss_dict = self.model(batch)
             total_loss = torch.sum(torch.stack(list(loss_dict.values())))
             total_loss.mean().backward()
+            # self.print_sum_params()
 
             grad_dict = self.check_grad()
             self.optimizer.step()
@@ -600,6 +601,14 @@ class GSplatTrainer(Trainer):
             param = torch.cat((param, param[clone_mask]))[valid_mask]
             param = nn.Parameter(param.requires_grad_(True))
             set_nested_attr(self.model, name, param)
+
+    def print_sum_params(self):
+        """Print the sum of parameters"""
+        sum = 0
+        for name, p in self.model.named_parameters():
+            if p.requires_grad:
+                sum += p.abs().sum()
+        print(f"{sum:.16f}")
 
 
     def model_eval(self):

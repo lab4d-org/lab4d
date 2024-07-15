@@ -95,6 +95,20 @@ def mask_density(density, ratio=0.2):
     return density_masked
 
 
+def turn_density_to_alpha(field_dict, deltas):
+    #TODO turn density to alpha for compositional mask rendering
+    del_keys = []
+    new_dict = {}
+    for k, v in field_dict.items():
+        if "density_" in k:
+            alpha = 1 - torch.exp(-(deltas * v))  # (M, N, D)
+            new_dict[k.replace("density", "alpha")] = alpha
+            del_keys.append(k)
+    field_dict.update(new_dict)
+    for k in del_keys:
+        del field_dict[k]
+
+
 def render_pixel(field_dict, deltas, if_mask_density=False):
     """Volume-render neural field outputs along rays
 

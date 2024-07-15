@@ -25,6 +25,7 @@ class GSplatConfig:
     flags.DEFINE_integer(
         "first_fr_steps", 2000, "steps for optimizing first frame in incremental mode"
     )
+    flags.DEFINE_float("gaussian_obj_scale", 0.5, "rough guess of physical scale of the object")
 
     # use pre-trained lab4d
     flags.DEFINE_string("lab4d_path", "", "path to lab4d model")

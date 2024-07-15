@@ -60,6 +60,9 @@ def load_lab4d(config):
         meshes = {}
         for cate, field in model.fields.field_params.items():
             meshes[cate] = field.proxy_geometry
+            # physical scale of the object / 0.5m
+            scale_ratio = config["gaussian_obj_scale"] / 0.5
+            meshes[cate] = meshes[cate].apply_scale(scale_ratio)
     else:
         opts = load_flags_from_file(flags_path)
         opts["load_suffix"] = "latest"
@@ -714,6 +717,9 @@ class GSplatModel(nn.Module):
 
         if self.config["reg_skel_prior_wt"] > 0:
             loss_dict["reg_skel_prior"] = self.gaussians.skel_prior_loss()
+
+        if self.config["reg_timesync_cam_wt"] > 0:
+            loss_dict["reg_timesync_cam"] = self.gaussians.timesync_cam_loss()
 
     @staticmethod
     def mask_losses(loss_dict, batch, mask_pred, config):

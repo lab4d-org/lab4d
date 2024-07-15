@@ -612,8 +612,6 @@ class GaussianModel(nn.Module):
             field = self.lab4d_model.fields.field_params["fg"]
             if isinstance(field.warp, SkinningWarp):
                 mesh_gauss = field.warp.get_gauss_vis()
-                scale_fg = self.scale_field.detach().cpu().numpy()
-                mesh_gauss.apply_scale(1./scale_fg)
                 mesh_gauss.export("%s-gauss.obj" % path)
 
     @torch.no_grad()
@@ -799,18 +797,16 @@ class GaussianModel(nn.Module):
     def reset_gaussian_scale(self, scale_val=0.01):
         #TODO do it for a tree
         # reset the scale of large gaussians (for accuracy of flow rendering)
-        dist.barrier()
-        if get_local_rank() == 0:
-            sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
-            self._scaling.data[sel_idx] = np.log(scale_val)
-            print("reset %d gaussian scale" % (sel_idx.sum()))
-            dist.broadcast(self._scaling.data, 0)
-        dist.barrier()
+        # No need to deal with DDP, since parameter are synced, and set to the same value
+        sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
+        self._scaling.data[sel_idx] = np.log(scale_val)
+        print("reset %d gaussian scale" % (sel_idx.sum()))
 
     def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, visibility_th = 0.8, aabb_ratio=0.0):
         #TODO do it for a tree
-        print(self.get_vis_ratio)
-        dist.barrier()
+        vis_ratio = self.get_vis_ratio
+        dist.all_reduce(vis_ratio, op=dist.ReduceOp.AVG)
+        vis_ratio = vis_ratio.cpu().numpy()
         if get_local_rank() == 0:
             dev = self.parameters().__next__().device
             num_pts = int(self.get_num_pts * portion)
@@ -819,7 +815,6 @@ class GaussianModel(nn.Module):
             transparent_ptsid = (self.get_opacity[...,0] < opacity_th).cpu().numpy()
             transparent_ptsid = np.where(transparent_ptsid)[0]
 
-            vis_ratio = self.get_vis_ratio.cpu().numpy()
             invis_ptsid = (vis_ratio < visibility_th)
             invis_ptsid = np.where(invis_ptsid)[0]
             sel_ptsid = np.concatenate([rand_ptsid, transparent_ptsid, invis_ptsid],0)
@@ -840,9 +835,11 @@ class GaussianModel(nn.Module):
             self._xyz.data[sel_ptsid] = rand_xyz
             self._scaling.data[sel_ptsid] = np.log(0.01)
             self._opacity.data[sel_ptsid] = self.inverse_opacity_activation(torch.tensor([0.9], dtype=torch.float))
-            self.vis_denom[:] = 1
-            self.xyz_vis_accum[:] = 1
-        dist.barrier()
+        dist.broadcast(self._xyz.data, 0)
+        dist.broadcast(self._scaling.data, 0)
+        dist.broadcast(self._opacity.data, 0)
+        self.vis_denom[:] = 1
+        self.xyz_vis_accum[:] = 1
 
     @torch.no_grad()
     def get_aabb(self):
@@ -1290,3 +1287,32 @@ class GaussianModel(nn.Module):
             for gaussians in self.gaussians:
                 loss.append(gaussians.skel_prior_loss())
             return torch.cat(loss).mean()
+
+    def timesync_cam_loss(self):
+        # TODO for non leaf and bg
+        bg_rtmat = self.lab4d_model.data_info["rtmat"][0]
+        from lab4d.utils.geom_utils import rot_angle
+        quat, trans = self.gs_camera_mlp.get_vals()
+        rtmat = quaternion_translation_to_se3(quat, trans)
+        frame_offset = self.frame_offset_raw
+        bg_rtmat = torch.tensor(bg_rtmat, device=rtmat.device, dtype=rtmat.dtype)
+        # camk vs cam1 x cam1_to_k_gt
+        loss = []
+        for i in range(1, len(frame_offset) - 1):
+            cami = rtmat[frame_offset[i] : frame_offset[i + 1]]
+            leni = len(cami)
+            cam1_to_cami = bg_rtmat[frame_offset[i] : frame_offset[i + 1]] @ \
+                        (bg_rtmat[frame_offset[0] : frame_offset[1]])[:leni].inverse()
+            cami_gt = cam1_to_cami @ rtmat[frame_offset[0] : frame_offset[1]][:leni]
+            assert cami.dim()==3 and cami_gt.dim()==3
+            loss_rot = rot_angle(cami[:,:3,:3]@cami_gt[:,:3,:3].permute(0,2,1)).mean()
+            loss_trn = (cami[:,:3,3] - cami_gt[:,:3,3]).norm(2,-1).mean()
+            loss.append(loss_rot + loss_trn)
+
+            # from lab4d.utils.vis_utils import draw_cams
+            # draw_cams(rtmat[frame_offset[0] : frame_offset[1]][:leni].detach().cpu().numpy()[:1]).export("tmp/before.obj")
+            # draw_cams(cami_gt.detach().cpu().numpy()[:1]).export("tmp/gt.obj")
+            # draw_cams(cami.detach().cpu().numpy()[:1]).export("tmp/pred.obj")
+
+        loss = torch.stack(loss).mean()
+        return loss
