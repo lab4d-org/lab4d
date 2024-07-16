@@ -36,7 +36,7 @@ from lab4d.utils.quat_transform import (
     quaternion_translation_apply,
     quaternion_conjugate,
 )
-from lab4d.utils.geom_utils import rot_angle, extend_aabb
+from lab4d.utils.geom_utils import rot_angle, extend_aabb, align_root_pose_from_bgcam
 from lab4d.utils.vis_utils import get_colormap, draw_cams, mesh_cat
 
 colormap = get_colormap()
@@ -612,6 +612,7 @@ class GaussianModel(nn.Module):
             field = self.lab4d_model.fields.field_params["fg"]
             if isinstance(field.warp, SkinningWarp):
                 mesh_gauss = field.warp.get_gauss_vis()
+                mesh_gauss.apply_scale(1./self.scale_field.detach().cpu().numpy())
                 mesh_gauss.export("%s-gauss.obj" % path)
 
     @torch.no_grad()
@@ -927,19 +928,11 @@ class GaussianModel(nn.Module):
         arap_loss_trans = arap_loss_trans.mean()
         return arap_loss_trans
 
-    def get_least_deform_loss(self, frameid=None, frameid_2=None):
-        if hasattr(self, "_trajectory"):
-            frameid, frameid_2 = self.randomize_frameid(frameid, frameid_2)
-            # least deform loss
-            xyz = self.get_xyz(frameid)
-            xyz_2 = self.get_xyz(frameid_2)
-            least_trans_loss = torch.norm((xyz - xyz_2), 2, -1).mean()
-
-            rot = self.get_rotation(frameid)
-            rot_2 = self.get_rotation(frameid_2)
-            least_rot_loss = quaternion_to_matrix(
-                quaternion_mul(rot, quaternion_conjugate(rot_2))
-            )
+    def get_least_deform_loss(self):
+        if hasattr(self, "trajectory_cache"):
+            traj_delta = torch.stack(list(self.trajectory_cache.values()),0)
+            least_trans_loss = torch.norm((traj_delta[:, :,4:]), 2, -1).mean()
+            least_rot_loss = quaternion_to_matrix(traj_delta[:, :,:4])
             least_rot_loss = rot_angle(least_rot_loss).mean()
             least_deform_loss = least_trans_loss + least_rot_loss
             return least_deform_loss
@@ -1249,21 +1242,20 @@ class GaussianModel(nn.Module):
             if isinstance(field.warp, SkinningWarp):
                 scale = self.scale_field.detach()
                 # optimal transport loss
-                device = self.parameters().__next__().device
                 pts = self.get_xyz().detach()
-                pts = pts[np.random.choice(len(pts), nsample)] * scale
-                pts_gauss = field.warp.get_gauss_pts(radius=0.3)
-                # normalize to 1
-                scale_proxy = self.get_scale() * scale
-                samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1)
-                loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
-
-                # articulation = field.warp.articulation.get_mean_vals()  # (1,K,4,4)
-                # _, pts_gauss = dual_quaternion_to_quaternion_translation(articulation)
-                # pts_gauss = pts_gauss[0] / scale
-                # samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
-                # loss = samploss(2*pts_gauss, 2*pts).mean()
-
+                # get the ones with high-visibility
+                pts = pts[self.get_vis_ratio > 0.8]
+                if len(pts) > 0:
+                    pts = pts[np.random.choice(len(pts), nsample)]
+                    pts_gauss = field.warp.get_gauss_pts(radius=0.3) / scale
+                    # normalize to 1
+                    scale_proxy = self.get_scale()
+                    samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1)
+                    loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
+                    # trimesh.Trimesh(pts_gauss.detach().cpu().numpy()).export("tmp/0.obj")
+                    # trimesh.Trimesh(pts.detach().cpu().numpy()).export("tmp/1.obj")
+                else:
+                    loss = torch.tensor(0.0, device=self.parameters().__next__().device)
             else:
                 loss = torch.tensor(0.0, device=self.parameters().__next__().device)
             return loss
@@ -1289,30 +1281,15 @@ class GaussianModel(nn.Module):
             return torch.cat(loss).mean()
 
     def timesync_cam_loss(self):
-        # TODO for non leaf and bg
-        bg_rtmat = self.lab4d_model.data_info["rtmat"][0]
-        from lab4d.utils.geom_utils import rot_angle
+        assert(self.mode=="fg")
+        frame_offset = self.frame_offset_raw
         quat, trans = self.gs_camera_mlp.get_vals()
         rtmat = quaternion_translation_to_se3(quat, trans)
-        frame_offset = self.frame_offset_raw
+        bg_rtmat = self.lab4d_model.data_info["rtmat"][0]
         bg_rtmat = torch.tensor(bg_rtmat, device=rtmat.device, dtype=rtmat.dtype)
-        # camk vs cam1 x cam1_to_k_gt
-        loss = []
-        for i in range(1, len(frame_offset) - 1):
-            cami = rtmat[frame_offset[i] : frame_offset[i + 1]]
-            leni = len(cami)
-            cam1_to_cami = bg_rtmat[frame_offset[i] : frame_offset[i + 1]] @ \
-                        (bg_rtmat[frame_offset[0] : frame_offset[1]])[:leni].inverse()
-            cami_gt = cam1_to_cami @ rtmat[frame_offset[0] : frame_offset[1]][:leni]
-            assert cami.dim()==3 and cami_gt.dim()==3
-            loss_rot = rot_angle(cami[:,:3,:3]@cami_gt[:,:3,:3].permute(0,2,1)).mean()
-            loss_trn = (cami[:,:3,3] - cami_gt[:,:3,3]).norm(2,-1).mean()
-            loss.append(loss_rot + loss_trn)
 
-            # from lab4d.utils.vis_utils import draw_cams
-            # draw_cams(rtmat[frame_offset[0] : frame_offset[1]][:leni].detach().cpu().numpy()[:1]).export("tmp/before.obj")
-            # draw_cams(cami_gt.detach().cpu().numpy()[:1]).export("tmp/gt.obj")
-            # draw_cams(cami.detach().cpu().numpy()[:1]).export("tmp/pred.obj")
-
-        loss = torch.stack(loss).mean()
+        rtmat_aligned = align_root_pose_from_bgcam(rtmat, bg_rtmat, frame_offset)
+        loss_rot = rot_angle(rtmat[frame_offset[1]:, :3, :3] @ rtmat_aligned[frame_offset[1]:, :3, :3].permute(0,2,1)).mean()
+        loss_trn = (rtmat[frame_offset[1]:,:3,3] - rtmat_aligned[frame_offset[1]:,:3,3]).norm(2,-1).mean()
+        loss = (loss_rot + loss_trn).mean()
         return loss

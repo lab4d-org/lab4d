@@ -27,7 +27,7 @@ try:
     from lab4d.utils.mesh_loader import MeshLoader
     from lab4d.config import load_flags_from_file
     from lab4d.engine.trainer import Trainer
-    from lab4d.utils.geom_utils import invert_se3
+    from lab4d.utils.geom_utils import se3_inv
 except:
     pass
 
@@ -122,7 +122,7 @@ class BGField:
         # self.bg_mesh = trimesh.util.concatenate([self.bg_mesh, box])
 
         cameras = model.get_cameras()
-        self.cam_trajs = invert_se3(cameras["bg"])
+        self.cam_trajs = se3_inv(cameras["bg"])
         self.root_trajs = self.cam_trajs @ cameras["fg"]
         self.cam_trajs = self.cam_trajs.cpu().numpy()
         self.root_trajs = self.root_trajs.cpu().numpy()

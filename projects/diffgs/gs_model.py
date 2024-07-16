@@ -700,9 +700,7 @@ class GSplatModel(nn.Module):
 
     def compute_reg_loss(self, loss_dict, frameid):
         if self.config["reg_least_deform_wt"] > 0:
-            loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss(
-                frameid=frameid[0, 0], frameid_2=frameid[0, 1]
-            )
+            loss_dict["reg_least_deform"] = self.gaussians.get_least_deform_loss()
         if self.config["reg_least_action_wt"] > 0:
             loss_dict["reg_least_action"] = self.gaussians.get_least_action_loss()
         if self.config["reg_arap_wt"] > 0:
@@ -1017,6 +1015,16 @@ class GSplatModel(nn.Module):
         anchor_y = (0.0, 1.0)
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+
+        # least deform wt 
+        loss_name = "reg_least_deform_wt"
+        anchor_x = (0, 1.0)
+        anchor_y = (1.0, 0.0)
+        type = "linear"
+        if self.progress > config["inc_warmup_ratio"]:
+            self.set_loss_weight(loss_name, anchor_x, anchor_y, progress, type=type)
+        else:
+            self.set_loss_weight(loss_name, anchor_x, anchor_y, sub_progress, type=type)
 
         # least action wt
         loss_name = "reg_least_action_wt"
