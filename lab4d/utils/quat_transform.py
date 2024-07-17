@@ -5,6 +5,7 @@ import sys
 # from lietorch import SE3, SO3, Sim3
 from typing import Tuple
 
+import numpy as np
 import torch
 
 sys.path.insert(
@@ -33,12 +34,19 @@ def symmetric_orthogonalization(x):
     """
     shape = x.shape
     m = x.reshape(-1, 3, 3)
-    u, s, v = torch.svd(m)
-    vt = torch.transpose(v, 1, 2)
-    det = torch.det(torch.matmul(u, vt))
-    det = det.view(-1, 1, 1)
-    vt = torch.cat((vt[:, :2, :], vt[:, -1:, :] * det), 1)
-    r = torch.matmul(u, vt)
+    if torch.is_tensor(x):
+        u, s, v = torch.svd(m)
+        vt = torch.transpose(v, 1, 2)
+        det = torch.det(torch.matmul(u, vt))
+        det = det.view(-1, 1, 1)
+        vt = torch.cat((vt[:, :2, :], vt[:, -1:, :] * det), 1)
+        r = torch.matmul(u, vt)
+    else:
+        u, s, vt = np.linalg.svd(m)
+        det = np.linalg.det(np.matmul(u, vt))
+        det = det[:, np.newaxis, np.newaxis]
+        vt = np.concatenate((vt[:, :2, :], vt[:, -1:, :] * det), axis=1)
+        r = np.matmul(u, vt)
     r = r.reshape(shape[:-1] + (3, 3))
     return r
 

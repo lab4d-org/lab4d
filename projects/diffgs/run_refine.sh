@@ -3,15 +3,16 @@ lab4d_path=$2
 field_type=$3 # fg
 data_prefix=$4 # crop
 dev=$5
-batchsize=2
+batchsize=32
 fg_motion=bob
+num_rounds=120
 
 # dynamic singlecam
 # dev=0
 #seqname=cat-pikachu-0
 # seqname=home-2023-curated3
 # logname=gsplat-ref-lab4d-shadowrgb-opt-sync
-logname=diffgs-$field_type-b$batchsize-fb-2x
+logname=diffgs-$field_type-b$batchsize-$fg_motion-r$num_rounds-ft
 # lab4d_path=logdir/home-2023-curated3-compose-ft/opts.log
 # lab4d_path=logdir/cat-pikachu-0-fg-skel/opts.log
 # lab4d_path=logdir/cat-pikachu-0-comp/opts.log
@@ -20,7 +21,7 @@ logname=diffgs-$field_type-b$batchsize-fb-2x
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu $batchsize --field_type $field_type --data_prefix $data_prefix --eval_res 256 \
-  --num_rounds 20 --iters_per_round 200 --learning_rate 5e-3 \
+  --num_rounds $num_rounds --iters_per_round 200 --learning_rate 5e-3 \
   --feature_type cse --intrinsics_type const --extrinsics_type mlp --fg_motion $fg_motion \
   --use_init_cam --lab4d_path $lab4d_path --use_timesync \
   --reg_arap_wt 0.0 --num_pts 20000 --depth_wt 0.0 \
@@ -32,5 +33,5 @@ bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname
   # --bg_vid 0 # --guidance_zero123_wt 2e-4
   # --flow_wt 0.1 --reg_arap_wt 1.0 \
   # --extrinsics_type image --fg_motion image --reg_lab4d_wt 1.0
-# python projects/diffgs/render.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
-# python projects/diffgs/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
+python projects/diffgs/render.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full
+python projects/diffgs/export.py --flagfile=logdir/$seqname-$logname/opts.log --load_suffix latest --data_prefix full

@@ -42,7 +42,7 @@ from projects.diffgs.gs_renderer import GaussianModel, gs_transform
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
 from projects.diffgs.cam_utils import orbit_camera
 from projects.diffgs.viserviewer import ViserViewer
-from projects.predictor.predictor import CameraPredictor, TrajPredictor
+from projects.predictor.arch import CameraPredictor, TrajPredictor
 
 from flowutils.flowlib import point_vec, warp_flow
 
@@ -914,7 +914,7 @@ class GSplatModel(nn.Module):
             rendered[k] = torch.cat([rendered[k], v], 0)
 
     @torch.no_grad()
-    def evaluate(self, batch, is_pair=True, augment_nv=True, render_flow=True):
+    def evaluate(self, batch, is_pair=True, augment_nv=True, render_flow=True, return_numpy=True):
         """Evaluate model on a batch of data"""
         self.process_frameid(batch)
         if not is_pair:
@@ -948,13 +948,16 @@ class GSplatModel(nn.Module):
         out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": [], "vis2d": []}
         for k, v in rendered.items():
             if k in out_dict.keys():
-                out_dict[k] = v.permute(0, 2, 3, 1).cpu().numpy()
-        bg_color = self.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
-        out_dict["bg_color"] = bg_color
-        bg_color = cv2.resize(bg_color[0], (crop_size,) * 2)[None]
-        out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
-            1 - out_dict["alpha"]
-        )
+                v = v.permute(0, 2, 3, 1)
+                if return_numpy:
+                    v = v.cpu().numpy()
+                out_dict[k] = v
+        # bg_color = self.get_bg_color().permute(1, 2, 0)[None].cpu().numpy()
+        # out_dict["bg_color"] = bg_color
+        # bg_color = cv2.resize(bg_color[0], (crop_size,) * 2)[None]
+        # out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
+        #     1 - out_dict["alpha"]
+        # )
 
         return out_dict, scalars
 

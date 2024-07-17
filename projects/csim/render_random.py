@@ -23,7 +23,6 @@ def cartesian_to_spherical(xcoord, ycoord, zcoord):
     return elevation, azimuth
 
 def sample_extrinsics_outside_in(
-    extrinsics_base,
     elevation_limit=np.pi / 6,
     azimuth_limit=np.pi / 6,
     roll_limit=np.pi / 6,
@@ -39,9 +38,8 @@ def sample_extrinsics_outside_in(
     Roty[:3, :3] = cv2.Rodrigues(np.array([0, azimuth, 0]))[0]
     Rotz = np.eye(4)
     Rotz[:3, :3] = cv2.Rodrigues(np.array([0, 0, roll]))[0]
-    extrinsics = extrinsics_base @ Rotx @ Roty @ Rotz
-
-    return extrinsics
+    d_extrinsics = Rotx @ Roty @ Rotz
+    return d_extrinsics
 
 def sample_extrinsics(
     extrinsics_base,

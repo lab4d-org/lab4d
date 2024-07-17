@@ -10,6 +10,24 @@ from projects.csim.render_polycam import PolyCamRender
 from projects.csim.render_random import sample_extrinsics, sample_extrinsics_outside_in
 
 
+def convert_to_batch(color_batch, xyz_batch=None, depth_batch=None, extrinsics_batch=None):
+    # conver to torch
+    batch = {}
+    color_batch = torch.tensor(color_batch, dtype=torch.float32, device="cuda")
+    batch["img"] = color_batch.permute(0, 3, 1, 2) / 255.0
+    if xyz_batch is not None:
+        xyz_batch = torch.tensor(xyz_batch, dtype=torch.float32, device="cuda")
+        batch["xyz"] = xyz_batch
+    if depth_batch is not None:
+        depth_batch = torch.tensor(depth_batch, dtype=torch.float32, device="cuda")
+        batch["depth"] = depth_batch
+    if extrinsics_batch is not None:
+        batch["extrinsics"] = torch.tensor(
+            extrinsics_batch, dtype=torch.float32, device="cuda"
+        )
+    return batch
+
+
 class PolyGenerator:
     def __init__(self, poly_name="Oct31at1-13AM-poly", img_scale=0.25, inside_out = True):
         image_size = (1024, 768)
@@ -65,7 +83,8 @@ class PolyGenerator:
                 aabb=self.polycam_loader.aabb,
             )
         else:
-            extrinsics = sample_extrinsics_outside_in(extrinsics_base)
+            d_extrinsics = sample_extrinsics_outside_in()
+            extrinsics = extrinsics @ d_extrinsics
         color, xyz = self.polycam_loader.render(
             frame_idx,
             extrinsics=extrinsics,
@@ -74,25 +93,13 @@ class PolyGenerator:
         )
         return color, xyz, extrinsics
 
-    def convert_to_batch(
-        self, color_batch, xyz_batch=None, depth_batch=None, extrinsics_batch=None
-    ):
-        # conver to torch
-        batch = {}
-        color_batch = torch.tensor(color_batch, dtype=torch.float32, device="cuda")
-        batch["img"] = color_batch.permute(0, 3, 1, 2) / 255.0
-        if xyz_batch is not None:
-            xyz_batch = torch.tensor(xyz_batch, dtype=torch.float32, device="cuda")
-            batch["xyz"] = xyz_batch
-        if depth_batch is not None:
-            depth_batch = torch.tensor(depth_batch, dtype=torch.float32, device="cuda")
-            batch["depth"] = depth_batch
-        if extrinsics_batch is not None:
-            batch["extrinsics"] = torch.tensor(
-                extrinsics_batch, dtype=torch.float32, device="cuda"
-            )
-        return batch
-
+    def re_render(self, extrinsics):
+        intrinsics = self.polycam_loader.intrinsics[0]
+        re_img, _ = self.polycam_loader.render(
+            None, extrinsics=extrinsics, intrinsics=intrinsics
+        )
+        return re_img
+    
     def generate_batch(self, num_images, first_idx=0, last_idx=-1, azimuth_limit=np.pi):
         color_batch = []
         xyz_batch = []
@@ -112,21 +119,7 @@ class PolyGenerator:
         xyz_batch = np.stack(xyz_batch)
         extrinsics_batch = np.stack(extrinsics_batch)
 
-        # randomly crop the image
-        # always center crop to avoid translation / principle point ambiguity
-        # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
-        cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(color.shape[1]))
-        start_loc = (color.shape[1] - cropped_size) // 2
-        if np.random.binomial(1, 0.5):
-            # crop lengthwise
-            color_batch = color_batch[:, start_loc : start_loc + cropped_size, :, :]
-            xyz_batch = xyz_batch[:, start_loc : start_loc + cropped_size, :, :]
-        else:
-            # crop widthwise
-            color_batch = color_batch[:, :, start_loc : start_loc + cropped_size, :]
-            xyz_batch = xyz_batch[:, :, start_loc : start_loc + cropped_size, :]
-
-        batch = self.convert_to_batch(color_batch, xyz_batch, None, extrinsics_batch)
+        batch = convert_to_batch(color_batch, xyz_batch, None, extrinsics_batch)
         return batch
 
 

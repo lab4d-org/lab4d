@@ -17,7 +17,7 @@ bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname
   --feature_type cse --intrinsics_type const --extrinsics_type mlp --fg_motion $fg_motion \
   --use_init_cam --use_timesync \
   --reg_arap_wt 0.0 --num_pts 20000 --depth_wt 0.0 --num_workers 2 \
-  --feature_wt 0 --xyz_wt 0 --extrinsics_type mlp --gaussian_obj_scale $gaussian_obj_scale --reg_timesync_cam_wt 0.01 # --depth_wt 0.1 # 
+  --feature_wt 0 --xyz_wt 0 --extrinsics_type mlp --gaussian_obj_scale $gaussian_obj_scale --align_root_pose_from_bgcam --reg_timesync_cam_wt 0.01 # --depth_wt 0.1 
 
 # # init
 # batchsize=1

@@ -29,6 +29,7 @@ from lab4d.utils.torch_utils import (
     remove_state_startwith,
 )
 from lab4d.utils.vis_utils import img2color, make_image_grid
+from lab4d.utils.quat_transform import symmetric_orthogonalization
 
 
 class Trainer:
@@ -106,7 +107,10 @@ class Trainer:
             bg_rtmat = self.data_info["rtmat"][0]
             rtmat = self.data_info["rtmat"][1]
             frame_offset = self.data_info["frame_info"]["frame_offset_raw"]
-            self.data_info["rtmat"][1] = align_root_pose_from_bgcam(rtmat, bg_rtmat, frame_offset)
+            # take average between those two
+            self.data_info["rtmat"][1] = (self.data_info["rtmat"][1] + align_root_pose_from_bgcam(rtmat, bg_rtmat, frame_offset))/2
+            # do svd on rotataion
+            self.data_info["rtmat"][1][:,:3,:3] = symmetric_orthogonalization(self.data_info["rtmat"][1][:,:3,:3].reshape(-1,9))
 
         self.total_steps = opts["num_rounds"] * min(
             opts["iters_per_round"], len(self.trainloader)
@@ -639,6 +643,11 @@ class Trainer:
         #     self.visualize_matches(
         #         rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
         #     )
+        new_scalars = {}
+        for k, v in scalars.items():
+            new_scalars["eval/%s" % k] = v
+        del scalars
+        scalars = new_scalars
         self.add_scalar(self.log, scalars, self.current_round)
         return ref_dict, rendered
 

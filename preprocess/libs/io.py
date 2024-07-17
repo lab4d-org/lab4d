@@ -121,14 +121,14 @@ def read_normal(normal_path, shape):
 
 
 @record_function("read_raw")
-def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
+def read_raw(img_path, delta, crop_size, use_full, with_flow=True, crop_mode="minmax"):
     img = cv2.imread(img_path)[..., ::-1] / 255.0
     shape = img.shape
     mask_path = img_path.replace("JPEGImages", "Annotations").replace(".jpg", ".npy")
     mask, vis2d, is_detected = read_mask(mask_path, shape)
     if not is_detected:  # force using full if there is no detection
         use_full = True
-    crop2raw = compute_crop_params(mask, crop_size=crop_size, use_full=use_full)
+    crop2raw = compute_crop_params(mask, crop_size=crop_size, use_full=use_full, crop_mode=crop_mode)
     depth_path = img_path.replace("JPEGImages", "Depth").replace(".jpg", ".npy")
     depth = read_depth(depth_path, shape)
     normal_path = img_path.replace("JPEGImages", "Normal").replace(".jpg", ".npy")

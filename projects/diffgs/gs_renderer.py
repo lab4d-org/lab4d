@@ -19,7 +19,7 @@ from simple_knn._C import distCUDA2
 
 sys.path.insert(0, os.getcwd())
 from projects.diffgs.sh_utils import eval_sh, SH2RGB, RGB2SH
-from projects.predictor.predictor import CameraPredictor, TrajPredictor
+from projects.predictor.arch import CameraPredictor, TrajPredictor
 from lab4d.engine.train_utils import get_local_rank
 from lab4d.nnutils.base import CondMLP, ScaleLayer
 from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding

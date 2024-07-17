@@ -311,7 +311,7 @@ def so3_to_exp_map(so3, eps=1e-6):
     return exp_V
 
 
-def compute_crop_params(mask, crop_factor=1.2, crop_size=256, use_full=False):
+def compute_crop_params(mask, crop_factor=1.2, crop_size=256, use_full=False, crop_mode="minmax"):
     """Compute camera intrinsics transform from cropped to raw images
 
     Args:
@@ -327,11 +327,19 @@ def compute_crop_params(mask, crop_factor=1.2, crop_size=256, use_full=False):
     indices = np.where(mask > 0)
     xid = indices[1]
     yid = indices[0]
-    center = ((xid.max() + xid.min()) // 2, (yid.max() + yid.min()) // 2)
-    length = (
-        (xid.max() - xid.min()) // 2,
-        (yid.max() - yid.min()) // 2,
-    )  # half length
+    if crop_mode=="minmax":
+        center = ((xid.max() + xid.min()) // 2, (yid.max() + yid.min()) // 2)
+        length = (
+            (xid.max() - xid.min()) // 2,
+            (yid.max() - yid.min()) // 2,
+        )  # half length
+    elif crop_mode=="median":
+        center = (np.median(xid), np.median(yid))
+        length_x = max(xid.max() - center[0], center[0] - xid.min())
+        length_y = max(yid.max() - center[1], center[1] - yid.min())
+        length = (length_x, length_y)
+    else:
+        raise ValueError
     length = (int(crop_factor * length[0]), int(crop_factor * length[1]))
 
     # print('center:%f'%(time.time()-ss))
