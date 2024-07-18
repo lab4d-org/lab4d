@@ -11,7 +11,9 @@ class PredictorConfig:
     flags.DEFINE_string("poly_1", "", "name of 1st polycam seq, e.g. Feb14at5-55тАпPM-poly")
     flags.DEFINE_string("poly_2", "", "name of 2nd polycam seq")
     flags.DEFINE_bool("inside_out", True, "assume the video is captured with outward facing camera")
-    # pass
+    flags.DEFINE_float("trans_wt", 1e-4, "weight of translation regression loss")
+    flags.DEFINE_float("rot_wt", 2e-4, "weight of rotation regression loss")
+    flags.DEFINE_float("uncertainty_wt", 1.0, "weight of uncertainty regression loss")
 
     # diffgs interface
     flags.DEFINE_string("diffgs_path", "", "path to diffgs path e.g., logdir/mouse-1-diffgs-fs-fg-b32-bob-r120-mlp/opts.log")

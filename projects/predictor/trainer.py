@@ -10,9 +10,9 @@ import gc
 from lab4d.engine.trainer import Trainer
 from lab4d.engine.trainer import get_local_rank, DataParallelPassthrough
 from lab4d.engine.model import dvr_model
+from lab4d.utils.vis_utils import img2color
 from projects.predictor import config
 from projects.predictor.predictor import Predictor
-
 from projects.predictor.dataloader.loader import PredictorLoader
 
 
@@ -128,6 +128,6 @@ class PredTrainer(Trainer):
 
         self.model.convert_img_to_pixel(batch_aggr)
         ref_dict["ref_rgb"] = batch_aggr["img"].permute(0, 2, 3, 1).cpu().numpy()
-        ref_dict["ref_depth"] = batch_aggr["xyz"][..., 2:].cpu().numpy()
+        ref_dict["ref_xyz"] = img2color("xyz", batch_aggr["xyz"].cpu().numpy())
 
         return ref_dict, batch_aggr

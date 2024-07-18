@@ -43,10 +43,10 @@ class DiffgsGenerator:
 
         # compute extrinsics
         extrinsics_base = self.model.gaussians.get_extrinsics(frame_idx)
-        # randomlize trans
-        extrinsics_base[:, :2, 3] = torch.randn_like(extrinsics_base[:, :2, 3]) * 0.2
         # randomize depth
-        extrinsics_base[:, 2, 3] *= (torch.randn_like(extrinsics_base[:, 2, 3]) * 0.4).exp()
+        extrinsics_base[:, 2, 3] *= (torch.randn_like(extrinsics_base[:, 2, 3]) * 0.2).exp()
+        # randomlize trans
+        extrinsics_base[:, :2, 3] = torch.randn_like(extrinsics_base[:, :2, 3]) * 0.05 * extrinsics_base[:, 2:3, 3]
         # randomlize rotation
         d_extrinsics = []
         for _ in range(num_images):
@@ -67,12 +67,10 @@ class DiffgsGenerator:
         # intrinsics[:,:2] *= (torch.randn_like(intrinsics[:,:2]) * 0.2).exp()
 
         outputs = self.render(inst_id, frame_idx_sub, extrinsics, intrinsics)
-        color = outputs["rgb"]
-        xyz = outputs["xyz"]
-
         batch = {
-            "img": color.permute(0,3,1,2),
-            "xyz": xyz,
+            "img": outputs["rgb"].permute(0,3,1,2),
+            "xyz": outputs["xyz"],
+            "depth": outputs["depth"][..., 0],
             "extrinsics": extrinsics,
         }
         return batch

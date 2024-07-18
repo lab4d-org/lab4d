@@ -12,7 +12,7 @@ from lab4d.utils.io import save_vid
 from lab4d.utils.vis_utils import draw_cams
 from projects.predictor.predictor import Predictor
 from projects.predictor.trainer import PredTrainer
-from projects.predictor.dataloader.dataset import convert_to_batch
+from projects.predictor.dataloader.dataset import convert_to_torch
 from projects.csim.transform_bg_cams import transform_bg_cams
 
 
@@ -94,10 +94,15 @@ def run_inference(opts):
     rgb_input = np.stack(rgb_input, 0)
     depth_input = np.stack(depth_input, 0)
 
-    batch = convert_to_batch(rgb_input, None, depth_input)
+
+    batch = {
+        "img": np.stack(rgb_input, 0),
+        "depth": depth_input,
+    }
+    batch = convert_to_torch(batch)
     # predict pose and visualize
     # cv2.imwrite("tmp2.jpg", batch["depth"][0].cpu().numpy() * 50)
-    re_rgb, extrinsics, uncertainty = model.predict_batch(batch)
+    re_rgb, extrinsics, uncertainty, pred_xyzs = model.predict_batch(batch)
 
     # resize rerendered images
     dsize = rgb_input.shape[1:3][::-1]

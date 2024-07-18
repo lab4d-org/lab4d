@@ -8,12 +8,12 @@ import numpy as np
 sys.path.append(os.getcwd())
 
 from lab4d.config import get_config
-from lab4d.utils.io import save_vid
+from lab4d.utils.io import save_vid, img2color
 from lab4d.utils.vis_utils import draw_cams
 from preprocess.libs.io import read_raw
 from projects.predictor.predictor import Predictor
 from projects.predictor.trainer import PredTrainer
-from projects.predictor.dataloader.dataset import convert_to_batch
+from projects.predictor.dataloader.dataset import convert_to_torch
 from projects.csim.transform_bg_cams import transform_bg_cams
 
 
@@ -40,37 +40,46 @@ def run_inference(opts):
     _ = PredTrainer.load_checkpoint(load_path, model)
     model.cuda()
     model.eval()
-    # load from sim
-    batch = model.data_generator1.generate_batch(100)
-    rgb_input = batch["img"].permute(0,2,3,1).cpu().numpy() * 255
-    depth_input = batch["xyz"][...,2].cpu().numpy()
 
-    # # load input image
-    # rgb_input = []
-    # depth_input = []
-    # for path in sorted(glob.glob(os.path.join(opts["image_dir"], "*.jpg"))):
-    #     data_dict = read_raw(path, 0, crop_size=256, use_full=False, with_flow=False, crop_mode="median")
-    #     img = data_dict["img"] * data_dict["mask"][...,:1].astype(float) * 255
-    #     depth = data_dict["depth"]
-    #     rgb_input.append(img)
-    #     depth_input.append(depth)
-    # rgb_input = np.stack(rgb_input, 0)
-    # depth_input = np.stack(depth_input, 0)
-    # batch = convert_to_batch(rgb_input, None, depth_input)
+    # # load from sim
+    # batch = model.data_generator1.generate_batch(100)
+    # rgb_input = batch["img"].permute(0,2,3,1).cpu().numpy() * 255
+
+    # load input image
+    rgb_input = []
+    depth_input = []
+    for path in sorted(glob.glob(os.path.join(opts["image_dir"], "*.jpg"))):
+        data_dict = read_raw(path, 0, crop_size=256, use_full=False, with_flow=False, crop_mode="median", keep_aspect=True)
+        img = data_dict["img"] * data_dict["mask"][...,:1].astype(float) * 255
+        depth = data_dict["depth"]
+        rgb_input.append(img)
+        depth_input.append(depth)
+    rgb_input = np.stack(rgb_input, 0)
+    depth_input =  np.stack(depth_input, 0)
+    batch = {
+        "img": rgb_input,
+        "depth":depth_input,
+    }
+    batch = convert_to_torch(batch)
 
     # predict pose and visualize
-    re_rgb, extrinsics, uncertainty = model.predict_batch(batch)
+    re_rgb, extrinsics, uncertainty, pred_xyzs = model.predict_batch(batch)
 
     # resize rerendered images
     dsize = rgb_input.shape[1:3][::-1]
     osize = re_rgb.shape[1:3][::-1]
     dsize = ((dsize[1] * osize[0]) // osize[1], dsize[1])
     re_rgb_resized = []
+    pred_xyzs_resized = []
+    depth_input_vis = img2color("depth", depth_input[...,None])[...,:3] * 255
+    pred_xyzs = img2color("xyz", pred_xyzs) * 255
     for i, img in enumerate(re_rgb):
         re_rgb_resized.append(cv2.resize(img, dsize=dsize) * 255)
+        pred_xyzs_resized.append(cv2.resize(pred_xyzs[i], dsize=dsize))
     re_rgb_resized = np.stack(re_rgb_resized, 0)
-    depth_input_vis = np.tile(depth_input[..., None], (1, 1, 1, 3)) * 50
-    out_frames = np.concatenate([rgb_input, depth_input_vis, re_rgb_resized], 2)
+    depth_input_vis = np.stack(depth_input_vis, 0)
+    pred_xyzs_resized = np.stack(pred_xyzs_resized, 0)
+    out_frames = np.concatenate([rgb_input, depth_input_vis, pred_xyzs_resized, re_rgb_resized], 2)
     seqname = opts["image_dir"].strip("/").split("/")[-1]
     os.makedirs("tmp/predictor", exist_ok=True)
     save_vid("tmp/predictor/input_rendered-%s" % seqname, out_frames)

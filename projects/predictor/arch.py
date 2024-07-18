@@ -1,15 +1,19 @@
+import pdb
 import numpy as np
 import torch
 import time
 from torch import nn
+import einops
 from projects.predictor.encoder import Encoder
 import torchvision.transforms as T
 import torch.nn.functional as F
+from torch.nn.functional import interpolate
 
 from lab4d.nnutils.embedding import TimeInfo
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
 from lab4d.utils.quat_transform import quaternion_translation_to_se3
+from lab4d.utils.torch_utils import zero_module
 
 
 class CameraPredictor(nn.Module):
@@ -269,10 +273,11 @@ class UncertaintyHead(nn.Module):
 class DINOv2Encoder(nn.Module):
     def __init__(self, in_channels, out_channels, use_depth=False):
         super().__init__()
-        self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
+        # self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
         # self.backbone = torch.hub.load(
         #     "facebookresearch/dinov2", "dinov2_vits14_reg", force_reload=True
         # )
+        self.backbone = DINO(return_multilayer=True)
         self.encoder = Encoder(in_channels=384, out_channels=out_channels)
 
         if use_depth:
@@ -281,11 +286,9 @@ class DINOv2Encoder(nn.Module):
     def forward(self, img, depth=None):
         with torch.no_grad():
             self.backbone.eval()
-            masks = torch.zeros(1, 16 * 16, device="cuda").bool()
-            feat = self.backbone.forward_features(img, masks=masks)[
-                "x_norm_patchtokens"
-            ]
-            feat = feat.permute(0, 2, 1).reshape(-1, 384, 16, 16)  # N, 384, 16*16
+            feats = self.backbone(img)
+            feat = feats[-1]  # N, 384, 16*16
+
         feat = F.interpolate(feat, size=(112, 112), mode="bilinear")
 
         if depth is not None and hasattr(self, "depth_proj"):
@@ -293,4 +296,189 @@ class DINOv2Encoder(nn.Module):
             feat = feat + self.depth_proj(depth)
 
         feat = self.encoder(feat)
-        return feat
+        return feat, feats
+    
+
+class FeatureFusionBlock(nn.Module):
+    def __init__(self, features, kernel_size, with_skip=True):
+        super().__init__()
+        self.with_skip = with_skip
+        if self.with_skip:
+            self.resConfUnit1 = ResidualConvUnit(features, kernel_size)
+
+        self.resConfUnit2 = ResidualConvUnit(features, kernel_size)
+
+    def forward(self, x, skip_x=None):
+        if skip_x is not None:
+            assert self.with_skip and skip_x.shape == x.shape
+            x = self.resConfUnit1(x) + skip_x
+
+        x = self.resConfUnit2(x)
+        return x
+
+
+class ResidualConvUnit(nn.Module):
+    def __init__(self, features, kernel_size):
+        super().__init__()
+        assert kernel_size % 1 == 0, "Kernel size needs to be odd"
+        padding = kernel_size // 2
+        self.conv = nn.Sequential(
+            nn.Conv2d(features, features, kernel_size, padding=padding),
+            nn.ReLU(True),
+            nn.Conv2d(features, features, kernel_size, padding=padding),
+            nn.ReLU(True),
+        )
+
+    def forward(self, x):
+        return self.conv(x) + x
+
+
+class DPT(nn.Module):
+    """
+    https://github.com/mbanani/probe3d/blob/main/evals/models/probes.py#L178
+    """
+    def __init__(self, input_dims, output_dim, hidden_dim=512, kernel_size=3):
+        super().__init__()
+        assert len(input_dims) == 4
+        self.conv_0 = nn.Conv2d(input_dims[0], hidden_dim, 1, padding=0)
+        self.conv_1 = nn.Conv2d(input_dims[1], hidden_dim, 1, padding=0)
+        self.conv_2 = nn.Conv2d(input_dims[2], hidden_dim, 1, padding=0)
+        self.conv_3 = nn.Conv2d(input_dims[3], hidden_dim, 1, padding=0)
+
+        self.ref_0 = FeatureFusionBlock(hidden_dim, kernel_size)
+        self.ref_1 = FeatureFusionBlock(hidden_dim, kernel_size)
+        self.ref_2 = FeatureFusionBlock(hidden_dim, kernel_size)
+        self.ref_3 = FeatureFusionBlock(hidden_dim, kernel_size, with_skip=False)
+
+        self.out_conv = nn.Sequential(
+            nn.Conv2d(hidden_dim, hidden_dim, 3, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(hidden_dim, output_dim, 3, padding=1),
+        )
+
+        self.out_conv[-1] = zero_module(self.out_conv[-1])
+
+    def forward(self, feats):
+        """Prediction each pixel."""
+        assert len(feats) == 4
+
+        feats[0] = self.conv_0(feats[0])
+        feats[1] = self.conv_1(feats[1])
+        feats[2] = self.conv_2(feats[2])
+        feats[3] = self.conv_3(feats[3])
+
+        feats = [interpolate(x, scale_factor=2) for x in feats]
+
+        out = self.ref_3(feats[3], None)
+        out = self.ref_2(feats[2], out)
+        out = self.ref_1(feats[1], out)
+        out = self.ref_0(feats[0], out)
+
+        out = interpolate(out, scale_factor=4)
+        out = self.out_conv(out)
+        out = interpolate(out, scale_factor=2)
+        return out
+    
+
+class DINO(torch.nn.Module):
+    def __init__(
+        self,
+        dino_name="dinov2",
+        model_name="vits14",
+        output="dense",
+        layer=-1,
+        return_multilayer=False,
+    ):
+        super().__init__()
+        feat_dims = {
+            "vitb8": 768,
+            "vitb16": 768,
+            "vitb14": 768,
+            "vitb14_reg": 768,
+            "vitl14": 1024,
+            "vitg14": 1536,
+            "vits14": 384,
+        }
+
+        # get model
+        self.model_name = dino_name
+        self.checkpoint_name = f"{dino_name}_{model_name}"
+        dino_vit = torch.hub.load(f"facebookresearch/{dino_name}", self.checkpoint_name)
+        self.vit = dino_vit.eval().to(torch.float32)
+        self.has_registers = "_reg" in model_name
+
+        assert output in ["cls", "gap", "dense", "dense-cls"]
+        self.output = output
+        self.patch_size = self.vit.patch_embed.proj.kernel_size[0]
+
+        feat_dim = feat_dims[model_name]
+        feat_dim = feat_dim * 2 if output == "dense-cls" else feat_dim
+
+        num_layers = len(self.vit.blocks)
+        multilayers = [
+            num_layers // 4 - 1,
+            num_layers // 2 - 1,
+            num_layers // 4 * 3 - 1,
+            num_layers - 1,
+        ]
+
+        if return_multilayer:
+            self.feat_dim = [feat_dim, feat_dim, feat_dim, feat_dim]
+            self.multilayers = multilayers
+        else:
+            self.feat_dim = feat_dim
+            layer = multilayers[-1] if layer == -1 else layer
+            self.multilayers = [layer]
+
+        # define layer name (for logging)
+        self.layer = "-".join(str(_x) for _x in self.multilayers)
+
+    def forward(self, images):
+        # pad images (if needed) to ensure it matches patch_size
+        h, w = images.shape[-2:]
+        h, w = h // self.patch_size, w // self.patch_size
+
+        if self.model_name == "dinov2":
+            x = self.vit.prepare_tokens_with_masks(images, None)
+        else:
+            x = self.vit.prepare_tokens(images)
+
+        embeds = []
+        for i, blk in enumerate(self.vit.blocks):
+            x = blk(x)
+            if i in self.multilayers:
+                embeds.append(self.vit.norm(x))
+                if len(embeds) == len(self.multilayers):
+                    break
+
+        num_spatial = h * w
+        outputs = []
+        for i, x_i in enumerate(embeds):
+            cls_tok = x_i[:, 0]
+            # ignoring register tokens
+            spatial = x_i[:, -1 * num_spatial :]
+            x_i = tokens_to_output(self.output, spatial, cls_tok, (h, w))
+            outputs.append(x_i)
+
+        return outputs[0] if len(outputs) == 1 else outputs
+
+def tokens_to_output(output_type, dense_tokens, cls_token, feat_hw):
+    if output_type == "cls":
+        assert cls_token is not None
+        output = cls_token
+    elif output_type == "gap":
+        output = dense_tokens.mean(dim=1)
+    elif output_type == "dense":
+        h, w = feat_hw
+        dense_tokens = einops.rearrange(dense_tokens, "b (h w) c -> b c h w", h=h, w=w)
+        output = dense_tokens.contiguous()
+    elif output_type == "dense-cls":
+        assert cls_token is not None
+        h, w = feat_hw
+        dense_tokens = einops.rearrange(dense_tokens, "b (h w) c -> b c h w", h=h, w=w)
+        cls_token = cls_token[:, :, None, None].repeat(1, 1, h, w)
+        output = torch.cat((dense_tokens, cls_token), dim=1).contiguous()
+    else:
+        raise ValueError()
+
+    return output

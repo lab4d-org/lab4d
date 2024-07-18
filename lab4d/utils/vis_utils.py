@@ -56,7 +56,7 @@ def img2color(tag, img, pca_fn=None):
         img = pca_fn(img, normalize=True)
 
     if "xyz" in tag:
-        img = minmax_normalize(img, dim=(0,1))
+        img = minmax_normalize(img, dim=(-2,-3))
 
     if "vis2d" in tag:
         img = minmax_normalize(img)

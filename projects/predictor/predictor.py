@@ -9,12 +9,12 @@ import cv2
 import tqdm
 import trimesh
 
-from projects.predictor.dataloader.dataset import PolyGenerator
-from projects.predictor.dataloader.dataset_diffgs import DiffgsGenerator
-from projects.predictor.arch import TranslationHead, DINOv2Encoder, RotationHead, UncertaintyHead
 from lab4d.utils.quat_transform import matrix_to_quaternion, quaternion_to_matrix
 from lab4d.utils.loss_utils import rot_angle
-
+from lab4d.utils.vis_utils import img2color
+from projects.predictor.dataloader.dataset import PolyGenerator
+from projects.predictor.dataloader.dataset_diffgs import DiffgsGenerator
+from projects.predictor.arch import TranslationHead, DINOv2Encoder, RotationHead, UncertaintyHead, DPT, DINO
 
 class Predictor(nn.Module):
     def __init__(self, opts):
@@ -34,11 +34,11 @@ class Predictor(nn.Module):
         self.head_trans = TranslationHead(384)
         self.head_quat = RotationHead(384)
         self.head_uncertainty = UncertaintyHead(384)
+        self.head_xyz = DPT(self.encoder.backbone.feat_dim, 3, hidden_dim=512, kernel_size=3)
 
-        # self.data_generator = PolyGenerator()
         if len(opts["poly_1"])>0:
-            self.data_generator1 = PolyGenerator(poly_name=opts["poly_1"], inside_out = opts["inside_out"])
-            self.data_generator2 = PolyGenerator(poly_name=opts["poly_2"], inside_out = opts["inside_out"])
+            self.data_generator1 = PolyGenerator(poly_path=opts["poly_1"], inside_out = opts["inside_out"])
+            self.data_generator2 = PolyGenerator(poly_path=opts["poly_2"], inside_out = opts["inside_out"])
         else:
             #TODO write 3DGS dataloader instead
             self.data_generator1 = DiffgsGenerator(path=opts["diffgs_path"])
@@ -48,6 +48,7 @@ class Predictor(nn.Module):
         self.azimuth_limit = np.pi
         self.first_idx = 0
         self.last_idx = -1
+        self.opts = opts
 
     def set_progress(self, steps, progress):
         pass
@@ -69,12 +70,12 @@ class Predictor(nn.Module):
             azimuth_limit=self.azimuth_limit,
         )
         # augment data
-        # if self.training:
-        data_batch["img"], data_batch["xyz"] = self.augment_data(
-            data_batch["img"], data_batch["xyz"]
-        )
+        data_batch_no_extrinsics = data_batch.copy()
+        del data_batch_no_extrinsics["extrinsics"]
+        data_batch_no_extrinsics = self.augment_data(data_batch_no_extrinsics, exclude_keys=["xyz"])
 
-        batch.update(data_batch)
+        batch.update(data_batch_no_extrinsics)
+        batch["extrinsics"] = data_batch["extrinsics"]
 
         return batch
 
@@ -87,30 +88,26 @@ class Predictor(nn.Module):
         return sx, sy, cx, cy
 
     @staticmethod
-    def mask_aug(img, xyz, lb=0.1, ub=0.2):
-        _, h, w = img.shape
-        mean_img = img.mean(-1).mean(-1)[:, None, None]
-        mean_xyz = xyz.mean(0).mean(0)[None, None]  # hw3
+    def mask_aug(batch, i, exclude_keys, lb=0.1, ub=0.2):
+        _, _, h, w = batch["img"].shape
+        mean_img = batch["img"][i].mean(-1).mean(-1)[:, None, None]
+        mean_dict = {}
+        for k, v in batch.items():
+            if k == "img" or k in exclude_keys: 
+                continue
+            mean_dict[k] = v[i].mean(0).mean(0)[None, None]  # hw3
+
         if True:  # np.random.binomial(1, 0.5):
             for _ in range(5):
                 sx, sy, cx, cy = Predictor.get_rand_bbox(lb, ub, h, w)
-                img[:, cy - sy : cy + sy, cx - sx : cx + sx] = mean_img
-                xyz[cy - sy : cy + sy, cx - sx : cx + sx] = mean_xyz
-        return img, xyz
+                batch["img"][i, :, cy - sy : cy + sy, cx - sx : cx + sx] = mean_img
+                for k, _ in batch.items():
+                    if k == "img" or k in exclude_keys: 
+                        continue
+                    batch[k][i, cy - sy : cy + sy, cx - sx : cx + sx] = mean_dict[k]
 
-    @staticmethod
-    def mask_aug_batch(img, xyz, lb=0.1, ub=0.2):
-        b, _, h, w = img.shape
-        mean_img = img.mean(-1).mean(-1)[:, :, None, None]
-        mean_xyz = xyz.mean(1).mean(1)[:, None, None]  # bhw3
-        if True:  # np.random.binomial(1, 0.5):
-            for _ in range(5):
-                sx, sy, cx, cy = Predictor.get_rand_bbox(lb, ub, h, w)
-                img[:, :, cy - sy : cy + sy, cx - sx : cx + sx] = mean_img
-                xyz[:, cy - sy : cy + sy, cx - sx : cx + sx] = mean_xyz
-        return img, xyz
 
-    def augment_data(self, img, xyz):
+    def augment_data(self, batch, exclude_keys=[]):
         """
         img: (N, 3, H, W)
         xyz: (N, H, W, 3)
@@ -118,54 +115,65 @@ class Predictor(nn.Module):
         # randomly crop the image
         # always center crop to avoid translation / principle point ambiguity
         # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
-        cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(img.shape[2]))
-        start_loc = (img.shape[2] - cropped_size) // 2
+        bs, _, res, _ = batch["img"].shape
+        cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(res))
+        start_loc = (res - cropped_size) // 2
         if np.random.binomial(1, 0.5):
-            # crop lengthwise
-            img = img[:, :, start_loc : start_loc + cropped_size]
-            xyz = xyz[:, start_loc : start_loc + cropped_size]
+            for k, v in batch.items():
+                # crop lengthwise
+                if k=="img":
+                    batch[k] = v[:, :, start_loc : start_loc + cropped_size]
+                else:
+                    batch[k] = v[:, start_loc : start_loc + cropped_size]
         else:
-            # crop widthwise
-            img = img[:, :, :, start_loc : start_loc + cropped_size]
-            xyz = xyz[:, :, start_loc : start_loc + cropped_size]
+            for k,v in batch.items():
+                # crop widthwise
+                if k=="img":
+                    batch[k] = v[:, :, :, start_loc : start_loc + cropped_size]
+                else:
+                    batch[k] = v[:, :, start_loc : start_loc + cropped_size]
 
         # color
         color_aug = T.ColorJitter(brightness=0.5, contrast=0.2, saturation=0.2, hue=0.1)
         # # apply the same parameter setting
-        # img = color_aug(img) 
-        # img, xyz = self.mask_aug_batch(img, xyz)
+        # batch["img"] = color_aug(batch["img"]) 
 
         # apply different parameter setting
-        for i in range(img.shape[0]):
-            img[i] = color_aug(img[i])
-            # mask
-            img[i], xyz[i] = self.mask_aug(img[i], xyz[i])
+        for i in range(bs):
+            batch["img"][i] = color_aug(batch["img"][i])
+        for i in range(bs):
+            self.mask_aug(batch, i, exclude_keys)
 
-        return img, xyz
+        return batch
 
     def predict(self, img, depth):
         # image
         img = self.transforms(img)
         depth = self.transforms_depth(depth[:, None])
-        feat = self.encoder(img)
+        feat, feats = self.encoder(img)
+
+        # liner projection layer
+        xyz_pred = self.head_xyz(feats)
 
         # prediction heads
         trans = self.head_trans(feat)
         quat = self.head_quat(feat)
         uncertainty = self.head_uncertainty(feat)[..., 0]
-        return quat, trans, uncertainty
+
+        # xyz prediction head
+        return quat, trans, uncertainty, xyz_pred
 
     @staticmethod
-    def xyz_to_canonical(xyz, extrinsics):
+    def xyz_to_canonical(xyz_view, extrinsics):
         """
-        xyz: N, H, W, 3
+        xyz_view: N, H, W, 3
         extrinsics: N, 4, 4
         """
-        xyz_homo = torch.cat([xyz, torch.ones_like(xyz[..., :1])], dim=-1)
+        xyz_homo = torch.cat([xyz_view, torch.ones_like(xyz_view[..., :1])], dim=-1)
         # N,HW,4
         extrinsics = torch.inverse(extrinsics)  # view to world
         xyz_canonical = extrinsics[:, None] @ xyz_homo.view(xyz_homo.shape[0], -1, 4, 1)
-        xyz_canonical = xyz_canonical[..., :3, 0].view(xyz.shape)
+        xyz_canonical = xyz_canonical[..., :3, 0].view(xyz_view.shape)
         return xyz_canonical
 
     def forward(self, batch):
@@ -178,11 +186,9 @@ class Predictor(nn.Module):
         # trans_gt = torch.zeros(1, 3, device="cuda")
         # load data
         img = batch["img"]
-        xyz = batch["xyz"]
-        depth = xyz[..., 2]
+        depth = batch["depth"]
         quat_gt = matrix_to_quaternion(batch["extrinsics"][:, :3, :3])
         trans_gt = batch["extrinsics"][:, :3, 3]
-        xyz_gt = self.xyz_to_canonical(xyz, batch["extrinsics"])
 
         # # TODO unit test: load croped image / dinofeature and check thedifference
         # import numpy as np
@@ -201,12 +207,11 @@ class Predictor(nn.Module):
         # pred = pred.permute(0, 2, 3, 1)
         # pred = F.normalize(pred, dim=-1)
 
-        quat, trans, uncertainty = self.predict(img, depth)
+        quat, trans, uncertainty, xyz_pred = self.predict(img, depth)
         extrinsics_pred = torch.zeros_like(batch["extrinsics"])
         extrinsics_pred[:, :3, :3] = quaternion_to_matrix(quat)
         extrinsics_pred[:, :3, 3] = trans
         extrinsics_pred[:, 3, 3] = 1
-        xyz_pred = self.xyz_to_canonical(xyz, extrinsics_pred)
 
         # loss
         # pdb.set_trace()
@@ -216,37 +221,39 @@ class Predictor(nn.Module):
         # trimesh.Trimesh(vertices=xyz_gt[0].view(-1, 3).detach().cpu()).export(
         #     "tmp/1.obj"
         # )
-        loss_dict = self.compute_metrics(
-            quat, quat_gt, trans, trans_gt, xyz_pred, xyz_gt, uncertainty=uncertainty
-        )
-        return loss_dict
 
-    def compute_metrics(
-        self, quat, quat_gt, trans, trans_gt, xyz=None, xyz_gt=None, uncertainty=None
-    ):
-        loss_dict = {}
-        so3 = quaternion_to_matrix(quat)
-        so3_gt = quaternion_to_matrix(quat_gt)
-        rot_loss = rot_angle(so3 @ so3_gt.permute(0, 2, 1)).mean(-1) * 2e-4
-        # rot_loss = (quat - quat_gt).pow(2).mean() * 1e-3
-        trans_loss = (trans - trans_gt).pow(2).mean(-1) * 1e-4
-        # camera_pose_loss = trans_loss + rot_loss
-        # loss_dict["camera_pose_loss"] = camera_pose_loss.mean()
-        loss_dict["rot_loss"] = rot_loss.mean()
-        loss_dict["trans_loss"] = trans_loss.mean()
-        if xyz is not None and xyz_gt is not None:
-            loss_dict["xyz_loss"] = (xyz - xyz_gt).pow(2).mean() * 2e-4
-            # not optimizing it
-            loss_dict["xyz_loss"] = loss_dict["xyz_loss"].detach()
+        # different types of xyz losses
+        if self.opts["poly_1"]=="":
+            xyz_gt = batch["xyz"]
+            xyz_pred = F.interpolate(xyz_pred, xyz_gt.shape[1:3], mode="bilinear").permute(0,2,3,1)
+        else:
+            xyz_gt = self.xyz_to_canonical(batch["xyz_view"], batch["extrinsics"])
+            xyz_pred = self.xyz_to_canonical(batch["xyz_view"], extrinsics_pred)
+            xyz_pred = xyz_pred.detach() # not optimizing it
+
+        loss_dict = self.compute_metrics(quat, quat_gt, trans, trans_gt, xyz_pred, xyz_gt)
+
+        # weighting 
+        for k, _ in loss_dict.items():
+            loss_dict[k] *= self.opts[k + "_wt"]
 
         # weight by uncertainty: error = error / uncertainty
         if uncertainty is not None:
-            # loss_dict["rot_loss"] = (rot_loss / uncertainty.detach()).mean()
-            # loss_dict["trans_loss"] = (trans_loss / uncertainty.detach()).mean()
-            loss_dict["uncertainty_loss"] = (
-                (uncertainty - (rot_loss + trans_loss).detach()).pow(2).mean()
-            )
+            loss_dict["uncertainty"] = (
+                (uncertainty - (loss_dict["rot"] + loss_dict["trans"]).detach()).pow(2).mean()
+            ) * self.opts["uncertainty_wt"]
+        return loss_dict
 
+    def compute_metrics(self, quat, quat_gt, trans, trans_gt, xyz=None, xyz_gt=None):
+        loss_dict = {}
+        so3 = quaternion_to_matrix(quat)
+        so3_gt = quaternion_to_matrix(quat_gt)
+        rot_loss = rot_angle(so3 @ so3_gt.permute(0, 2, 1)).mean(-1)
+        trans_loss = (trans - trans_gt).pow(2).mean(-1)
+        loss_dict["rot"] = rot_loss.mean()
+        loss_dict["trans"] = trans_loss.mean()
+        if xyz is not None and xyz_gt is not None:
+            loss_dict["xyz"] = (xyz - xyz_gt).pow(2).mean()
         return loss_dict
 
     def get_field_params(self):
@@ -266,15 +273,16 @@ class Predictor(nn.Module):
         re_imgs = []
         pred_extrinsics = []
         pred_uncertainty = []
+        pred_xyzs = []
         # predict pose and re-render
         for idx, img in tqdm.tqdm(enumerate(batch["img"])):
             if "depth" in batch:
                 depth = batch["depth"][idx]
-            elif "xyz" in batch:
-                depth = batch["xyz"][idx][..., 2] # img of size B,3,H,W, xyz of size B,H,W,3
+            elif "xyz_view" in batch:
+                depth = batch["xyz_view"][idx][..., 2] # img of size B,3,H,W, xyz of size B,H,W,3
             else:
                 raise ValueError("no depth or xyz in batch")
-            quat, trans, uncertainty = self.predict(img[None], depth[None])
+            quat, trans, uncertainty, pred_xyz = self.predict(img[None], depth[None])
             # get extrinsics
             extrinsics = np.eye(4)
             extrinsics[:3, :3] = quaternion_to_matrix(quat)[0].cpu().numpy()
@@ -294,18 +302,24 @@ class Predictor(nn.Module):
             re_imgs.append(re_img)
             pred_extrinsics.append(extrinsics)
             pred_uncertainty.append(uncertainty)
+            pred_xyz = F.interpolate(pred_xyz, img.shape[1:3], mode="bilinear")
+            pred_xyzs.append(pred_xyz[0].permute(1,2,0).cpu().numpy())
         pred_extrinsics = np.stack(pred_extrinsics)
         pred_extrinsics = torch.tensor(
             pred_extrinsics, device="cuda", dtype=torch.float32
         )
         re_imgs = np.stack(re_imgs)
         pred_uncertainty = np.stack(pred_uncertainty)
-        return re_imgs, pred_extrinsics, pred_uncertainty
+        pred_xyzs = np.stack(pred_xyzs, 0)
+        return re_imgs, pred_extrinsics, pred_uncertainty, pred_xyzs
 
     @torch.no_grad()
     def evaluate(self, batch):
-        re_imgs, pred_extrinsics, pred_uncertainty = self.predict_batch(batch)
-        rendered = {"re_rgb": re_imgs}
+        re_imgs, pred_extrinsics, pred_uncertainty, pred_xyzs = self.predict_batch(batch)
+        rendered = {
+            "re_rgb": re_imgs, 
+            "pred_xyz": pred_xyzs,
+            }
         if "extrinsics" in batch:
             quat, trans = self.convert_se3_to_qt(pred_extrinsics)
             quat_gt, trans_gt = self.convert_se3_to_qt(batch["extrinsics"])

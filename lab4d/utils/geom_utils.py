@@ -311,7 +311,7 @@ def so3_to_exp_map(so3, eps=1e-6):
     return exp_V
 
 
-def compute_crop_params(mask, crop_factor=1.2, crop_size=256, use_full=False, crop_mode="minmax"):
+def compute_crop_params(mask, crop_factor=1.2, crop_size=256, use_full=False, crop_mode="minmax", keep_aspect=False):
     """Compute camera intrinsics transform from cropped to raw images
 
     Args:
@@ -340,6 +340,9 @@ def compute_crop_params(mask, crop_factor=1.2, crop_size=256, use_full=False, cr
         length = (length_x, length_y)
     else:
         raise ValueError
+    if keep_aspect:
+        max_length = max(length)
+        length = (max_length, max_length)
     length = (int(crop_factor * length[0]), int(crop_factor * length[1]))
 
     # print('center:%f'%(time.time()-ss))
