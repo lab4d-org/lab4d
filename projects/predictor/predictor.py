@@ -37,9 +37,11 @@ class Predictor(nn.Module):
         self.head_xyz = DPT(self.encoder.backbone.feat_dim, 3, hidden_dim=512, kernel_size=3)
 
         if len(opts["poly_1"])>0:
+            self.renderer_mode = "mesh"
             self.data_generator1 = PolyGenerator(poly_path=opts["poly_1"], inside_out = opts["inside_out"])
             self.data_generator2 = PolyGenerator(poly_path=opts["poly_2"], inside_out = opts["inside_out"])
         else:
+            self.renderer_mode = "3dgs"
             #TODO write 3DGS dataloader instead
             self.data_generator1 = DiffgsGenerator(path=opts["diffgs_path"])
             self.data_generator2 = self.data_generator1
@@ -48,6 +50,7 @@ class Predictor(nn.Module):
         self.azimuth_limit = np.pi
         self.first_idx = 0
         self.last_idx = -1
+        # self.last_idx = 400
         self.opts = opts
 
     def set_progress(self, steps, progress):
@@ -97,14 +100,13 @@ class Predictor(nn.Module):
                 continue
             mean_dict[k] = v[i].mean(0).mean(0)[None, None]  # hw3
 
-        if True:  # np.random.binomial(1, 0.5):
-            for _ in range(5):
-                sx, sy, cx, cy = Predictor.get_rand_bbox(lb, ub, h, w)
-                batch["img"][i, :, cy - sy : cy + sy, cx - sx : cx + sx] = mean_img
-                for k, _ in batch.items():
-                    if k == "img" or k in exclude_keys: 
-                        continue
-                    batch[k][i, cy - sy : cy + sy, cx - sx : cx + sx] = mean_dict[k]
+        for _ in range(5):
+            sx, sy, cx, cy = Predictor.get_rand_bbox(lb, ub, h, w)
+            batch["img"][i, :, cy - sy : cy + sy, cx - sx : cx + sx] = mean_img
+            for k, _ in batch.items():
+                if k == "img" or k in exclude_keys: 
+                    continue
+                batch[k][i, cy - sy : cy + sy, cx - sx : cx + sx] = mean_dict[k]
 
 
     def augment_data(self, batch, exclude_keys=[]):
@@ -112,26 +114,27 @@ class Predictor(nn.Module):
         img: (N, 3, H, W)
         xyz: (N, H, W, 3)
         """
-        # randomly crop the image
-        # always center crop to avoid translation / principle point ambiguity
-        # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
         bs, _, res, _ = batch["img"].shape
-        cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(res))
-        start_loc = (res - cropped_size) // 2
-        if np.random.binomial(1, 0.5):
-            for k, v in batch.items():
-                # crop lengthwise
-                if k=="img":
-                    batch[k] = v[:, :, start_loc : start_loc + cropped_size]
-                else:
-                    batch[k] = v[:, start_loc : start_loc + cropped_size]
-        else:
-            for k,v in batch.items():
-                # crop widthwise
-                if k=="img":
-                    batch[k] = v[:, :, :, start_loc : start_loc + cropped_size]
-                else:
-                    batch[k] = v[:, :, start_loc : start_loc + cropped_size]
+        # no need to crop since we keep aspect ratio at test time
+        # # randomly crop the image
+        # # always center crop to avoid translation / principle point ambiguity
+        # # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
+        # cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(res))
+        # start_loc = (res - cropped_size) // 2
+        # if np.random.binomial(1, 0.5):
+        #     for k, v in batch.items():
+        #         # crop lengthwise
+        #         if k=="img":
+        #             batch[k] = v[:, :, start_loc : start_loc + cropped_size]
+        #         else:
+        #             batch[k] = v[:, start_loc : start_loc + cropped_size]
+        # else:
+        #     for k,v in batch.items():
+        #         # crop widthwise
+        #         if k=="img":
+        #             batch[k] = v[:, :, :, start_loc : start_loc + cropped_size]
+        #         else:
+        #             batch[k] = v[:, :, start_loc : start_loc + cropped_size]
 
         # color
         color_aug = T.ColorJitter(brightness=0.5, contrast=0.2, saturation=0.2, hue=0.1)
@@ -142,7 +145,17 @@ class Predictor(nn.Module):
         for i in range(bs):
             batch["img"][i] = color_aug(batch["img"][i])
         for i in range(bs):
-            self.mask_aug(batch, i, exclude_keys)
+            if self.opts["model_type"]=="scene":
+                do_mask = True
+            elif self.opts["model_type"]=="object":
+                if np.random.binomial(1, 0.5):
+                    do_mask = True
+                else:
+                    do_mask = False
+            else:
+                raise ValueError
+            if do_mask:
+                self.mask_aug(batch, i, exclude_keys)
 
         return batch
 
@@ -223,13 +236,15 @@ class Predictor(nn.Module):
         # )
 
         # different types of xyz losses
-        if self.opts["poly_1"]=="":
+        if self.opts["model_type"]=="object":
             xyz_gt = batch["xyz"]
             xyz_pred = F.interpolate(xyz_pred, xyz_gt.shape[1:3], mode="bilinear").permute(0,2,3,1)
-        else:
+        elif self.opts["model_type"]=="scene":
             xyz_gt = self.xyz_to_canonical(batch["xyz_view"], batch["extrinsics"])
             xyz_pred = self.xyz_to_canonical(batch["xyz_view"], extrinsics_pred)
             xyz_pred = xyz_pred.detach() # not optimizing it
+        else:
+            raise ValueError
 
         loss_dict = self.compute_metrics(quat, quat_gt, trans, trans_gt, xyz_pred, xyz_gt)
 

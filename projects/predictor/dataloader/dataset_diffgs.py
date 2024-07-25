@@ -51,9 +51,9 @@ class DiffgsGenerator:
         d_extrinsics = []
         for _ in range(num_images):
             d_ext = sample_extrinsics_outside_in(
-                elevation_limit=np.pi / 2,
+                elevation_limit=np.pi / 4,
                 azimuth_limit=np.pi,
-                roll_limit=np.pi / 2,
+                roll_limit=np.pi / 6,
             )
             d_extrinsics.append(d_ext)
         d_extrinsics = np.stack(d_extrinsics,0)

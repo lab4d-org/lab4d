@@ -44,6 +44,7 @@ def run_inference(opts):
     # # load from sim
     # batch = model.data_generator1.generate_batch(100)
     # rgb_input = batch["img"].permute(0,2,3,1).cpu().numpy() * 255
+    # depth_input = batch["depth"].cpu().numpy()
 
     # load input image
     rgb_input = []
@@ -64,6 +65,14 @@ def run_inference(opts):
 
     # predict pose and visualize
     re_rgb, extrinsics, uncertainty, pred_xyzs = model.predict_batch(batch)
+    import trimesh
+    can_verts = model.data_generator1.model.gaussians._xyz.detach().cpu().numpy()
+    min_verts = can_verts.min(0)[None]
+    max_verts = can_verts.max(0)[None]
+    t_verts = pred_xyzs[0].reshape(-1,3)
+    trimesh.Trimesh(t_verts, vertex_colors = (t_verts - min_verts) / (max_verts - min_verts)).export("tmp/0.obj")
+    trimesh.Trimesh(can_verts, vertex_colors = (can_verts - min_verts)/(max_verts - min_verts)).export("tmp/1.obj")
+    print("saving inferred 3d kps")
 
     # resize rerendered images
     dsize = rgb_input.shape[1:3][::-1]
@@ -79,7 +88,7 @@ def run_inference(opts):
     re_rgb_resized = np.stack(re_rgb_resized, 0)
     depth_input_vis = np.stack(depth_input_vis, 0)
     pred_xyzs_resized = np.stack(pred_xyzs_resized, 0)
-    out_frames = np.concatenate([rgb_input, depth_input_vis, pred_xyzs_resized, re_rgb_resized], 2)
+    out_frames = np.concatenate([rgb_input, pred_xyzs_resized, re_rgb_resized], 2)
     seqname = opts["image_dir"].strip("/").split("/")[-1]
     os.makedirs("tmp/predictor", exist_ok=True)
     save_vid("tmp/predictor/input_rendered-%s" % seqname, out_frames)

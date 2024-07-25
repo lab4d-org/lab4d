@@ -222,8 +222,8 @@ class VidDataset(Dataset):
         return len(self.dict_list["ref"]) - 1
 
     def __getitem__(self, index):
-        # self.min_frameid = 80
-        # self.max_frameid = 120
+        # self.min_frameid = 0
+        # self.max_frameid = 400
         index = max(index - self.min_frameid, 0)
         index = index % (self.max_frameid - self.min_frameid)
         index = index + self.min_frameid

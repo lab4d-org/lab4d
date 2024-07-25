@@ -14,6 +14,7 @@ class PredictorConfig:
     flags.DEFINE_float("trans_wt", 1e-4, "weight of translation regression loss")
     flags.DEFINE_float("rot_wt", 2e-4, "weight of rotation regression loss")
     flags.DEFINE_float("uncertainty_wt", 1.0, "weight of uncertainty regression loss")
+    flags.DEFINE_string("model_type", "scene", "model scene or object {scene, object}")
 
     # diffgs interface
     flags.DEFINE_string("diffgs_path", "", "path to diffgs path e.g., logdir/mouse-1-diffgs-fs-fg-b32-bob-r120-mlp/opts.log")
