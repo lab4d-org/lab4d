@@ -238,7 +238,11 @@ class ViserViewer:
 
                     toggle_outputs = self.toggle_outputs.value
                     out = outputs[toggle_outputs][0].astype(np.float32)
-                    out = img2color(toggle_outputs, out, pca_fn=self.renderer.data_info["apply_pca_fn"])
+                    if "apply_pca_fn" in self.renderer.data_info:
+                        pca_fn = self.renderer.data_info["apply_pca_fn"]
+                    else:
+                        pca_fn = None
+                    out = img2color(toggle_outputs, out, pca_fn=pca_fn)
                 except RuntimeError as e:
                     print(e)
                     interval = 1

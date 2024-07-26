@@ -462,8 +462,8 @@ class GSplatTrainer(Trainer):
         return {}
 
     @staticmethod
-    def construct_test_model(opts, model_class=GSplatModel, return_refs=True):
-        return Trainer.construct_test_model(opts, model_class=model_class, return_refs=return_refs)
+    def construct_test_model(opts, model_class=GSplatModel, return_refs=True, force_reload=True):
+        return Trainer.construct_test_model(opts, model_class=model_class, return_refs=return_refs, force_reload=force_reload)
 
     def train_one_round(self):
         """Train a single round (going over mini-batches)"""

@@ -50,10 +50,7 @@ def load_lab4d(config):
     flags_path = config["lab4d_path"]
     # load lab4d model
     if len(flags_path) == 0:
-        # construct dataset
-        eval_dict = Trainer.construct_dataset_opts(config, is_eval=True)
-        evalloader = data_utils.eval_loader(eval_dict)
-        data_info, _ = data_utils.get_data_info(evalloader)
+        _, data_info, _ = Trainer.construct_test_model(config, return_refs=False, force_reload=False)
         model = dvr_model(config, data_info)
         model.cuda()
         model.eval()
