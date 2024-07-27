@@ -119,6 +119,14 @@ def get_camera_mesh(radius, color=[255, 255, 255, 255]):
     return mesh
 
 
+def get_user_mesh(scale=0.2, color = [255,0,0,255]):
+    mesh = trimesh.load("database/mesh-templates/user.obj")
+    mesh.vertices = mesh.vertices * scale
+    mesh.vertices[:,1] = mesh.vertices[:,1] * -1
+    mesh.visual.vertex_colors = 255
+    mesh.visual.vertex_colors = np.tile(color, [len(mesh.vertices), 1])
+    return mesh
+
 def draw_cams(
     all_cam,
     color="cool",
