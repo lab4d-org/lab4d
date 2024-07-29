@@ -221,7 +221,7 @@ class ArticulationLoader(MeshLoader):
             frame_id=fake_frameid, return_so3=False, override_so3=so3
         )
         _, kps = dual_quaternion_to_quaternion_translation(t_articulation)
-        kps = kps[0].cpu().numpy() / scale_fg
+        kps = kps.cpu().numpy() / scale_fg
 
         # world space keypoints
         root_to_world_list = np.eye(4).reshape(1, 4, 4).repeat(len(sample), axis=0)
