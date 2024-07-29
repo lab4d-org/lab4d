@@ -50,9 +50,8 @@ def load_lab4d(config):
     flags_path = config["lab4d_path"]
     # load lab4d model
     if len(flags_path) == 0:
-        _, data_info, _ = Trainer.construct_test_model(config, return_refs=False, force_reload=False)
+        _, data_info, _ = Trainer.construct_test_model(config, return_refs=False, force_reload=False, to_cuda=False)
         model = dvr_model(config, data_info)
-        model.cuda()
         model.eval()
         meshes = {}
         for cate, field in model.fields.field_params.items():
@@ -63,12 +62,14 @@ def load_lab4d(config):
     else:
         opts = load_flags_from_file(flags_path)
         opts["load_suffix"] = "latest"
-        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False)
+        model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False, to_cuda=False)
+        model.cuda()
         meshes = model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
     # color
     for cate, field in model.fields.field_params.items():
-        color = field.extract_canonical_color(meshes[cate])
-        meshes[cate].visual.vertex_colors[:,:3] = color * 255
+        if hasattr(meshes[cate].visual, "vertex_colors"):
+            color = field.extract_canonical_color(meshes[cate])
+            meshes[cate].visual.vertex_colors[:,:3] = color * 255
         # # GT mesh
         # mesh = trimesh.load("/home/gengshay/code/vid2sim/database/processed/Meshes/Full-Resolution/eagle-s-8f-0000/00000.obj")
         # mesh = mesh.apply_scale(field.logscale.exp().detach().cpu().numpy())
@@ -446,10 +447,14 @@ class GSplatModel(nn.Module):
         loss_dict["depth"] = loss_dict["depth"] * (batch["depth"] > 0).float()
         
         if config["field_type"] == "fg" or config["field_type"] == "comp":
-            feature_loss_fg = F.normalize(rendered["feature_fg"], 2,1) - batch["feature"]
-            feature_loss_fg = feature_loss_fg.norm(2, 1, keepdim=True)
-            feature_loss_fg = feature_loss_fg * batch["mask"].float()
-            loss_dict["feature"] = feature_loss_fg
+            feature = rendered["feature_fg"]
+            feature_mask = batch["mask"].float()
+        elif config["field_type"] == "bg":
+            feature = rendered["feature"]
+            feature_mask = 1 - batch["mask"].float()
+        feature_loss = F.normalize(feature, 2,1) - batch["feature"]
+        feature_loss = feature_loss.norm(2, 1, keepdim=True)
+        loss_dict["feature"] = feature_loss * feature_mask
 
         # mask_balance_wt = get_mask_balance_wt(
         #     batch["mask"], batch["vis2d"], batch["is_detected"]

@@ -231,6 +231,12 @@ class GaussianModel(nn.Module):
         """
         return self.index not in self.parent_list
 
+
+    @property
+    def is_root(self):
+        return self.parent_list[self.index] == -1
+
+
     def get_children_idx(self):
         """
         return: [N]
@@ -272,21 +278,14 @@ class GaussianModel(nn.Module):
         # load lab4d model
         self.lab4d_model = lab4d_model
 
+        # extrinsics
+        self.construct_extrinsics(config, data_info)
+        
         if self.is_leaf():
-            self.max_sh_degree = sh_degree
-            self._xyz = torch.empty(0)
-            self._color_dc = torch.empty(0)
-            self._color_rest = torch.empty(0)
-            self._scaling = torch.empty(0)
-            self._rotation = torch.empty(0)
-            self._opacity = torch.empty(0)
-            self._feature = torch.empty(0)
-
             # load geometry
             num_pts = config["num_pts"]
             if self.mode == "bg":
                 num_pts *= 10
-            
             # initialize with lab4d
             mesh = lab4d_meshes[self.mode]
             pts, _, colors = trimesh.sample.sample_surface(mesh, num_pts, sample_color=True)
@@ -297,7 +296,26 @@ class GaussianModel(nn.Module):
                 colors[:, :3] / 255,
                 np.zeros((pts.shape[0], 3)),
             )
-            self.initialize(input=pcd)
+
+            self.max_sh_degree = sh_degree
+            self._xyz = nn.Parameter(torch.zeros(num_pts, 3))
+            self._color_dc = nn.Parameter(torch.zeros(num_pts, 1, 3))
+            self._color_rest = nn.Parameter(torch.zeros(num_pts, (self.max_sh_degree + 1) ** 2 - 1, 3))
+            self._scaling = nn.Parameter(torch.zeros(num_pts, 3))
+            self._rotation = nn.Parameter(torch.zeros(num_pts, 4))
+            self._opacity = nn.Parameter(torch.zeros(num_pts, 1))
+            self._feature = nn.Parameter(torch.zeros(num_pts, 16))
+            # temperature
+            self._logsigma = nn.Parameter(torch.tensor([0.0]))
+
+            if get_local_rank() == 0:
+                self.initialize(input=pcd)
+
+            len_list, index_list = self.get_gaussian_idx()
+            self.gaussian_offset = np.cumsum([0] + len_list)
+            self.gaussian_idx = {}
+            for it, index in enumerate(index_list):
+                self.gaussian_idx[index] = it
 
             # # DEBUG
             # mesh = trimesh.load("tmp/0.obj")
@@ -320,14 +338,14 @@ class GaussianModel(nn.Module):
             self.use_timesync = config["use_timesync"]
                     
             # shadow field
-            num_freq_xyz = 6
-            num_freq_t = 6
+            num_freq_xyz = 3
+            num_freq_t = 3
             num_inst = len(data_info["frame_info"]["frame_offset"]) - 1
             self.pos_embedding = PosEmbedding(3, num_freq_xyz)
             self.time_embedding = TimeEmbedding(num_freq_t, data_info["frame_info"])
             self.shadow_field = CondMLP(num_inst=num_inst, 
                                         D=1,
-                                        W=256,             
+                                        W=64,             
                                         in_channels=self.pos_embedding.out_channels+ self.time_embedding.out_channels,
                                         out_channels=1)
 
@@ -336,15 +354,28 @@ class GaussianModel(nn.Module):
                 gaussians = GaussianModel(sh_degree, config, data_info, parent_list, idx, mode_list, lab4d_model, lab4d_meshes)
                 self.gaussians.append(gaussians)
 
-        if self.parent_list[self.index] == -1:
+        if self.is_leaf():
             # aux stats
             self.construct_stat_vars()
 
-        # extrinsics
-        self.construct_extrinsics(config, data_info)
+        if self.is_root:
+            # init proxy
+            self.update_geometry_aux()
 
         # init proxy
         self.update_geometry_aux()
+
+    def get_gaussian_idx(self):
+        if self.is_leaf():
+            return [len(self._xyz)], [self.index]
+        else:
+            length_list = []
+            index_list = []
+            for gaussians in self.gaussians:
+                length, index = gaussians.get_gaussian_idx()
+                length_list += length
+                index_list += index
+            return length_list, index_list
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -397,7 +428,7 @@ class GaussianModel(nn.Module):
     def init_deform_mlp(self):
         if self.is_leaf():
             field = self.lab4d_model.fields.field_params[self.mode]
-            if "skel-" in field.fg_motion or "urdf-" in field.fg_motion:
+            if self.mode=="fg" and ("skel-" in field.fg_motion or "urdf-" in field.fg_motion):
                 field.warp.articulation.mlp_init()
         for gaussians in self.gaussians:
             gaussians.init_deform_mlp()
@@ -624,10 +655,9 @@ class GaussianModel(nn.Module):
             orientations = self.get_rotation(frameid).cpu()
             scalings = self.get_scaling.cpu().numpy()
             opacity = self.get_opacity.cpu().numpy()[...,0]
-            vis_ratio = self.get_vis_ratio.cpu().numpy()
 
             # select those with high opacity
-            select_idx = np.logical_and(opacity > opacity_th, vis_ratio > visibility_th)
+            select_idx = np.logical_and(opacity > opacity_th, self.get_visible_mask.cpu().numpy())
             scalings_sel = scalings[select_idx]
             centers_sel = centers[select_idx]
             orientations_sel = orientations[select_idx]
@@ -689,18 +719,12 @@ class GaussianModel(nn.Module):
         if shs is None:
             shs = torch.zeros_like(pts)
         features = torch.zeros(
-            (shs.shape[0], 3, (self.max_sh_degree + 1) ** 2),
+            (shs.shape[0], (self.max_sh_degree + 1) ** 2, 3),
             dtype=torch.float,
         )
-        features[:, :3, 0] = shs
-        features[:, 3:, 1:] = 0.0
-
-        self._color_dc = nn.Parameter(
-            features[:, :, 0:1].transpose(1, 2).contiguous()
-        )
-        self._color_rest = nn.Parameter(
-            features[:, :, 1:].transpose(1, 2).contiguous()
-        )
+        features[:, 0] = shs
+        self._color_dc.data = features[:, 0:1]
+        self._color_rest.data = features[:, 1:]
 
         Npts = pts.shape[0]
         if scales is None:
@@ -722,9 +746,6 @@ class GaussianModel(nn.Module):
         features = torch.ones((Npts, 16), dtype=torch.float)
         features = torch.randn_like(features)
         self._feature = nn.Parameter(features)
-        # temperature
-        sigma = torch.tensor([1.0])
-        self._logsigma = nn.Parameter(sigma.log())
 
     # @property
     # def get_num_frames(self):
@@ -777,8 +798,8 @@ class GaussianModel(nn.Module):
             raise NotImplementedError
 
     def construct_stat_vars(self):
-        self.register_buffer("xyz_vis_accum", torch.ones((self.get_num_pts, 1), device="cuda"))
-        self.register_buffer("vis_denom",  torch.ones((self.get_num_pts, 1), device="cuda"))
+        self.register_buffer("xyz_vis_accum", torch.ones((self.get_num_pts, 1)))
+        self.register_buffer("vis_denom",  torch.ones((self.get_num_pts, 1)))
 
 
     def update_vis_stats(self, pts_dict):
@@ -787,15 +808,50 @@ class GaussianModel(nn.Module):
         is_visible = (xy_1.abs() < 1).sum(-1) == 2
         visible_count = is_visible.sum(1, keepdims=True)
 
-        self.vis_denom += bs
-        self.xyz_vis_accum += visible_count
+        self.update_vis(bs, visible_count)
+
+    
+    def update_vis(self, bs, visible_count):
+        if self.is_leaf():
+            self.vis_denom += bs
+            idx = self.gaussian_idx[self.index]
+            self.xyz_vis_accum += visible_count[self.gaussian_offset[idx]: self.gaussian_offset[idx+1]]
+        else:
+            for gaussians in self.gaussians:
+                gaussians.update_vis(bs, visible_count)
 
 
     @property
     def get_vis_ratio(self):
-        return (self.xyz_vis_accum / self.vis_denom)[...,0]
+        if self.is_leaf():
+            return (self.xyz_vis_accum / self.vis_denom)[...,0]
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_vis_ratio)
+            return torch.cat(rt_tensor, dim=0)
 
-    def reset_gaussian_scale(self, scale_val=0.01):
+    @property
+    def get_visible_mask(self):
+        if self.mode == "fg":
+            visibility_th = 0.8
+        elif self.mode == "bg":
+            visibility_th = 0.01
+
+        if self.is_leaf():
+            vis_ratio = self.get_vis_ratio
+            if vis_ratio.is_cuda:
+                dist.all_reduce(vis_ratio, op=dist.ReduceOp.AVG)
+            return vis_ratio > visibility_th
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_visible_mask)
+            rt_tensor = torch.cat(rt_tensor, 0)
+            return rt_tensor
+        
+
+    def reset_gaussian_scale(self, scale_val=0.02):
         #TODO do it for a tree
         # reset the scale of large gaussians (for accuracy of flow rendering)
         # No need to deal with DDP, since parameter are synced, and set to the same value
@@ -803,11 +859,9 @@ class GaussianModel(nn.Module):
         self._scaling.data[sel_idx] = np.log(scale_val)
         print("reset %d gaussian scale" % (sel_idx.sum()))
 
-    def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, visibility_th = 0.8, aabb_ratio=0.0):
+    def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, aabb_ratio=0.0):
         #TODO do it for a tree
-        vis_ratio = self.get_vis_ratio
-        dist.all_reduce(vis_ratio, op=dist.ReduceOp.AVG)
-        vis_ratio = vis_ratio.cpu().numpy()
+        visible_mask = self.get_visible_mask.cpu().numpy()
         if get_local_rank() == 0:
             dev = self.parameters().__next__().device
             num_pts = int(self.get_num_pts * portion)
@@ -816,13 +870,12 @@ class GaussianModel(nn.Module):
             transparent_ptsid = (self.get_opacity[...,0] < opacity_th).cpu().numpy()
             transparent_ptsid = np.where(transparent_ptsid)[0]
 
-            invis_ptsid = (vis_ratio < visibility_th)
-            invis_ptsid = np.where(invis_ptsid)[0]
+            invis_ptsid = np.where(~visible_mask)[0]
             sel_ptsid = np.concatenate([rand_ptsid, transparent_ptsid, invis_ptsid],0)
 
             # reset values
             # randomize around good points
-            valid_pts = self._xyz.data[vis_ratio > visibility_th]
+            valid_pts = self._xyz.data[visible_mask]
             if len(valid_pts) == 0:
                 rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
                 aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
@@ -839,8 +892,16 @@ class GaussianModel(nn.Module):
         dist.broadcast(self._xyz.data, 0)
         dist.broadcast(self._scaling.data, 0)
         dist.broadcast(self._opacity.data, 0)
-        self.vis_denom[:] = 1
-        self.xyz_vis_accum[:] = 1
+        self.reset_vis()
+
+    
+    def reset_vis(self):
+        if self.is_leaf():
+            self.vis_denom[:] = 1
+            self.xyz_vis_accum[:] = 1
+        else:
+            for gaussians in self.gaussians:
+                gaussians.reset_vis()
 
     @torch.no_grad()
     def get_aabb(self):
@@ -1239,7 +1300,7 @@ class GaussianModel(nn.Module):
     def gauss_skin_consistency_loss(self, nsample=1024):
         if self.is_leaf():
             field = self.get_lab4d_field()
-            if isinstance(field.warp, SkinningWarp):
+            if hasattr(field, "warp") and isinstance(field.warp, SkinningWarp):
                 scale = self.scale_field.detach()
                 # optimal transport loss
                 pts = self.get_xyz().detach()
@@ -1269,7 +1330,7 @@ class GaussianModel(nn.Module):
     def skel_prior_loss(self):
         if self.is_leaf():
             field = self.get_lab4d_field()
-            if "urdf-" in field.fg_motion or "skel-" in field.fg_motion:
+            if hasattr(field, "fg_motion") and ("urdf-" in field.fg_motion or "skel-" in field.fg_motion):
                 loss = field.warp.articulation.skel_prior_loss()
             else:
                 loss = torch.tensor(0.0, device=self.parameters().__next__().device)

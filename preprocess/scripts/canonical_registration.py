@@ -142,6 +142,14 @@ def canonical_registration(seqname, crop_size, obj_class, component_id=1, mode="
 
     elif mode == "zero":
         cams_pred = cams_view1
+    elif mode == "from_predictor":
+        cams_canonical = np.load("tmp/predictor/extrinsics-%s.npy"%seqname)
+        cams_canonical = {k: v for k, v in enumerate(cams_canonical)}
+        registration = CanonicalRegistration(cams_canonical, cams_view1)
+        registration.cuda()
+        quat, trans = registration.optimize()
+        cams_pred = quaternion_translation_to_se3(quat, trans).cpu().numpy()
+
 
     if component_id == 1:
         # fixed depth
@@ -185,5 +193,6 @@ if __name__ == "__main__":
     seqname = sys.argv[1]
     crop_size = int(sys.argv[2])
     obj_class = sys.argv[3]
+    mode = sys.argv[4]
 
-    canonical_registration(seqname, crop_size, obj_class)
+    canonical_registration(seqname, crop_size, obj_class, mode=mode)

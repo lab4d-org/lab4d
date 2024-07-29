@@ -800,7 +800,7 @@ class Trainer:
             log.add_scalar(k, v, step)
 
     @staticmethod
-    def construct_test_model(opts, model_class=dvr_model, return_refs=True, force_reload=True):
+    def construct_test_model(opts, model_class=dvr_model, return_refs=True, force_reload=True, to_cuda=True):
         """Load a model at test time
 
         Args:
@@ -838,8 +838,10 @@ class Trainer:
             logname,
             opts["load_suffix"],
         )
-        _ = Trainer.load_checkpoint(load_path, model)
-        model.cuda()
+        if len(opts["load_suffix"]) > 0:
+            _ = Trainer.load_checkpoint(load_path, model)
+        if to_cuda:
+            model.cuda()
         model.eval()
 
         if "inst_id" in opts and return_refs:
