@@ -99,7 +99,7 @@ def fake_a_pair(tensor):
 
 
 class GSplatModel(nn.Module):
-    def __init__(self, config, data_info):
+    def __init__(self, config, data_info, parent_list=None,mode_list=None):
         super().__init__()
         self.config = config
         self.device = get_local_rank()
@@ -121,17 +121,18 @@ class GSplatModel(nn.Module):
         self.sh_degree = sh_degree
         self.active_sh_degree = 0
 
-        if config["field_type"] == "comp":
-            parent_list=[-1,0,0]
-            mode_list=["","bg","fg"]
-        elif config["field_type"] == "bg":
-            parent_list=[-1]
-            mode_list=["bg"]
-        elif config["field_type"] == "fg":
-            parent_list=[-1]
-            mode_list=["fg"]
-        else:
-            raise NotImplementedError
+        if parent_list is None:
+            if config["field_type"] == "comp":
+                parent_list=[-1,0,0]
+                mode_list=["","bg","fg"]
+            elif config["field_type"] == "bg":
+                parent_list=[-1]
+                mode_list=["bg"]
+            elif config["field_type"] == "fg":
+                parent_list=[-1]
+                mode_list=["fg"]
+            else:
+                raise NotImplementedError
         lab4d_model, lab4d_meshes = load_lab4d(config)
         self.gaussians = GaussianModel(sh_degree, config, data_info, 
                                        parent_list=parent_list, index=0, mode_list=mode_list,
@@ -446,18 +447,18 @@ class GSplatModel(nn.Module):
     def compute_camera_samples(self, batch, crop_size):
         """Compute camera extrinsics and intrinsics
         Args:
-            batch (Dict): Items with shape (M, 2, ...)
+            batch (Dict): Items with shape (M(2), ...)
         """
         frameid_abs = batch["frameid"]
+        shape = frameid_abs.shape
         if "crop2raw" in batch.keys():
             crop2raw = batch["crop2raw"]
         else:
             crop2raw = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
-            crop2raw = crop2raw[None, None].repeat(frameid_abs.shape[0], 2, 1)
+            crop2raw = crop2raw[None].repeat(frameid_abs.numel(), 1).view(*shape, 4)
         if "Kinv" in batch.keys():
             Kmat_raw = batch["Kinv"].inverse()
         else:
-            shape = frameid_abs.shape
             Kmat_raw = K2mat(self.intrinsics.get_vals(frameid_abs.view(-1)).view(*shape, 4))
         Kmat_unit = self.compute_render_Kmat(crop_size, crop2raw, Kmat_raw)
         if "field2cam" in batch:
@@ -970,11 +971,27 @@ class GSplatModel(nn.Module):
             rendered[k] = torch.cat([rendered[k], v], 0)
 
     @torch.no_grad()
-    def evaluate(self, batch, is_pair=True, augment_nv=True, render_flow=True, return_numpy=True):
+    def evaluate_simple(self, batch, update_traj=True, return_numpy=True):
+        """
+        Evaluate model on a batch of data
+        Per image rendering as opposed to 2-frame rendering
+        """        
+        frameid = batch["frameid"]
+        if update_traj:
+            self.gaussians.update_trajectory(frameid)
+
+        crop_size = self.config["render_res"]
+        Kmat, w2c = self.compute_camera_samples(batch, crop_size)
+        rendered,_ = self.render(crop_size, Kmat, w2c=w2c, frameid=frameid)
+
+        return self.rendered_to_output(rendered, return_numpy=return_numpy)
+
+
+    @torch.no_grad()
+    def evaluate(self, batch, fake_pair=True, augment_nv=True, return_numpy=True):
         """Evaluate model on a batch of data"""
         self.process_frameid(batch)
-        if not is_pair:
-            # fake a pair
+        if fake_pair:
             for k, v in batch.items():
                 batch[k] = fake_a_pair(v)
         else:
@@ -1000,7 +1017,10 @@ class GSplatModel(nn.Module):
         for k, v in rendered.items():
             rendered[k] = v[:, 0]
 
-        scalars = {}
+        return self.rendered_to_output(rendered, return_numpy=return_numpy)
+
+
+    def rendered_to_output(self, rendered, return_numpy=True):
         out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": [], "vis2d": [], "gauss_mask": []}
         for k, v in rendered.items():
             if k in out_dict.keys():
@@ -1014,8 +1034,8 @@ class GSplatModel(nn.Module):
         # out_dict["rgb_nv"] = out_dict["rgb"] * out_dict["alpha"] + bg_color * (
         #     1 - out_dict["alpha"]
         # )
-
-        return out_dict, scalars
+        return out_dict
+    
 
     def process_frameid(self, batch):
         """Convert frameid within each video to overall frame id

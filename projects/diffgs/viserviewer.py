@@ -92,6 +92,10 @@ class ViserViewer:
             "Frame ID", min=0, max=max(self.sublen)-1, step=1, initial_value=0
         )
 
+        self.frameid_sub_slider_appr = self.server.add_gui_slider(
+            "Frame ID (appr)", min=0, max=max(self.sublen)-1, step=1, initial_value=0
+        )
+
         self.toggle_outputs = self.server.add_gui_dropdown(
             "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'flow', 'feature', 'mask_fg', 'vis2d', "gauss_mask"), initial_value="rgb"
         )
@@ -106,6 +110,10 @@ class ViserViewer:
             self.need_update = True
 
         @self.frameid_sub_slider.on_update
+        def _(_):
+            self.need_update = True
+
+        @self.frameid_sub_slider_appr.on_update
         def _(_):
             self.need_update = True
 
@@ -153,83 +161,114 @@ class ViserViewer:
     def set_renderer(self, renderer):
         self.renderer = renderer
 
+    def frameid_inc(self, value, inst_id):
+        curr_frame_value = value + 1
+        if curr_frame_value >= self.sublen[inst_id]:
+            curr_frame_value = 0
+        return int(curr_frame_value)
+
+    def get_frameid(self, value, inst_id):
+        return self.frame_offset[inst_id] + min(value, self.sublen[inst_id]-1)
+
+
+    def read_batch_from_gui(self, client):
+        camera = client.camera
+        w2c = get_w2c(camera)
+        # rot_offset = np.asarray([ 0.9624857, 2.3236458, -1.2028077])
+        # w2c[:3,:3] = w2c[:3,:3] @ cv2.Rodrigues(rot_offset)[0].T
+        W = self.resolution_slider.value
+        H = int(self.resolution_slider.value / camera.aspect)
+        focal_x = W / 2 / np.tan(camera.fov / 2)
+        focal_y = H / 2 / np.tan(camera.fov / 2)
+
+        inst_id = self.inst_id_slider.value
+        frameid = self.get_frameid(self.frameid_sub_slider.value, inst_id)
+        if not self.pause_time:
+            time.sleep(0.1)
+            self.frameid_sub_slider.value = self.frameid_inc(self.frameid_sub_slider.value, inst_id)
+            self.frameid_sub_slider_appr.value = self.frameid_inc(self.frameid_sub_slider_appr.value, inst_id)
+
+        intrinsics = self.renderer.get_intrinsics(frameid).cpu().numpy()
+        extrinsics = self.renderer.gaussians.get_extrinsics(frameid).cpu().numpy()
+
+        if "render_res" in self.renderer.config:
+            res = self.renderer.config["render_res"]
+        else:
+            res = self.renderer.config["eval_res"]
+
+        raw_size = self.renderer.data_info["raw_size"][0]
+        crop2raw = np.zeros(4)
+        # ratio = raw_size[0] / H # heights to be max
+        # crop2raw[0] = W * ratio / res
+        # crop2raw[1] = H * ratio / res
+        crop2raw[0] = W / res
+        crop2raw[1] = H / res
+        intrinsics = np.asarray([focal_y, focal_y, W/2, H/2])
+        intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
+
+        if self.toggle_view_sel.value == "all":
+            extrinsics = w2c @ extrinsics
+        elif self.toggle_view_sel.value == "rotation":
+            extrinsics[:3,:3] = w2c[:3,:3] @ extrinsics[:3,:3]
+        else:
+            raise ValueError("Invalid view selection")
+
+        rot_offset = np.asarray([np.pi/2,0.,0.])
+        rot_offset = cv2.Rodrigues(rot_offset)[0]        
+        extrinsics_2ndscreen = extrinsics.copy()
+        extrinsics_2ndscreen[:3,:3] = rot_offset @ extrinsics[:3,:3]
+        if self.toggle_viewpoint.value == "bev":
+            extrinsics = np.stack([extrinsics_2ndscreen, extrinsics],0)
+        else:
+            extrinsics = np.stack([extrinsics, extrinsics_2ndscreen],0)
+
+        # field2cam = None
+        # crop2raw=np.asarray([[focal_x, focal_y, W/2, H/2]])
+        crop2raw = None
+        frameid = self.frameid_sub_slider.value
+        intrinsics = np.tile(intrinsics[None],(2,1))
+        batch = construct_batch(
+            inst_id,
+            [frameid, frameid],
+            res,
+            {"fg": extrinsics},
+            intrinsics,
+            crop2raw,
+            self.device,
+        )
+        return batch
+
+    def update_gaussians_by_frameid(self, batch):
+        inst_id = self.inst_id_slider.value
+        frameid_appr = self.get_frameid(self.frameid_sub_slider_appr.value, inst_id)
+        self.renderer.process_frameid(batch) # absolute
+        self.renderer.gaussians.update_motion(batch["frameid"])
+        self.renderer.gaussians.update_appearance(batch["frameid"] * 0 + frameid_appr)
+        self.renderer.gaussians.update_extrinsics(batch["frameid"])
+
+
     @torch.no_grad()
-    def update(self):
+    def update(self, update_gaussian_func = update_gaussians_by_frameid):
         if self.need_update:
             for client in self.server.get_clients().values():
-                camera = client.camera
-                w2c = get_w2c(camera)
-                # rot_offset = np.asarray([ 0.9624857, 2.3236458, -1.2028077])
-                # w2c[:3,:3] = w2c[:3,:3] @ cv2.Rodrigues(rot_offset)[0].T
                 try:
-                    W = self.resolution_slider.value
-                    H = int(self.resolution_slider.value / camera.aspect)
-                    focal_x = W / 2 / np.tan(camera.fov / 2)
-                    focal_y = H / 2 / np.tan(camera.fov / 2)
+                    batch = self.read_batch_from_gui(client)
 
+                    # update gaussians
+                    if update_gaussian_func is not None:
+                        update_gaussian_func(self, batch)
+                    else:
+                        # self.renderer.process_frameid(batch) # absolute
+                        self.update_gaussians_by_frameid(batch)
+
+                    # add additional controls
                     start_cuda = torch.cuda.Event(enable_timing=True)
                     end_cuda = torch.cuda.Event(enable_timing=True)
                     start_cuda.record()
-
-                    inst_id = self.inst_id_slider.value
-                    frameid_sub = [
-                        min(self.frameid_sub_slider.value, self.sublen[inst_id]-1)
-                    ]
-                    if not self.pause_time:
-                        time.sleep(0.2)
-                        curr_frame_value = self.frameid_sub_slider.value+1
-                        if curr_frame_value >= self.sublen[inst_id]:
-                            curr_frame_value = 0
-                        self.frameid_sub_slider.value = int(curr_frame_value)
-                    frameid = self.frame_offset[inst_id] + frameid_sub
-
-                    intrinsics = self.renderer.get_intrinsics(frameid).cpu().numpy()
-                    extrinsics = self.renderer.gaussians.get_extrinsics(frameid).cpu().numpy()
-
-                    if "render_res" in self.renderer.config:
-                        res = self.renderer.config["render_res"]
-                    else:
-                        res = self.renderer.config["eval_res"]
-
-                    raw_size = self.renderer.data_info["raw_size"][0]
-                    crop2raw = np.zeros((1, 4))
-                    ratio = raw_size[0] / H # heigh to be max
-                    crop2raw[:, 0] = W * ratio / res
-                    crop2raw[:, 1] = H * ratio / res
-                    intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
-
-                    if self.toggle_view_sel.value == "all":
-                        extrinsics = w2c[None] @ extrinsics
-                    elif self.toggle_view_sel.value == "rotation":
-                        extrinsics[:,:3,:3] = w2c[:3,:3][None] @ extrinsics[:,:3,:3]
-                    else:
-                        raise ValueError("Invalid view selection")
-                    
-                    if self.toggle_viewpoint.value == "bev":
-                        rot_offset = np.asarray([np.pi/2,0.,0.])
-                        rot_offset = cv2.Rodrigues(rot_offset)[0]
-                        extrinsics[:,:3,:3] = rot_offset[None] @ extrinsics[:,:3,:3]
-
-                    field2cam = {"fg": extrinsics}
-                    # field2cam = None
-                    # crop2raw=np.asarray([[focal_x, focal_y, W/2, H/2]])
-                    crop2raw = None
-
-                    batch = construct_batch(
-                        inst_id,
-                        frameid_sub,
-                        res,
-                        field2cam,
-                        intrinsics,
-                        crop2raw,
-                        self.device,
-                    )
-
-                    outputs, _ = self.renderer.evaluate(
-                        batch, is_pair=False, augment_nv=False
-                    )
+                    batch["frameid"][:] = -1 # this queries most recent update
+                    outputs = self.renderer.evaluate_simple(batch, update_traj=False)
                     # with torch_profile("tmp/", "profile", enabled=self.renderer.config["profile"]):
-                    #     outputs, _ = self.renderer.evaluate(
+                    #     outputs = self.renderer.evaluate(
                     #         batch, is_pair=False, augment_nv=False
                     #     )
                     end_cuda.record()
@@ -237,12 +276,18 @@ class ViserViewer:
                     interval = start_cuda.elapsed_time(end_cuda) / 1000.0
 
                     toggle_outputs = self.toggle_outputs.value
-                    out = outputs[toggle_outputs][0].astype(np.float32)
+                    out = outputs[toggle_outputs].astype(np.float32)
                     if "apply_pca_fn" in self.renderer.data_info:
                         pca_fn = self.renderer.data_info["apply_pca_fn"]
                     else:
                         pca_fn = None
                     out = img2color(toggle_outputs, out, pca_fn=pca_fn)
+                    out_small = cv2.resize(out[1], (out[1].shape[1]//3, out[1].shape[0]//3))
+                    out = out[0]
+                    out_small = cv2.copyMakeBorder(out_small, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(255,0,0))
+                    if out.ndim != out_small.ndim:
+                        out_small = out_small[...,None]
+                    out[:out_small.shape[0], :out_small.shape[1]] = out_small
                 except RuntimeError as e:
                     print(e)
                     interval = 1

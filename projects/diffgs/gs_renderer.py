@@ -447,6 +447,28 @@ class GaussianModel(nn.Module):
         frameid_sub = frame_id - frame_offset_raw[inst_id]
         return frameid_sub
 
+    def get_extrinsics_cached(self, frameid=None, return_qt=False):
+        """
+        transormation from current node to parent node
+        """
+        if frameid is not None:
+            shape = frameid.shape
+            quat = []
+            trans = []
+            for key in frameid.reshape(-1).cpu().numpy():
+                quat.append(self.quat_cache[key])
+                trans.append(self.trans_cache[key])
+            trans = torch.stack(trans, dim=0).view(shape + (3,))
+            quat = torch.stack(quat, dim=0).view(shape + (4,))
+        else:
+            quat, trans = self.gs_camera_mlp.get_vals(frameid)
+
+        if return_qt:
+            return (quat, trans)
+        else:
+            w2c = quaternion_translation_to_se3(quat, trans)
+            return w2c
+
     def get_extrinsics(self, frameid=None, return_qt=False):
         """
         transormation from current node to parent node
@@ -512,7 +534,7 @@ class GaussianModel(nn.Module):
                     shape = frameid.shape
                     frameid_reshape = frameid.reshape(-1)
                     rot = gaussians.get_rotation(frameid_reshape)
-                    quat = gaussians.get_extrinsics(frameid_reshape, return_qt=True)[0]
+                    quat = gaussians.get_extrinsics_cached(frameid_reshape, return_qt=True)[0]
                     # N, T, 4
                     quat = quat[None].repeat(rot.shape[0], 1, 1)
                     rot = quaternion_mul(quat, rot)
@@ -554,7 +576,7 @@ class GaussianModel(nn.Module):
                     shape = frameid.shape
                     frameid_reshape = frameid.reshape(-1)
                     xyz = gaussians.get_xyz(frameid_reshape)
-                    quat, trans = gaussians.get_extrinsics(frameid_reshape, return_qt=True)
+                    quat, trans = gaussians.get_extrinsics_cached(frameid_reshape, return_qt=True)
                     quat = quat[None].repeat(xyz.shape[0], 1,1)
                     trans = trans[None].repeat(xyz.shape[0], 1,1)
                     # N, T, 3
@@ -759,9 +781,12 @@ class GaussianModel(nn.Module):
     def construct_extrinsics(self, config, data_info):
         """Construct camera extrinsics module"""
         # update init camera if lab4d ckpt exists
+        frame_info = data_info["frame_info"]
         if self.mode=="":
             rtmat = np.eye(4)
             rtmat = np.repeat(rtmat[None], len(data_info["rtmat"][0]), axis=0)
+            self.gs_camera_mlp = CameraConst(rtmat, frame_info)
+            return 
         else:
             if config["lab4d_path"]!="":
                 cams = self.lab4d_model.get_cameras()
@@ -777,7 +802,6 @@ class GaussianModel(nn.Module):
 
         if not config["use_init_cam"]:
             rtmat[:, :3, :3] = np.eye(3)
-        frame_info = data_info["frame_info"]
         if config["extrinsics_type"] == "const":
             self.gs_camera_mlp = CameraConst(rtmat, frame_info)
         elif config["extrinsics_type"] == "explicit":
@@ -1154,11 +1178,30 @@ class GaussianModel(nn.Module):
             self._trajectory = nn.Parameter(trajectory)
 
     def update_trajectory(self, frameid):
+        self.update_appearance(frameid)
+        self.update_motion(frameid)
+        self.update_extrinsics(frameid)
+
+    def update_extrinsics(self, frameid):
+        if self.is_leaf():
+            self.quat_cache = {}
+            self.trans_cache = {}
+
+            quat, trans = self.get_extrinsics(frameid, return_qt=True)
+
+            for it, key in enumerate(frameid.view(-1).cpu().numpy()):
+                self.quat_cache[key] = quat[it]
+                self.trans_cache[key] = trans[it]
+            self.quat_cache[-1] = quat[0]
+            self.trans_cache[-1] = trans[0]
+        else:
+            for gaussians in self.gaussians:
+                gaussians.update_extrinsics(frameid)
+
+    def update_appearance(self, frameid):
         if self.is_leaf():
             field = self.lab4d_model.fields.field_params[self.mode]
             scale_fg = self.scale_field.detach()
-
-            # shadow
             frameid = frameid.reshape(-1)
             if hasattr(field.camera_mlp, "time_embedding"):
                 inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
@@ -1167,6 +1210,7 @@ class GaussianModel(nn.Module):
             xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
             xyz_repeated_in = xyz_repeated[:,None] * scale_fg
 
+            # shadow
             chunk_size = 32
             shadow_pred = []
             for idx in range(0, len(frameid), chunk_size):
@@ -1188,6 +1232,23 @@ class GaussianModel(nn.Module):
             self.shadow_cache = {}
             for it, key in enumerate(frameid.cpu().numpy()):
                 self.shadow_cache[key] = shadow_pred[it]
+            self.shadow_cache[-1] = shadow_pred[0]
+
+        else:
+            for gaussians in self.gaussians:
+                gaussians.update_appearance(frameid)
+
+    def update_motion(self, frameid):
+        if self.is_leaf():
+            field = self.lab4d_model.fields.field_params[self.mode]
+            scale_fg = self.scale_field.detach()
+            frameid = frameid.reshape(-1)
+            if hasattr(field.camera_mlp, "time_embedding"):
+                inst_id = field.camera_mlp.time_embedding.raw_fid_to_vid[frameid]
+            else:
+                inst_id = field.camera_mlp.time_info.raw_fid_to_vid[frameid]
+            xyz_repeated = self._xyz[None].repeat(len(frameid), 1, 1)
+            xyz_repeated_in = xyz_repeated[:,None] * scale_fg
 
             # motion
             frameid_abs = frameid.clone()
@@ -1219,6 +1280,7 @@ class GaussianModel(nn.Module):
                     frameid_chunk = frameid[idx : idx + chunk_size]
                     xyz_in_chunk = xyz_repeated_in[idx : idx + chunk_size]
                     inst_id_chunk = inst_id[idx : idx + chunk_size]
+                    # field.warp.get_gauss_vis().export("tmp/0.obj")
                     xyz_t_chunk, warp_dict = field.warp(xyz_in_chunk, frameid_chunk, inst_id_chunk, return_aux=True)
                     xyz_t.append(xyz_t_chunk)
                     dq_r.append(warp_dict["dual_quat"][0])
@@ -1237,15 +1299,14 @@ class GaussianModel(nn.Module):
                 # rot = self.rotation_activation(self._rotation)
                 # quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
             
-            trajectory_pred = torch.cat((quaternion_conjugate(quat), motion), dim=-1)
-            # trajectory_pred = torch.cat((quat, motion), dim=-1)
-            # trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
+            trajectory_pred = torch.cat((quat, motion), dim=-1)
             self.trajectory_cache = {}
             for it, key in enumerate(frameid_abs.cpu().numpy()):
                 self.trajectory_cache[key] = trajectory_pred[:, it]
+            self.trajectory_cache[-1] = trajectory_pred[:, 0]
         else:
             for gaussians in self.gaussians:
-                gaussians.update_trajectory(frameid)
+                gaussians.update_motion(frameid)
 
     # def get_lab4d_loss(self, frameid):
     #     dev = self._xyz.device

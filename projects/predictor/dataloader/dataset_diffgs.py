@@ -88,9 +88,7 @@ class DiffgsGenerator:
             crop2raw,
             self.model.device,
         )
-        outputs, _ = self.model.evaluate(
-            batch, is_pair=False, augment_nv=False, return_numpy=False
-        )
+        outputs = self.model.evaluate_simple(batch, return_numpy=False)
         return outputs
 
     @torch.no_grad()
