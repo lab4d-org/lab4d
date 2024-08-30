@@ -33,6 +33,7 @@ from preprocess.scripts.cotracker import compute_tracks
 from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
+from preprocess.scripts.human_prior import extract_joint_angles_hmr2
 
 track_anything_module = importlib.import_module(
     "preprocess.third_party.Track-Anything.app"
@@ -174,3 +175,6 @@ if __name__ == "__main__":
 
     # extract dinov2 features
     extract_dinov2(vidname, gpulist=gpulist)
+
+    if obj_class_cam == "human":
+        extract_joint_angles_hmr2("vidname")

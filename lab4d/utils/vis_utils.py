@@ -37,8 +37,8 @@ def img2color(tag, img, pca_fn=None):
     img = to_cpu(img)
 
     if "depth" in tag:
-        img = minmax_normalize(img)
-        img = cm.plasma(img[..., 0])
+        img = quantile_normalize(img)
+        img = cm.get_cmap("plasma_r")(img[..., 0])[...,:3]
 
     if "flow" in tag:
         if type(img) is tuple:
@@ -312,6 +312,24 @@ def minmax_normalize(data, dim=None):
         )
     return normalized_data
 
+
+def quantile_normalize(data, dim=None, quantile=0.95):
+    """Normalize a tensor or array within 0 to 1
+
+    Args:
+        data: (...,) Data to normalize
+    Returns:
+        normalized_data: (...,) Normalized data
+    """
+    if dim is None:
+        mind = np.quantile(data, 1-quantile)
+        maxd = np.quantile(data, quantile)
+    else:
+        mind = np.quantile(data, 1-quantile, dim, keepdims=True)
+        maxd = np.quantile(data, quantile, dim, keepdims=True)
+    normalized_data = (data - mind) / (maxd - mind+ 1e-6)
+    normalized_data = np.clip(normalized_data, 0, 1)
+    return normalized_data
 
 def get_colormap(num_colors=-1, repeat=1):
     """Colormap for visualizing bones

@@ -10,6 +10,7 @@ import cv2
 import tqdm
 import math
 import trimesh
+import torch.distributed as dist
 
 from gsplat import rasterization
 
@@ -34,6 +35,7 @@ from lab4d.utils.quat_transform import (
     quaternion_mul,
     matrix_to_quaternion,
     quaternion_translation_to_se3,
+    dual_quaternion_to_quaternion_translation,
 )
 from lab4d.dataloader import data_utils
 from lab4d.third_party.guidance.sd_utils import StableDiffusion
@@ -271,21 +273,27 @@ class GSplatModel(nn.Module):
             else:
                 raise ValueError
             feats.append(v)
-        feats = torch.cat(feats, -1)
+        if len(feats) > 0:
+            feats = torch.cat(feats, -1).transpose(0,1)
+            render_mode="RGB+D"
+        else:
+            feats = torch.zeros_like(means3D).transpose(0,1)
+            render_mode="D"
 
         rendered_images, rendered_alphas, meta = rasterization(
             means=means3D, # [N, bs, 3]
             quats=quats.view(-1,4), # [N*bs, 4]
             scales=scales, # [N, 3]
             opacities=opacities[:,0], # [N]
-            colors=feats.transpose(0,1), # [bs, N, 3]
+            colors=feats, # [bs, N, 3]
             viewmats=viewmat, # [1, 4, 4]
             Ks=Kmat_img, # [1, 3, 3]
             width=res,
             height=res,
-            render_mode="RGB+D",
+            render_mode=render_mode,
             backgrounds=bg_color,
             packed=False,
+            absgrad=True,
         )
 
         # merge
@@ -298,7 +306,7 @@ class GSplatModel(nn.Module):
         for k,v in out_dim.items():
             out_dict[k] = rendered_images[:, :v]
             rendered_images = rendered_images[:, v:]
-        return out_dict, rendered_depths, rendered_alphas
+        return out_dict, rendered_depths, rendered_alphas, meta
 
     def render(
         self,
@@ -340,10 +348,12 @@ class GSplatModel(nn.Module):
             flow = flow.clamp(-1, 1)
             feature_dict["flow"] = flow  * res / 2
 
-        rendered_image, rendered_depth, rendered_alpha = self.gsplat_render(
+        rendered_image, rendered_depth, rendered_alpha, meta = self.gsplat_render(
             means3D, scales, rotations, identity_viewmat, Kmat, res,
             feature_dict, opacity, bg_color,
         )
+        if hasattr(self, "means2d_list") and torch.is_grad_enabled():
+            self.means2d_list.append(meta["means2d"])
 
         # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
         # They will be excluded from value updates used in the splitting criteria.
@@ -370,12 +380,40 @@ class GSplatModel(nn.Module):
             w2c_fg = gaussians_fg.get_extrinsics(frameid)
             means3D_fg, rotations_fg = gs_transform(means3D_fg, rotations_fg, w2c_fg)
 
-            feature_dict = {"xyz": means3D_fg}
-            _, _, rendered_alpha_fg = self.gsplat_render(
+            _, _, rendered_alpha_fg, _ = self.gsplat_render(
                 means3D_fg, scales_fg, rotations_fg, identity_viewmat, Kmat, res,
-                feature_dict, opacity_fg, bg_color
+                {}, opacity_fg, bg_color
             )
             out_dict["mask_fg"] = rendered_alpha_fg
+
+        # render motion gaussian mask
+        if self.config["field_type"] != "bg" and (self.config["fg_motion"].startswith("skel-") \
+                                                  or self.config["fg_motion"].startswith("urdf-")  \
+                                                  or self.config["fg_motion"] == "bob"):
+            if self.config["field_type"] == "fg":
+                gaussians = self.gaussians
+            elif self.config["field_type"] == "comp":
+                gaussians = self.gaussians.gaussians[1]
+            else:
+                raise ValueError
+            w2c_gauss = gaussians.get_extrinsics(frameid) # .detach()
+            scale_field = gaussians.scale_field.detach()
+
+            # render gauss_mask
+            warp = gaussians.lab4d_model.fields.field_params["fg"].warp
+            quat, trans = dual_quaternion_to_quaternion_translation(warp.articulation.get_vals(frameid))
+            means3D_gauss = (trans.permute(1,0,2) / scale_field) # .detach()
+            opacity_gauss = torch.ones_like(means3D_gauss[:,0,:1])
+            scales_gauss = warp.skinning_model.get_gauss() / scale_field
+            rotations_gauss = quat.permute(1,0,2).contiguous() # .detach()
+
+            means3D_gauss, rotations_gauss = gs_transform(means3D_gauss, rotations_gauss, w2c_gauss)
+
+            _, _, rendered_gauss_mask_fg, _ = self.gsplat_render(
+                means3D_gauss, scales_gauss, rotations_gauss, identity_viewmat, Kmat.detach(), res,
+                {}, opacity_gauss, bg_color
+            )
+            out_dict["gauss_mask"] = rendered_gauss_mask_fg
 
         pts_dict = {"xy_1": xy_1}
         return out_dict, pts_dict
@@ -429,7 +467,7 @@ class GSplatModel(nn.Module):
             w2c = self.gaussians.get_extrinsics(frameid_abs)
         return Kmat_unit, w2c
 
-    def compute_recon_losses(self, loss_dict, rendered, batch):
+    def compute_recon_losses(self, loss_dict, rendered, batch, current_steps):
         # reference view loss
         config = self.config
         loss_dict["rgb"] = (rendered["rgb"] - batch["rgb"]).pow(2)
@@ -441,6 +479,18 @@ class GSplatModel(nn.Module):
             rendered_fg_mask = rendered["mask_fg"]
             loss_dict["mask"] = (rendered_fg_mask - batch["mask"].float()).pow(2)
             loss_dict["mask"] += (rendered["alpha"] - 1).pow(2)
+        if "gauss_mask" in rendered.keys():
+            if current_steps < config["num_iter_gtmask_gauss"]:
+                # supervise with a fixed target
+                mask_fg = batch["mask"]
+            else:
+                if config["field_type"]=="fg":
+                    mask_fg = rendered["alpha"] > 0.5
+                elif config["field_type"]=="comp":
+                    mask_fg = rendered["mask_fg"] > 0.5
+                else:
+                    raise ValueError
+            loss_dict["reg_gauss_mask"] = (rendered["gauss_mask"] - mask_fg.float()).pow(2)
         loss_dict["flow"] = (rendered["flow"] - batch["flow"]).norm(2, 1, keepdim=True)
         loss_dict["flow"] = loss_dict["flow"] * (batch["flow_uct"] > 0).float()
         loss_dict["depth"] = (rendered["depth"] - batch["depth"]).abs()
@@ -514,7 +564,7 @@ class GSplatModel(nn.Module):
         self.NHWC2NCHW(batch)
 
         loss_dict = {}
-        self.compute_recon_losses(loss_dict, rendered, batch)
+        self.compute_recon_losses(loss_dict, rendered, batch, self.current_steps)
         self.mask_losses(loss_dict, batch, rendered["alpha"], self.config)
 
         # sampled recon loss
@@ -740,6 +790,8 @@ class GSplatModel(nn.Module):
         maskfg = batch["mask"]
         vis2d = batch["vis2d"]
 
+        # ignore the masking step
+        keys_ignore_masking = ["reg_gauss_mask"]
         # always mask-out non-visible (out-of-frame) pixels
         keys_allpix = ["mask"]
         # field type specific keys
@@ -758,6 +810,8 @@ class GSplatModel(nn.Module):
             raise ("field_type %s not supported" % config["field_type"])
         # apply mask
         for k, v in loss_dict.items():
+            if k in keys_ignore_masking:
+                continue
             if k in keys_allpix:
                 loss_dict[k] = v * vis2d
             elif k in keys_type_specific:
@@ -947,7 +1001,7 @@ class GSplatModel(nn.Module):
             rendered[k] = v[:, 0]
 
         scalars = {}
-        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": [], "vis2d": []}
+        out_dict = {"rgb": [], "depth": [], "alpha": [], "xyz": [], "flow": [], "mask_fg": [], "feature": [], "vis2d": [], "gauss_mask": []}
         for k, v in rendered.items():
             if k in out_dict.keys():
                 v = v.permute(0, 2, 3, 1)
@@ -1048,6 +1102,20 @@ class GSplatModel(nn.Module):
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
+        # skel prior wt: steps(0->4000, 1->0), to discouage large changes when shape is not good
+        loss_name = "reg_skel_prior_wt"
+        anchor_x = (200, 400)
+        anchor_y = (10, 1)
+        type = "log"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+
+        # gauss skin wt: steps(0->2000, 1->0), to align skeleton with shape
+        loss_name = "reg_gauss_skin_wt"
+        anchor_x = (1000, 2000)
+        anchor_y = (0.05, 1)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+        
         # # flow wt
         # loss_name = "flow_wt"
         # anchor_x = (
@@ -1161,6 +1229,23 @@ class GSplatModel(nn.Module):
         self.gaussians.init_camera_mlp()
         self.gaussians.init_deform_mlp()
 
+    def init_means2d_list(self):
+        self.means2d_list = []
+
+    
+    def retain_grad_means2d_list(self):
+        for means2d in self.means2d_list:
+            means2d.retain_grad()
+
+    def compute_grad_means2d_list(self):
+        # get grad, avg over devices
+        grad_xyz = []
+        for means2d in self.means2d_list:
+            grad_xyz.append(means2d.absgrad)
+        grad_xyz = torch.concatenate(grad_xyz, 0).mean(0).mean(-1)
+        dist.barrier()
+        dist.all_reduce(grad_xyz, op=dist.ReduceOp.AVG)
+        self.gaussians.update_grad_xyz(grad_xyz[...,None])
 
 if __name__ == "__main__":
     import cv2

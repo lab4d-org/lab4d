@@ -487,9 +487,17 @@ class GSplatTrainer(Trainer):
             sub_progress = i / opts["iters_per_round"]
             self.model.set_progress(self.current_steps, progress, sub_progress)
 
+            self.model.init_means2d_list()
+
             loss_dict = self.model(batch)
             total_loss = torch.sum(torch.stack(list(loss_dict.values())))
+
+            self.model.retain_grad_means2d_list()
+
             total_loss.mean().backward()
+
+            self.model.compute_grad_means2d_list()
+
             # self.print_sum_params()
 
             grad_dict = self.check_grad()
@@ -561,10 +569,15 @@ class GSplatTrainer(Trainer):
         )
 
         # add some noise to improve convergence
-        if self.current_round !=0 and self.current_round % 10 == 0:
+        if self.current_round % 20 == 0:
             self.model.gaussians.reset_gaussian_scale()
         if self.current_round > 5:
-            self.model.gaussians.randomize_gaussian_center()
+            progress = (self.current_steps - self.first_step) / self.total_steps
+            if progress < 0.9:
+                portion = 0.05
+            else:
+                portion = 0.0
+            self.model.gaussians.randomize_gaussian_center(portion=portion)
 
     def prune_parameters(self, valid_mask, clone_mask):
         """

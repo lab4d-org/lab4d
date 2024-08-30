@@ -236,11 +236,12 @@ def extract_hmr_oneseq(seqname, dataset_focal, hmr2_model, hmr2_model_cfg):
 
 
 if __name__ == "__main__":
-    vidname = "2024-05-11--01-06-03"
-    extract_joint_angles_hmr2(vidname)
-    # vidname = "2024-05-11--01-08-29"
+    # vidname = "2024-05-11--01-06-03"
     # extract_joint_angles_hmr2(vidname)
-    vidname = "2024-05-11--01-10-54"
-    extract_joint_angles_hmr2(vidname)
-    extract_joint_angles_hmr2("2024-05-15--19-51-31")
-    extract_joint_angles_hmr2("2024-05-15--19-56-12")
+    # # vidname = "2024-05-11--01-08-29"
+    # # extract_joint_angles_hmr2(vidname)
+    # vidname = "2024-05-11--01-10-54"
+    # extract_joint_angles_hmr2(vidname)
+    # extract_joint_angles_hmr2("2024-05-15--19-51-31")
+    # extract_joint_angles_hmr2("2024-05-15--19-56-12")
+    extract_joint_angles_hmr2("HearSay_Camera_test_e_4444_pga_64_g_512_al_0_down")

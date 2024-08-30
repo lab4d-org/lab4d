@@ -18,12 +18,13 @@ sys.path.insert(
 from libs.utils import resize_to_target
 
 
-def depth2pts(depth):
-    Kmat = np.eye(3)
-    Kmat[0, 0] = depth.shape[0]
-    Kmat[1, 1] = depth.shape[0]
-    Kmat[0, 2] = depth.shape[1] / 2
-    Kmat[1, 2] = depth.shape[0] / 2
+def depth2pts(depth, Kmat=None):
+    if Kmat is None:
+        Kmat = np.eye(3)
+        Kmat[0, 0] = depth.shape[0]
+        Kmat[1, 1] = depth.shape[0]
+        Kmat[0, 2] = depth.shape[1] / 2
+        Kmat[1, 2] = depth.shape[0] / 2
 
     xy = np.meshgrid(np.arange(depth.shape[1]), np.arange(depth.shape[0]))
     hxy = np.stack(

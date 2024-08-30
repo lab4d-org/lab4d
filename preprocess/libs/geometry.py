@@ -18,14 +18,13 @@ from flowutils.flowlib import warp_flow
 
 
 @record_function("compute_procrustes")
-def compute_procrustes_robust(pts0, pts1):
+def compute_procrustes_robust(pts0, pts1, min_samples=10):
     """
     analytical solution of R/t from correspondence
     pts0: N x 3
     pts1: N x 3
     """
     num_samples = 2000
-    min_samples = 10
     extent = (pts0.max(0) - pts0.min(0)).mean()
     threshold = extent * 0.05
 
@@ -34,7 +33,7 @@ def compute_procrustes_robust(pts0, pts1):
     idx_array = np.arange(pts0.shape[0])
     for i in range(num_samples):
         sample = np.random.choice(idx_array, size=min_samples, replace=False)
-        sol = compute_procrustes(pts0[sample], pts1[sample])
+        sol = compute_procrustes(pts0[sample], pts1[sample], pts_limit=min_samples)
 
         # evaluate inliers
         R, t = sol
@@ -46,18 +45,18 @@ def compute_procrustes_robust(pts0, pts1):
     best_idx = np.argmax(np.sum(inliers, axis=0))
     print("inlier_ratio: ", np.max(inliers) / pts0.shape[0])
     best_sample = samples[best_idx]
-    sol = compute_procrustes(pts0[best_sample], pts1[best_sample])
+    sol = compute_procrustes(pts0[best_sample], pts1[best_sample], pts_limit=min_samples)
     return sol
 
 
-def compute_procrustes_median(pts0, pts1):
+def compute_procrustes_median(pts0, pts1, pts_limit = 10):
     """
     analytical solution of R/t from correspondence
     ignore large errors
     pts0: N x 3
     pts1: N x 3
     """
-    if pts0.shape[0] < 10:
+    if pts0.shape[0] < pts_limit:
         print("Warning: too few points for procrustes. Return identity.")
         return np.eye(3), np.zeros(3), 100.0
 
@@ -86,13 +85,13 @@ def compute_procrustes_median(pts0, pts1):
 
 
 @record_function("compute_procrustes")
-def compute_procrustes(pts0, pts1):
+def compute_procrustes(pts0, pts1, pts_limit = 10):
     """
     analytical solution of R/t from correspondence
     pts0: N x 3
     pts1: N x 3
     """
-    if pts0.shape[0] < 10:
+    if pts0.shape[0] < pts_limit:
         print("Warning: too few points for procrustes. Return identity.")
         return np.eye(3), np.zeros(3)
     pts0_mean = np.mean(pts0, 0)

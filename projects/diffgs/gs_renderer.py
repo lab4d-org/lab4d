@@ -338,14 +338,14 @@ class GaussianModel(nn.Module):
             self.use_timesync = config["use_timesync"]
                     
             # shadow field
-            num_freq_xyz = 3
-            num_freq_t = 3
+            num_freq_xyz = 6
+            num_freq_t = 6
             num_inst = len(data_info["frame_info"]["frame_offset"]) - 1
             self.pos_embedding = PosEmbedding(3, num_freq_xyz)
             self.time_embedding = TimeEmbedding(num_freq_t, data_info["frame_info"])
             self.shadow_field = CondMLP(num_inst=num_inst, 
                                         D=1,
-                                        W=64,             
+                                        W=256,             
                                         in_channels=self.pos_embedding.out_channels+ self.time_embedding.out_channels,
                                         out_channels=1)
 
@@ -800,6 +800,8 @@ class GaussianModel(nn.Module):
     def construct_stat_vars(self):
         self.register_buffer("xyz_vis_accum", torch.ones((self.get_num_pts, 1)))
         self.register_buffer("vis_denom",  torch.ones((self.get_num_pts, 1)))
+        self.register_buffer("xyz_grad_accum", torch.zeros((self.get_num_pts, 1)))
+        self.register_buffer("grad_denom",  torch.ones((self.get_num_pts, 1)))
 
 
     def update_vis_stats(self, pts_dict):
@@ -819,6 +821,25 @@ class GaussianModel(nn.Module):
         else:
             for gaussians in self.gaussians:
                 gaussians.update_vis(bs, visible_count)
+
+    def update_grad_xyz(self, grad_xyz):
+        if self.is_leaf():
+            self.grad_denom += 1
+            idx = self.gaussian_idx[self.index]
+            self.xyz_grad_accum += grad_xyz[self.gaussian_offset[idx]: self.gaussian_offset[idx+1]]
+        else:
+            for gaussians in self.gaussians:
+                gaussians.update_grad_xyz(grad_xyz)
+
+    @property
+    def get_grad_xyz(self):
+        if self.is_leaf():
+            return (self.xyz_grad_accum / self.grad_denom)[...,0]
+        else:
+            rt_tensor = []
+            for gaussians in self.gaussians:
+                rt_tensor.append(gaussians.get_grad_xyz)
+            return torch.cat(rt_tensor, dim=0)
 
 
     @property
@@ -840,7 +861,8 @@ class GaussianModel(nn.Module):
 
         if self.is_leaf():
             vis_ratio = self.get_vis_ratio
-            if vis_ratio.is_cuda:
+            if vis_ratio.is_cuda and dist.is_initialized():
+                dist.barrier()
                 dist.all_reduce(vis_ratio, op=dist.ReduceOp.AVG)
             return vis_ratio > visibility_th
         else:
@@ -850,22 +872,44 @@ class GaussianModel(nn.Module):
             rt_tensor = torch.cat(rt_tensor, 0)
             return rt_tensor
         
+    def get_overscale_mask(self):
+        if self.mode == "fg":
+            scale_val = 0.02
+        elif self.mode == "bg":
+            scale_val = 0.1
 
-    def reset_gaussian_scale(self, scale_val=0.02):
+        if self.is_leaf():
+            overscale_mask =  (self._scaling.data > np.log(scale_val)).sum(-1)>0
+            scale_val = torch.ones_like(self._scaling.data[overscale_mask]) * scale_val
+            return overscale_mask, scale_val
+        else:
+            overscale_mask = []
+            scale_val = []
+            for gaussians in self.gaussians:
+                rt1, rt2 = gaussians.get_overscale_mask()
+                overscale_mask.append(rt1)
+                scale_val.append(rt2)
+            overscale_mask = torch.cat(overscale_mask, 0)
+            scale_val = torch.cat(scale_val, 0)
+        return overscale_mask, scale_val
+
+    def reset_gaussian_scale(self):
+        overscale_mask, scale_val = self.get_overscale_mask()
         #TODO do it for a tree
         # reset the scale of large gaussians (for accuracy of flow rendering)
         # No need to deal with DDP, since parameter are synced, and set to the same value
-        sel_idx = (self._scaling.data > np.log(scale_val)).sum(-1)>0
-        self._scaling.data[sel_idx] = np.log(scale_val)
-        print("reset %d gaussian scale" % (sel_idx.sum()))
+        self._scaling.data[overscale_mask] = scale_val.log()
+        print("reset %d gaussian scale" % (overscale_mask.sum()))
 
     def randomize_gaussian_center(self, portion=0.0, opacity_th=0.05, aabb_ratio=0.0):
         #TODO do it for a tree
         visible_mask = self.get_visible_mask.cpu().numpy()
         if get_local_rank() == 0:
-            dev = self.parameters().__next__().device
+            grad_xyz = self.get_grad_xyz
+            # dev = self.parameters().__next__().device
             num_pts = int(self.get_num_pts * portion)
-            rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+            # rand_ptsid = np.random.permutation(self.get_num_pts)[:num_pts]
+            rand_ptsid = grad_xyz.topk(num_pts, dim=0, largest=False)[1].cpu().numpy()
 
             transparent_ptsid = (self.get_opacity[...,0] < opacity_th).cpu().numpy()
             transparent_ptsid = np.where(transparent_ptsid)[0]
@@ -875,24 +919,29 @@ class GaussianModel(nn.Module):
 
             # reset values
             # randomize around good points
-            valid_pts = self._xyz.data[visible_mask]
-            if len(valid_pts) == 0:
-                rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
-                aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
-                aabb = extend_aabb(aabb, -aabb_ratio/2)
-                rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
-            else:
-                rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
-                rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * 0.01
+            large_grad_pts = grad_xyz.topk(len(sel_ptsid), 0)[1]
+            rand_xyz = self._xyz.data[large_grad_pts]
+            rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * rand_xyz.std() * 0.01
+            # valid_pts = self._xyz.data[visible_mask]
+            # if len(valid_pts) == 0:
+            #     rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
+            #     aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
+            #     aabb = extend_aabb(aabb, -aabb_ratio/2)
+            #     rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
+            # else:
+            #     rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
+            #     rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * 0.01
             print("reset %d gaussian values" % (len(sel_ptsid)))
 
             self._xyz.data[sel_ptsid] = rand_xyz
             self._scaling.data[sel_ptsid] = np.log(0.01)
             self._opacity.data[sel_ptsid] = self.inverse_opacity_activation(torch.tensor([0.9], dtype=torch.float))
+        dist.barrier()
         dist.broadcast(self._xyz.data, 0)
         dist.broadcast(self._scaling.data, 0)
         dist.broadcast(self._opacity.data, 0)
         self.reset_vis()
+        self.reset_xyz_grad()
 
     
     def reset_vis(self):
@@ -902,6 +951,14 @@ class GaussianModel(nn.Module):
         else:
             for gaussians in self.gaussians:
                 gaussians.reset_vis()
+
+    def reset_xyz_grad(self):
+        if self.is_leaf():
+            self.grad_denom[:] = 1
+            self.xyz_grad_accum[:] = 0
+        else:
+            for gaussians in self.gaussians:
+                gaussians.reset_xyz_grad()
 
     @torch.no_grad()
     def get_aabb(self):
@@ -1177,10 +1234,12 @@ class GaussianModel(nn.Module):
                 # rotataion and translation of each gaussian
                 quat, _ = dual_quaternion_to_quaternion_translation(dual_quat)
                 quat = quat.transpose(0, 1).contiguous()
-                rot = self.rotation_activation(self._rotation)
-                quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
+                # rot = self.rotation_activation(self._rotation)
+                # quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
             
-            trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
+            trajectory_pred = torch.cat((quaternion_conjugate(quat), motion), dim=-1)
+            # trajectory_pred = torch.cat((quat, motion), dim=-1)
+            # trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
             self.trajectory_cache = {}
             for it, key in enumerate(frameid_abs.cpu().numpy()):
                 self.trajectory_cache[key] = trajectory_pred[:, it]
@@ -1304,17 +1363,18 @@ class GaussianModel(nn.Module):
                 scale = self.scale_field.detach()
                 # optimal transport loss
                 pts = self.get_xyz().detach()
-                # get the ones with high-visibility
-                pts = pts[self.get_vis_ratio > 0.8]
+                # # get the ones with high-visibility
+                # pts = pts[self.get_vis_ratio > 0.8]
                 if len(pts) > 0:
                     pts = pts[np.random.choice(len(pts), nsample)]
-                    pts_gauss = field.warp.get_gauss_pts(radius=0.3) / scale
+                    pts_gauss = field.warp.get_gauss_pts() / scale
                     # normalize to 1
                     scale_proxy = self.get_scale()
                     samploss = SamplesLoss(loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1)
                     loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
-                    # trimesh.Trimesh(pts_gauss.detach().cpu().numpy()).export("tmp/0.obj")
-                    # trimesh.Trimesh(pts.detach().cpu().numpy()).export("tmp/1.obj")
+                    # if get_local_rank()==0:
+                    #     trimesh.Trimesh(pts_gauss.detach().cpu().numpy()).export("tmp/0.obj")
+                    #     trimesh.Trimesh(pts.detach().cpu().numpy()).export("tmp/1.obj")
                 else:
                     loss = torch.tensor(0.0, device=self.parameters().__next__().device)
             else:
