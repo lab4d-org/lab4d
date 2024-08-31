@@ -16,5 +16,5 @@
 # filename=human-2024-05
 # manifold -vip -cert /mnt/home/$USER/my-user-cert.pem put $filename.zip codec-avatars-scratch/tree/gengshany/$filename.zip --threads 12
 
-filename=mouse-1
+filename=log-cat-pikachu-2024-08-v2-diffgs-ft-fg-b32-urdf-quad-r120-const-absgrad-adapt-again
 manifold -vip -cert /mnt/home/$USER/my-user-cert.pem put $filename.zip codec-avatars-scratch/tree/gengshany/$filename.zip --threads 12 

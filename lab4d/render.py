@@ -204,8 +204,7 @@ def render_batch(model, batch):
     # render batch
     start_time = time.time()
     batch = batch_to_flow_batch(batch)
-    # rendered, _ = model.evaluate(batch, is_pair=False)
-    rendered, _ = model.evaluate(batch, is_pair=True)
+    rendered = model.evaluate(batch)
     print("rendering time: %.3f" % (time.time() - start_time))
 
     return rendered

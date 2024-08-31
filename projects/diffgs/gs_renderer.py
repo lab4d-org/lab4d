@@ -1186,10 +1186,10 @@ class GaussianModel(nn.Module):
         if self.is_leaf():
             self.quat_cache = {}
             self.trans_cache = {}
-
+            frameid = frameid.reshape(-1)
             quat, trans = self.get_extrinsics(frameid, return_qt=True)
 
-            for it, key in enumerate(frameid.view(-1).cpu().numpy()):
+            for it, key in enumerate(frameid.cpu().numpy()):
                 self.quat_cache[key] = quat[it]
                 self.trans_cache[key] = trans[it]
             self.quat_cache[-1] = quat[0]

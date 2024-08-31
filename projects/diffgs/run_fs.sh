@@ -3,14 +3,14 @@ field_type=$2 # fg
 data_prefix=$3 # crop
 dev=$4
 batchsize=32
-fg_motion=bob # urdf-quad
+fg_motion=urdf-quad
 extrinsics_type=mlp
 gaussian_obj_scale=0.25 # hand
 # gaussian_obj_scale=0.5 # cat
 num_rounds=120
 
 
-logname=diffgs-fs-$field_type-b$batchsize-$fg_motion-r$num_rounds-$extrinsics_type-fixgs-depth-maskreg-ckpt-ftac-prog-0sink
+logname=diffgs-fs-$field_type-b$batchsize-$fg_motion-r$num_rounds-$extrinsics_type-aug30
 rm -rf logdir/$seqname-$logname
 bash scripts/train.sh projects/diffgs/train.py $dev --seqname $seqname --logname $logname \
   --pixels_per_image -1 --imgs_per_gpu $batchsize --field_type $field_type --data_prefix $data_prefix --eval_res 256 \

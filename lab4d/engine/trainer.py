@@ -635,7 +635,7 @@ class Trainer:
         torch.cuda.empty_cache()
         ref_dict, batch = self.load_batch(self.evalloader.dataset, self.eval_fid)
         self.construct_eval_batch(batch)
-        rendered, scalars = self.model.evaluate(batch)
+        rendered = self.model.evaluate(batch)
         self.add_image_togrid(ref_dict)
         self.add_image_togrid(rendered)
         # if "xyz" in rendered.keys():
@@ -643,12 +643,6 @@ class Trainer:
         #     self.visualize_matches(
         #         rendered["xyz_cam"], rendered["xyz_reproj"], tag="xyz_cam"
         #     )
-        new_scalars = {}
-        for k, v in scalars.items():
-            new_scalars["eval/%s" % k] = v
-        del scalars
-        scalars = new_scalars
-        self.add_scalar(self.log, scalars, self.current_round)
         return ref_dict, rendered
 
     def visualize_matches(self, xyz, xyz_matches, tag):
