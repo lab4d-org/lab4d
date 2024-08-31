@@ -60,6 +60,7 @@ class TrainModelConfig:
     flags.DEFINE_string("intrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_string("extrinsics_type", "mlp", "{mlp, const}")
     flags.DEFINE_integer("feature_channels", 16, "number of channels in features mlp")
+    flags.DEFINE_integer("n_depth", 64, "number of depth points along the ray")
 
 
 class TrainOptConfig:

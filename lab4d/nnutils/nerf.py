@@ -864,7 +864,7 @@ class NeRF(nn.Module):
         near_far = get_near_far(corners, field2cam_mat, tol_fac=1.5)
         return near_far
 
-    def query_field(self, samples_dict, flow_thresh=None):
+    def query_field(self, samples_dict, flow_thresh=None, n_depth=64):
         """Render outputs from a neural radiance field.
 
         Args:
@@ -889,8 +889,6 @@ class NeRF(nn.Module):
         hxy = samples_dict["hxy"]  # (M,N,2)
 
         # sample camera space rays
-        # n_depth = 256
-        n_depth = 64
         if self.use_importance_sampling:
             # importance sampling
             xyz_cam, dir_cam, deltas, depth = self.importance_sampling(

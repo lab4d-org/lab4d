@@ -482,7 +482,7 @@ class Deformable(FeatureNeRF):
             self.warp.articulation.mlp_init()
         super().mlp_init()
 
-    def query_field(self, samples_dict, flow_thresh=None):
+    def query_field(self, samples_dict, flow_thresh=None, n_depth=64):
         """Render outputs from a neural radiance field.
 
         Args:
@@ -501,7 +501,7 @@ class Deformable(FeatureNeRF):
             aux_dict (Dict): Auxiliary neural field outputs. Keys: TODO
         """
         feat_dict, deltas, aux_dict = super().query_field(
-            samples_dict, flow_thresh=flow_thresh
+            samples_dict, flow_thresh=flow_thresh, n_depth=n_depth,
         )
 
         # xyz = feat_dict["xyz"].detach()  # don't backprop to cam/dfm fields

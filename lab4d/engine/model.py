@@ -618,7 +618,7 @@ class dvr_model(nn.Module):
             results: Rendered outputs. Keys: "rendered", "aux_dict"
         """
         multifields_dict, deltas_dict, aux_dict = self.fields.query_multifields(
-            samples_dict, flow_thresh=flow_thresh
+            samples_dict, flow_thresh=flow_thresh, n_depth=self.config["n_depth"],
         )
 
         field_dict, deltas = self.fields.compose_fields(multifields_dict, deltas_dict)

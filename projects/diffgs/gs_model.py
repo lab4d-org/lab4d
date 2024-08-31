@@ -988,7 +988,7 @@ class GSplatModel(nn.Module):
 
 
     @torch.no_grad()
-    def evaluate(self, batch, fake_pair=True, augment_nv=False, return_numpy=True):
+    def evaluate(self, batch, fake_pair=False, augment_nv=False, return_numpy=True):
         """Evaluate model on a batch of data"""
         self.process_frameid(batch)
         if fake_pair:

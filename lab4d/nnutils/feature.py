@@ -119,7 +119,7 @@ class FeatureNeRF(NeRF):
     def set_match_region(self, sample_around_surface):
         self.sample_around_surface = sample_around_surface
 
-    def query_field(self, samples_dict, flow_thresh=None):
+    def query_field(self, samples_dict, flow_thresh=None, n_depth=64):
         """Render outputs from a neural radiance field.
 
         Args:
@@ -137,7 +137,7 @@ class FeatureNeRF(NeRF):
             aux_dict (Dict): Auxiliary neural field outputs. Keys: TODO
         """
         feat_dict, deltas, aux_dict = super(FeatureNeRF, self).query_field(
-            samples_dict, flow_thresh=flow_thresh
+            samples_dict, flow_thresh=flow_thresh, n_depth=n_depth,
         )
         if not self.use_feature:
             return feat_dict, deltas, aux_dict

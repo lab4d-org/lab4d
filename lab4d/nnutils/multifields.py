@@ -401,7 +401,7 @@ class MultiFields(nn.Module):
             samples_dict[category] = field.get_samples(Kinv, batch_sub)
         return samples_dict
 
-    def query_multifields(self, samples_dict, flow_thresh=None):
+    def query_multifields(self, samples_dict, flow_thresh=None, n_depth=64):
         """Render outputs from all child fields.
 
         Args:
@@ -428,6 +428,7 @@ class MultiFields(nn.Module):
             ) = field.query_field(
                 samples_dict[category],
                 flow_thresh=flow_thresh,
+                n_depth=n_depth
             )
         return multifields_dict, deltas_dict, aux_dict
 
