@@ -17,3 +17,6 @@
 [submodule "projects/gdmdm"]
 	path = projects/gdmdm
 	url = https://github.com/gengshan-y/gdmdm.git
+[submodule "preprocess/third_party/hmr2"]
+	path = preprocess/third_party/hmr2
+	url = https://github.com/gengshan-y/hmr2-dev.git
