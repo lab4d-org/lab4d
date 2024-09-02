@@ -13,6 +13,7 @@ class PredictorConfig:
     flags.DEFINE_bool("inside_out", True, "assume the video is captured with outward facing camera")
     flags.DEFINE_float("trans_wt", 1e-4, "weight of translation regression loss")
     flags.DEFINE_float("rot_wt", 2e-4, "weight of rotation regression loss")
+    flags.DEFINE_float("xyz_regress_wt", 0.0, "weight for feature matching loss")
     flags.DEFINE_float("uncertainty_wt", 1.0, "weight of uncertainty regression loss")
     flags.DEFINE_string("model_type", "scene", "model scene or object {scene, object}")
 

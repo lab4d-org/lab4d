@@ -1,4 +1,4 @@
-name: lab4d
+name: agent2sim
 channels:
   - pytorch
   - nvidia
@@ -35,6 +35,8 @@ dependencies:
     - detectron2 @ git+https://github.com/facebookresearch/detectron2.git@e9f7e2b
     - segment_anything @ git+https://github.com/facebookresearch/segment-anything.git
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
+    - chumpy @ git+https://github.com/scottandrews/chumpy.git@fe51783e0364bf1e9b705541e7d77f894dd2b1ac
+    - gsplat @ git+https://github.com/gengshan-y/gsplat-dev
     - openmim
     - pyrender
     - open3d==0.17.0
@@ -42,3 +44,6 @@ dependencies:
     - point-cloud-utils==0.30.0
     - diffusers==0.27.2
     - viser==0.1.13
+    - pytorch-lightning==2.2.5
+    - smplx==0.1.28
+    - openexr

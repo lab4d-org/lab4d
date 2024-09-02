@@ -128,6 +128,9 @@ class PredTrainer(Trainer):
 
         self.model.convert_img_to_pixel(batch_aggr)
         ref_dict["ref_rgb"] = batch_aggr["img"].permute(0, 2, 3, 1).cpu().numpy()
-        ref_dict["ref_xyz"] = img2color("xyz", batch_aggr["xyz"].cpu().numpy())
+        if "xyz" in batch_aggr:
+            ref_dict["ref_xyz"] = img2color("xyz", batch_aggr["xyz"].cpu().numpy())
+        elif "xyz_view" in batch_aggr:
+            ref_dict["ref_xyz_view"] = img2color("xyz", batch_aggr["xyz_view"].cpu().numpy())
 
         return ref_dict, batch_aggr

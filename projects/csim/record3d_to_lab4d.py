@@ -47,6 +47,8 @@ from preprocess.scripts.write_config import write_config
 from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
+from preprocess.scripts.human_prior import extract_joint_angles_hmr2
+from preprocess.scripts.cotracker import compute_tracks
 
 track_anything_cli = importlib.import_module(
     "preprocess.third_party.Track-Anything.track_anything_cli"
@@ -193,8 +195,7 @@ def record3d_to_lab4d(
 
     track_anything_lab4d(seqname, target_dir, prompt)
     # flow
-    for dframe in [1, 2, 4, 8]:
-        compute_flow(seqname, target_dir, dframe)
+    compute_tracks(seqname, target_dir, [1, 2, 4, 8])
     extract_normal(seqname)
 
     res = 256
@@ -213,7 +214,7 @@ def record3d_to_lab4d(
 
 
 if __name__ == "__main__":
-    vidname = sys.argv[1]
+    # vidname = sys.argv[1]
 
     # vidname = "2024-05-07--19-25-33-v0"
     # home_path = "database/configs/Oct5at10-49AM-poly.config"
@@ -246,14 +247,14 @@ if __name__ == "__main__":
     folder_path = "database/record3d/human"
     flip = 0
     prompt = "human"
+    for vidname in sorted(glob.glob("%s/*" % folder_path)):
+        vidname = vidname.split("/")[-1]
+        record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)
+        extract_joint_angles_hmr2(vidname)
 
     # home_path = "database/configs/May15at5-23PM-poly.config"
     # folder_path = "database/record3d/hand-controller"
     # flip = 90
     # prompt = "hand"
-    record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)
+    # record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)
 
-
-    # for vidname in sorted(glob.glob("%s/*" % folder_path)):
-    #     vidname = vidname.split("/")[-1]
-    #     record3d_to_lab4d(folder_path, vidname, home_path=home_path, flip=flip, prompt=prompt)

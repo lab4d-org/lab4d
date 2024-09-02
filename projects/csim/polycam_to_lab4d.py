@@ -1,3 +1,4 @@
+# python projects/csim/polycam_to_lab4d.py database/polycam/cat-pikachu/ Oct5at10-49AM-poly
 import os, sys
 import glob
 import json
@@ -31,6 +32,7 @@ from preprocess.third_party.vcnplus.compute_flow import compute_flow
 from preprocess.third_party.vcnplus.frame_filter import frame_filter
 from preprocess.third_party.omnivision.normal import extract_normal
 from preprocess.scripts.fake_data import create_fake_masks
+from preprocess.scripts.cotracker import compute_tracks
 
 def polycam_to_lab4d_all(folder_path, target_dir="database/processed/"):
     for vidname in glob.glob(folder_path):
@@ -101,8 +103,7 @@ def polycam_to_lab4d(folder_path, vidname, target_dir="database/processed/"):
 
     create_fake_masks(seqname, target_dir)
     # flow
-    for dframe in [1, 2, 4, 8]:
-        compute_flow(seqname, target_dir, dframe)
+    compute_tracks(seqname, target_dir, [1, 2, 4, 8])
 
     extract_normal(seqname)
 

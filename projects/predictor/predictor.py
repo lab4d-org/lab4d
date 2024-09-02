@@ -13,7 +13,6 @@ from lab4d.utils.quat_transform import matrix_to_quaternion, quaternion_to_matri
 from lab4d.utils.loss_utils import rot_angle
 from lab4d.utils.vis_utils import img2color
 from projects.predictor.dataloader.dataset import PolyGenerator
-from projects.predictor.dataloader.dataset_diffgs import DiffgsGenerator
 from projects.predictor.arch import TranslationHead, DINOv2Encoder, RotationHead, UncertaintyHead, DPT, DINO
 
 class Predictor(nn.Module):
@@ -43,6 +42,7 @@ class Predictor(nn.Module):
         else:
             self.renderer_mode = "3dgs"
             #TODO write 3DGS dataloader instead
+            from projects.predictor.dataloader.dataset_diffgs import DiffgsGenerator
             self.data_generator1 = DiffgsGenerator(path=opts["diffgs_path"])
             self.data_generator2 = self.data_generator1
 
@@ -115,26 +115,27 @@ class Predictor(nn.Module):
         xyz: (N, H, W, 3)
         """
         bs, _, res, _ = batch["img"].shape
-        # no need to crop since we keep aspect ratio at test time
-        # # randomly crop the image
-        # # always center crop to avoid translation / principle point ambiguity
-        # # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
-        # cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(res))
-        # start_loc = (res - cropped_size) // 2
-        # if np.random.binomial(1, 0.5):
-        #     for k, v in batch.items():
-        #         # crop lengthwise
-        #         if k=="img":
-        #             batch[k] = v[:, :, start_loc : start_loc + cropped_size]
-        #         else:
-        #             batch[k] = v[:, start_loc : start_loc + cropped_size]
-        # else:
-        #     for k,v in batch.items():
-        #         # crop widthwise
-        #         if k=="img":
-        #             batch[k] = v[:, :, :, start_loc : start_loc + cropped_size]
-        #         else:
-        #             batch[k] = v[:, :, start_loc : start_loc + cropped_size]
+        # no need to crop for obj since we keep aspect ratio at test time
+        if self.opts["model_type"]=="scene":
+            # randomly crop the image
+            # always center crop to avoid translation / principle point ambiguity
+            # 1024:768=4:3 (0.75) vs 1920:1080=16:9 (0.5625)
+            cropped_size = int(np.random.uniform(0.5, 0.8) * np.asarray(res))
+            start_loc = (res - cropped_size) // 2
+            if np.random.binomial(1, 0.5):
+                for k, v in batch.items():
+                    # crop lengthwise
+                    if k=="img":
+                        batch[k] = v[:, :, start_loc : start_loc + cropped_size]
+                    else:
+                        batch[k] = v[:, start_loc : start_loc + cropped_size]
+            else:
+                for k,v in batch.items():
+                    # crop widthwise
+                    if k=="img":
+                        batch[k] = v[:, :, :, start_loc : start_loc + cropped_size]
+                    else:
+                        batch[k] = v[:, :, start_loc : start_loc + cropped_size]
 
         # color
         color_aug = T.ColorJitter(brightness=0.5, contrast=0.2, saturation=0.2, hue=0.1)
@@ -268,7 +269,7 @@ class Predictor(nn.Module):
         loss_dict["rot"] = rot_loss.mean()
         loss_dict["trans"] = trans_loss.mean()
         if xyz is not None and xyz_gt is not None:
-            loss_dict["xyz"] = (xyz - xyz_gt).pow(2).mean()
+            loss_dict["xyz_regress"] = (xyz - xyz_gt).pow(2).mean()
         return loss_dict
 
     def get_field_params(self):
