@@ -185,7 +185,7 @@ def main(_):
 
     subsample(batch, skip_idx)
     with torch.no_grad():
-        rendered, _ = model.evaluate(batch, is_pair=False)
+        rendered = model.evaluate(batch, is_pair=False)
         depth_pred_all = F.interpolate(rendered["depth"].permute(0,3,1,2), raw_size, mode="bilinear").permute(0,2,3,1)
         rgb_pred_all = F.interpolate(rendered["rgb"].permute(0,3,1,2), raw_size, mode="bilinear").permute(0,2,3,1)
 

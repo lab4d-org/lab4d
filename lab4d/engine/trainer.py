@@ -635,7 +635,7 @@ class Trainer:
         torch.cuda.empty_cache()
         ref_dict, batch = self.load_batch(self.evalloader.dataset, self.eval_fid)
         self.construct_eval_batch(batch)
-        rendered, _ = self.model.evaluate(batch)
+        rendered = self.model.evaluate(batch)
         self.add_image_togrid(ref_dict)
         self.add_image_togrid(rendered)
         # if "xyz" in rendered.keys():

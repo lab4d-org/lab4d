@@ -980,7 +980,10 @@ class GSplatModel(nn.Module):
         if update_traj:
             self.gaussians.update_trajectory(frameid)
 
-        crop_size = self.config["render_res"]
+        if "render_res" in self.config:
+            crop_size = self.config["render_res"]
+        else:
+            crop_size = self.config["eval_res"]
         Kmat, w2c = self.compute_camera_samples(batch, crop_size)
         rendered,_ = self.render(crop_size, Kmat, w2c=w2c, frameid=frameid)
 

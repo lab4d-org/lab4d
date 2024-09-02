@@ -88,6 +88,7 @@ class DiffgsGenerator:
             crop2raw,
             self.model.device,
         )
+        self.model.process_frameid(batch) # absolute
         outputs = self.model.evaluate_simple(batch, return_numpy=False)
         return outputs
 
