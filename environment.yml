@@ -37,13 +37,16 @@ dependencies:
     - groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git
     - chumpy @ git+https://github.com/scottandrews/chumpy.git@fe51783e0364bf1e9b705541e7d77f894dd2b1ac
     - gsplat @ git+https://github.com/gengshan-y/gsplat-dev
+    - viser @ git+https://github.com/gengshan-y/viser-dev
+    - torchcubicspline @ git+https://github.com/patrick-kidger/torchcubicspline.git
     - openmim
     - pyrender
     - open3d==0.17.0
     - geomloss==0.2.6
     - point-cloud-utils==0.30.0
     - diffusers==0.27.2
-    - viser==0.1.13
     - pytorch-lightning==2.2.5
     - smplx==0.1.28
     - openexr
+    - recordclass
+    - celluloid

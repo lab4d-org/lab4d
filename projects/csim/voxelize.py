@@ -63,8 +63,9 @@ class BGField:
 
         self.bg_meshes = {}
         self.voxel_grids = {}
-        for dirpath in sorted(glob.glob("%s/export_*" % logdir)):
-            inst_id = int(dirpath.split("_")[-1].split("export_")[-1])
+        for inst_id in range(len(data_info["frame_info"]["frame_offset"])):
+            dirpath = "%s/export_%04d" % (logdir, inst_id)
+            os.makedirs(dirpath, exist_ok=True)
             bgmesh_path = "%s/bg-mesh.obj" % dirpath
             # try to load mesh from dir
             # if False:
