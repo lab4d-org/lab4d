@@ -838,6 +838,8 @@ class Trainer:
             model.cuda()
         model.eval()
 
+        model.update_geometry_aux()
+
         if "inst_id" in opts and return_refs:
             # get reference images
             inst_id = opts["inst_id"]

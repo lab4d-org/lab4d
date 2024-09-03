@@ -143,6 +143,7 @@ def main(_):
     opts["render_res"] = render_res
     opts["inst_id"] = inst_id
     opts["load_suffix"] = "latest"
+    opts["n_depth"] = 256
     model, _, _ = Trainer.construct_test_model(opts, return_refs=False, force_reload=False)
     device = model.device
 
