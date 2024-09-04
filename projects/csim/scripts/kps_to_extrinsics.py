@@ -122,8 +122,8 @@ if __name__ == "__main__":
     seqname0 = "Oct5at10-49AM-poly-0000"
     seqname1 = "2023-11-11--11-51-53-0000"
 
-    # logdir="logdir/cat-pikachu-2024-08-bg-totalrecon-v2" # multivideo totalrecon
-    # logdir="logdir/cat-pikachu-2024-08-bg-adapt3-abs_nolocalizer"
+    # logdir="logdir-neurips-aba/cat-pikachu-2024-08-bg-totalrecon-v2" # multivideo totalrecon
+    # logdir="logdir-neurips-aba/cat-pikachu-2024-08-bg-adapt3-abs_nolocalizer"
     # logdir="logdir/cat-pikachu-2024-08-bg-adapt3-abs_noanneal/"
     # logdir="logdir-neurips-aba/cat-pikachu-2024-08-bg-adapt3-abs_nofeature/"
     logdir="logdir-neurips-aba/cat-pikachu-2024-08-bg-adapt3/" # ours

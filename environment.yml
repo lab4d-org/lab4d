@@ -39,6 +39,7 @@ dependencies:
     - gsplat @ git+https://github.com/gengshan-y/gsplat-dev
     - viser @ git+https://github.com/gengshan-y/viser-dev
     - torchcubicspline @ git+https://github.com/patrick-kidger/torchcubicspline.git
+    - urdfpy @ git+https://github.com/mmatl/urdfpy
     - openmim
     - pyrender
     - open3d==0.17.0
@@ -50,3 +51,4 @@ dependencies:
     - openexr
     - recordclass
     - celluloid
+    - networkx==2.5
