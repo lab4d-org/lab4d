@@ -1,3 +1,23 @@
+# Installation
+Follow Lab4d guidance.
+
+# Lab4d-GS
+## Run on synthetic data
+Download dataset
+```
+bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/4u6saejl01okrhtkq3xdh/eagle-d.zip?rlkey=qjx292weid7uj53ok6aomm6px&st=8whvphtl&dl=0"
+```
+
+Train
+```
+bash projects/diffgs/run_fs_sync.sh eagle-d fg crop 1
+```
+
+Visualize
+```
+python projects/diffgs/visergui.py --flagfile=logdir/eagle-d-diffgs-fs-fg-b4-bob-r120-mlp/opts.log --load_suffix latest --data_prefix crop --render_res 512 --lab4d_path ""
+```
+
 # Agent-to-Sim
 
 ## Evaluatio scripts
