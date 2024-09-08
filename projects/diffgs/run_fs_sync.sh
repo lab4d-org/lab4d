@@ -1,9 +1,9 @@
 seqname=$1
 field_type=$2 # fg
 data_prefix=$3 # crop
-dev=$4
+fg_motion=$4 # bob
+dev=$5
 batchsize=4
-fg_motion=bob
 extrinsics_type=mlp
 gaussian_obj_scale=0.25 # hand
 # gaussian_obj_scale=0.5 # cat

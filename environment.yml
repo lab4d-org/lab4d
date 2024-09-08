@@ -1,4 +1,4 @@
-name: agent2sim
+name: lab4d
 channels:
   - pytorch
   - nvidia
@@ -30,6 +30,7 @@ dependencies:
   - imageio-ffmpeg
   - tqdm
   - pip:
+    - pysdf
     - gradio==3.49.0
     - timm==0.6.7
     - detectron2 @ git+https://github.com/facebookresearch/detectron2.git@e9f7e2b

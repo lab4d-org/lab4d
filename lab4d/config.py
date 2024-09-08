@@ -158,7 +158,7 @@ def load_flags_from_file(filename):
                 flag_name = flag_name.lstrip("--")
                 if "." in flag_value and flag_value.replace(".", "").isdigit():
                     flag_value = float(flag_value)
-                elif flag_value.isdigit():
+                elif flag_value.isdigit() or flag_value.replace("-", "").isdigit():
                     flag_value = int(flag_value)
             elif line.startswith("--no"):
                 flag_name = line.strip().lstrip("--no")

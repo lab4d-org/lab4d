@@ -1295,11 +1295,11 @@ class GaussianModel(nn.Module):
 
                 # rotataion and translation of each gaussian
                 quat, _ = dual_quaternion_to_quaternion_translation(dual_quat)
-                quat = quat.transpose(0, 1).contiguous()
+                quat_delta = quat.transpose(0, 1).contiguous()
                 # rot = self.rotation_activation(self._rotation)
                 # quat_delta = quaternion_mul(quat, quaternion_conjugate(rot)[:,None].repeat(1, quat.shape[1], 1))
             
-            trajectory_pred = torch.cat((quat, motion), dim=-1)
+            trajectory_pred = torch.cat((quat_delta, motion), dim=-1)
             self.trajectory_cache = {}
             for it, key in enumerate(frameid_abs.cpu().numpy()):
                 self.trajectory_cache[key] = trajectory_pred[:, it]
