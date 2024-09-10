@@ -53,3 +53,5 @@ dependencies:
     - recordclass
     - celluloid
     - networkx==2.5
+    - dominate
+    - showdata

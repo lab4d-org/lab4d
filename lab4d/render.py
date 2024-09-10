@@ -213,7 +213,7 @@ def render_batch(model, batch):
 def render(opts, construct_batch_func, Trainer=Trainer):
     # load model/data
     opts["logroot"] = sys.argv[1].split("=")[1].rsplit("/", 2)[0]
-    model, data_info, ref_dict = Trainer.construct_test_model(opts)
+    model, data_info, ref_dict = Trainer.construct_test_model(opts, force_reload=False, return_refs=False)
     batch, raw_size = construct_batch_func(opts, model, data_info)
     # # TODO: make eval_res and render_res consistent
     if opts["render_res"] == opts["eval_res"] and opts["viewpoint"] == "ref":
@@ -266,7 +266,11 @@ def render(opts, construct_batch_func, Trainer=Trainer):
     # mesh = extract_mesh_bounded(intrinsics, extrinsics, rendered["rgb"], rendered["depth"][...,0], voxel_size=0.002)
     # # extract_mesh_bounded(intrinsics, extrinsics, rendered["ref_rgb"], rendered["ref_depth"][...,0])
 
-    save_rendered(rendered, save_dir, raw_size, data_info["apply_pca_fn"])
+    if "apply_pca_fn" in data_info:
+        apply_pca_fn = data_info["apply_pca_fn"]
+    else:
+        apply_pca_fn = None
+    save_rendered(rendered, save_dir, raw_size, apply_pca_fn)
     print("Saved to %s" % save_dir)
 
 

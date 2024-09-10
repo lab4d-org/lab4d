@@ -11,4 +11,5 @@ bash projects/csim/recon_scene.sh $envname $dev
 bash projects/csim/align_scene_multi.sh $envname $seqname $dev
 bash projects/csim/recon_compose_multi_fs.sh $seqname urdf-quad $dev # dog, bunny
 python projects/csim/visualize/render_videos.py $seqname compose-ft
-python projects/csim/visualize/render_videos.py $seqname bg-adapt4
+python projects/csim/visualize/render_videos.py $seqname bg-adapt4 0 1
+python projects/csim/visualize/generate_dataweb.py logdir/$seqname-compose-ft/ database/configs/$seqname.config

@@ -65,6 +65,8 @@ if __name__ == "__main__":
     data = []
     concat_paths =[]
     for it, vidpath in enumerate(vidlist):
+        if it==0:
+            vidpath = vidpath.replace("compose-ft", "bg-adapt3").replace("compose", "primary")
         it = int(vidpath.split("/")[-2].split("_")[-1])
         print(vidpath)
         bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4")#.replace("shape", "bone")
@@ -86,7 +88,7 @@ if __name__ == "__main__":
 
         img_path = config.get("data_%d" % it, "img_path") + "/%05d.jpg"
         os.system(
-            'ffmpeg -y -framerate 10 -i ../../code/vid2sim/%s -vf "scale=iw/4:ih/4" %s'
+            'ffmpeg -y -framerate 10 -i %s -vf "scale=iw/4:ih/4" %s'
             % (img_path, raw_path)
         )
         os.system(

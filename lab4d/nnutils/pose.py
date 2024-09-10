@@ -1371,8 +1371,10 @@ class ArticulationURDFMLP(ArticulationSkelMLP):
     def parse_urdf(self, urdf_name):
         """Load the URDF file for the skeleton"""
         from urdfpy import URDF
+        import os
 
-        urdf_path = f"projects/ppr/ppr-diffphys/data/urdf_templates/{urdf_name}.urdf"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        urdf_path = f"{current_dir}/../../projects/ppr/ppr-diffphys/data/urdf_templates/{urdf_name}.urdf"
         urdf = URDF.load(urdf_path)
 
         local_rest_coord = np.stack([i.origin for i in urdf.joints], 0)[::3]

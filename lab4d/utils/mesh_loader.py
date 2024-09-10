@@ -206,6 +206,10 @@ class MeshLoader:
     def query_frame(self, frame_idx, remove_ceiling=False):
         input_dict = {}
         input_dict["shape"] = self.mesh_dict[frame_idx]
+        # XYZ color
+        xyz = input_dict["shape"].vertices
+        xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+        input_dict["shape"].visual.vertex_colors[:, :3] = xyz * 255
         if self.mode == "bone":
             input_dict["bone"] = self.bone_dict[frame_idx]
             # make shape transparent and gray
@@ -214,10 +218,10 @@ class MeshLoader:
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
             scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[0, 102, 153]])
-            # # XYZ color
-            # xyz = scene_mesh.vertices
-            # xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
-            # scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
+            # XYZ color
+            xyz = scene_mesh.vertices
+            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
             if remove_ceiling:
                 # remove ceiling
                 bounds = np.asarray(scene_mesh.bounds.tolist())

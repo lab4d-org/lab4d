@@ -8,10 +8,7 @@ import torch.nn.functional as F
 
 import sys, os
 
-cwd = os.getcwd()
-sys.path.append(cwd + "/lab4d/third_party/guidance")
-
-from zero123 import Zero123Pipeline
+from ..guidance.zero123 import Zero123Pipeline
 
 
 class Zero123(nn.Module):
