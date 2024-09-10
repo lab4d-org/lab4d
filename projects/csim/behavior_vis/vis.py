@@ -13,7 +13,7 @@ if cwd not in sys.path:
 from lab4d.utils.io import save_vid
 from lab4d.utils.pyrender_wrapper import PyRenderWrapper
 from lab4d.config import load_flags_from_file
-from projects.behavior.articulation_loader import ArticulationLoader
+from projects.csim.behavior_vis.articulation_loader import ArticulationLoader
 
 parser = argparse.ArgumentParser(description="script to render extraced meshes")
 parser.add_argument("--logdir", default="", help="path to the directory with logs")
