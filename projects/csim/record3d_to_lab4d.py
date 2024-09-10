@@ -224,7 +224,12 @@ if __name__ == "__main__":
     seqname = "bunny"
     flip = 0
     prompt = "bunny"
-        
+
+    # envname = "Feb19at9-47PM-poly"
+    # seqname = "dog"
+    # flip = 270
+    # prompt = "dog"
+
     # polycam_to_lab4d("database/polycam/%s" % seqname, envname)
     config_all = configparser.ConfigParser()
     config_all.read("database/configs/%s.config" % envname)

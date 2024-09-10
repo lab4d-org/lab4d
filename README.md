@@ -3,8 +3,7 @@
 git checkout lab4dgs
 git submodule update --init --recursive
 ```
-Follow Lab4d guidance.
-
+Follow [this](https://lab4d-org.github.io/lab4d/get_started/) to install lab4d in a new conda environment.
 Run the following to resolve dependency issue.
 ```
 pip install networkx==2.5
