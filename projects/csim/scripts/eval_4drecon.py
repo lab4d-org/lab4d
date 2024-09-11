@@ -94,24 +94,27 @@ def main(_):
     # skip_idx = 2000
     skip_idx = 100
     render_res = 256
-    inst_id = 23
-    # inst_id = 0
+    # inst_id = 23
+    inst_id = 0
 
     logpath0_fg="%s/export_%04d/fg/motion.json" % (logdir, inst_id)
     logpath0_bg="%s/export_%04d/bg/motion.json" % (logdir, inst_id)
     # compute relative camera pose at each time instance
-    imu_pose0 = np.load("database/processed/Cameras/Full-Resolution/%s/aligned-00.npy" % seqname0)
-    imu_pose1 = np.load("database/processed/Cameras/Full-Resolution/%s/aligned-00.npy" % seqname1)
+
     fg_pose0 = np.asarray(list(json.load(open(logpath0_fg, "r"))["field2cam"].values())).astype(np.float32)
     bg_pose0 = np.asarray(list(json.load(open(logpath0_bg, "r"))["field2cam"].values())).astype(np.float32)
-    min_len = min(imu_pose0.shape[0], imu_pose1.shape[0])
-    imu_pose0 = imu_pose0[:min_len]
-    imu_pose1 = imu_pose1[:min_len]
-    fg_pose0 = fg_pose0[:min_len]
-    bg_pose0 = bg_pose0[:min_len]
 
     R, T, kps, depth0, depth1, img0, img1, Kinv_0, Kinv_1  = compute_relative_pose(kp_path, seqname0, seqname1, imgidx_0, imgidx_1)
 
+    # imu_pose0 = np.load("database/processed/Cameras/Full-Resolution/%s/aligned-00.npy" % seqname0)
+    # imu_pose1 = np.load("database/processed/Cameras/Full-Resolution/%s/aligned-00.npy" % seqname1)
+    # min_len = min(imu_pose0.shape[0], imu_pose1.shape[0])
+    # imu_pose0 = imu_pose0[:min_len]
+    # imu_pose1 = imu_pose1[:min_len]
+    # fg_pose0 = fg_pose0[:min_len]
+    # bg_pose0 = bg_pose0[:min_len]
+
+    # method 1: compute relative pose from kp
     # # camera reprojection
     # pts0 = depth2pts(depth0, Kmat=Kmatinv(Kinv_0))
     # pts1 = depth2pts(depth1, Kmat=Kmatinv(Kinv_1))
@@ -133,6 +136,9 @@ def main(_):
     #TODO another way to get gt cam
     bg_pose0p = np.asarray(list(json.load(open("logdir-0701/2024-05-07--19-25-33-comp/export_0000/fg/motion.json", "r"))["field2cam"].values())).astype(np.float32)
     bg_pose1p = np.asarray(list(json.load(open("logdir-0701/2024-05-07--19-25-33-comp/export_0001/fg/motion.json", "r"))["field2cam"].values())).astype(np.float32)
+    min_len = min(bg_pose0p.shape[0], bg_pose1p.shape[0])
+    fg_pose0 = fg_pose0[:min_len]
+    bg_pose0 = bg_pose0[:min_len]
     bg_pose0p = bg_pose0p[:min_len]
     bg_pose1p = bg_pose1p[:min_len]
     cam_gt1_fg = bg_pose1p @ se3_inv(bg_pose0p) @ fg_pose0
