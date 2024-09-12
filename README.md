@@ -18,7 +18,7 @@ bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/4u6saejl01okrhtkq
 
 Train
 ```
-bash projects/diffgs/run_fs_sync.sh eagle-d fg crop 1
+bash projects/diffgs/run_fs_sync.sh eagle-d fg crop bob 1
 ```
 
 Visualize

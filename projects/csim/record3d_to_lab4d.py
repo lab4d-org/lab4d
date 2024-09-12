@@ -142,70 +142,70 @@ def record3d_to_lab4d(
         # trimesh.Trimesh(vertices=xyz.reshape(-1, 3)[::100]).export("tmp/0.obj")
         # pdb.set_trace()
 
-    # save cameras
-    poses = np.asarray(meta["poses"])[::skip_ratio]  # xyzw / xyz
-    extrinsics = np.tile(np.eye(4)[None], (len(poses), 1, 1))
-    extrinsics[:, :3, 3] = poses[:, 4:]
-    extrinsics[:, :3, :3] = R.from_quat(poses[:, :4]).as_matrix()
-    if flip == 90:
-        # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
-        transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
-    elif flip == 270:
-        # from (x-down, y-right, z-inward) to (x-right, y-down, z-forward)
-        transformation_matrix = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]])
-    elif flip == 180:
-        # from (x-left, y-down, z-inward) to (x-right, y-down, z-forward)
-        transformation_matrix = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
-    elif flip == 0:
-        # from (x-right, y-up, z-inward) to (x-right, y-down, z-forward)
-        transformation_matrix = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
-    else:
-        raise ValueError
-    extrinsics[:, :3, :3] = extrinsics[:, :3, :3] @ transformation_matrix[None]
-    extrinsics = np.linalg.inv(extrinsics)
-    gl_to_cv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    # scene_unrect = np.linalg.inv(extrinsics[:1]) @ gl_to_cv[None]
-    # extrinsics = extrinsics @ scene_unrect
-    extrinsics = extrinsics @ gl_to_cv
+    # # save cameras
+    # poses = np.asarray(meta["poses"])[::skip_ratio]  # xyzw / xyz
+    # extrinsics = np.tile(np.eye(4)[None], (len(poses), 1, 1))
+    # extrinsics[:, :3, 3] = poses[:, 4:]
+    # extrinsics[:, :3, :3] = R.from_quat(poses[:, :4]).as_matrix()
+    # if flip == 90:
+    #     # from (x-up, y-left, z-inward) to (x-right, y-down, z-forward)
+    #     transformation_matrix = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]])
+    # elif flip == 270:
+    #     # from (x-down, y-right, z-inward) to (x-right, y-down, z-forward)
+    #     transformation_matrix = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]])
+    # elif flip == 180:
+    #     # from (x-left, y-down, z-inward) to (x-right, y-down, z-forward)
+    #     transformation_matrix = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+    # elif flip == 0:
+    #     # from (x-right, y-up, z-inward) to (x-right, y-down, z-forward)
+    #     transformation_matrix = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+    # else:
+    #     raise ValueError
+    # extrinsics[:, :3, :3] = extrinsics[:, :3, :3] @ transformation_matrix[None]
+    # extrinsics = np.linalg.inv(extrinsics)
+    # gl_to_cv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+    # # scene_unrect = np.linalg.inv(extrinsics[:1]) @ gl_to_cv[None]
+    # # extrinsics = extrinsics @ scene_unrect
+    # extrinsics = extrinsics @ gl_to_cv
 
-    mesh = draw_cams(extrinsics)
-    trg = "%s/Cameras/Full-Resolution/%s/00.npy" % (target_dir, seqname)
-    os.makedirs(os.path.dirname(trg), exist_ok=True)
-    mesh.export("%s/Cameras/Full-Resolution/%s/cameras-00.obj" % (target_dir, seqname))
-    np.save(trg, extrinsics)
-    np.save(trg.replace("00.npy", "aligned-00.npy"), extrinsics)
+    # mesh = draw_cams(extrinsics)
+    # trg = "%s/Cameras/Full-Resolution/%s/00.npy" % (target_dir, seqname)
+    # os.makedirs(os.path.dirname(trg), exist_ok=True)
+    # mesh.export("%s/Cameras/Full-Resolution/%s/cameras-00.obj" % (target_dir, seqname))
+    # np.save(trg, extrinsics)
+    # np.save(trg.replace("00.npy", "aligned-00.npy"), extrinsics)
 
-    # run preprocessing
-    write_config(vidname)
+    # # run preprocessing
+    # write_config(vidname)
 
-    # modify intrinsics
-    config_path = "database/configs/%s.config" % vidname
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    config["data_0"]["ks"] = " ".join([str(j) for j in intrinsics.flatten()])
-    with open(config_path, "w") as configfile:
-        config.write(configfile)
+    # # modify intrinsics
+    # config_path = "database/configs/%s.config" % vidname
+    # config = configparser.ConfigParser()
+    # config.read(config_path)
+    # config["data_0"]["ks"] = " ".join([str(j) for j in intrinsics.flatten()])
+    # with open(config_path, "w") as configfile:
+    #     config.write(configfile)
 
-    track_anything_lab4d(seqname, target_dir, prompt)
-    # flow
-    # compute_tracks(seqname, target_dir, [1, 2, 4, 8])
-    for dframe in [1, 2, 4, 8]:
-        compute_flow(seqname, target_dir, dframe)
-    extract_normal(seqname)
+    # track_anything_lab4d(seqname, target_dir, prompt)
+    # # flow
+    # # compute_tracks(seqname, target_dir, [1, 2, 4, 8])
+    # for dframe in [1, 2, 4, 8]:
+    #     compute_flow(seqname, target_dir, dframe)
+    # extract_normal(seqname)
 
-    res = 256
-    extract_crop(seqname, res, 1)
-    extract_crop(seqname, res, 0)
-    extract_dinov2(vidname, component_id=0)
-    extract_dinov2(vidname, component_id=1)
+    # res = 256
+    # extract_crop(seqname, res, 1)
+    # extract_crop(seqname, res, 0)
+    # extract_dinov2(vidname, component_id=0)
+    # extract_dinov2(vidname, component_id=1)
 
-    camera_registration(seqname, 1)
-    canonical_registration(seqname, 256, "quad")
+    # camera_registration(seqname, 1)
+    # canonical_registration(seqname, 256, "quad")
 
-    # run camera inference on the scene
-    cmd = f"python projects/predictor/inference.py --flagfile=logdir/predictor-{envname}-ft4/opts.log --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/{seqname}/"
-    os.system(cmd)
-    os.system(f"python projects/csim/transform_bg_cams.py {seqname}")
+    # # run camera inference on the scene
+    # cmd = f"python projects/predictor/inference.py --flagfile=logdir/predictor-{envname}-ft4/opts.log --load_suffix latest --image_dir database/processed/JPEGImages/Full-Resolution/{seqname}/"
+    # os.system(cmd)
+    # os.system(f"python projects/csim/transform_bg_cams.py {seqname}")
 
 
 if __name__ == "__main__":
@@ -220,10 +220,15 @@ if __name__ == "__main__":
     # vidname = "2024-05-07--19-25-33-v1"
     # record3d_to_lab4d(vidname, home_path=home_path, flip=flip, prompt=prompt)
 
-    envname = "Feb14at5-55PM-poly"
-    seqname = "bunny"
-    flip = 0
-    prompt = "bunny"
+    envname = "Oct5at10-49AM-poly"
+    seqname = "cat-pikachu"
+    flip = 90
+    prompt = "cat"
+
+    # envname = "Feb14at5-55PM-poly"
+    # seqname = "bunny"
+    # flip = 0
+    # prompt = "bunny"
 
     # envname = "Feb19at9-47PM-poly"
     # seqname = "dog"
@@ -231,20 +236,20 @@ if __name__ == "__main__":
     # prompt = "dog"
 
     # polycam_to_lab4d("database/polycam/%s" % seqname, envname)
-    config_all = configparser.ConfigParser()
-    config_all.read("database/configs/%s.config" % envname)
+    # config_all = configparser.ConfigParser()
+    # config_all.read("database/configs/%s.config" % envname)
 
     folder_path = "database/record3d/%s" % seqname
     for it,vidname in enumerate(sorted(glob.glob("%s/*" % folder_path))):
         vidname = vidname.split("/")[-1]
-        # record3d_to_lab4d(folder_path, vidname, envname=envname, flip=flip, prompt=prompt)
+        record3d_to_lab4d(folder_path, vidname, envname=envname, flip=flip, prompt=prompt)
 
-        config = configparser.ConfigParser()
-        config.read("database/configs/%s.config" % vidname)
-        config_all["data_%d"%(it+1)] = config["data_0"]
+    #     config = configparser.ConfigParser()
+    #     config.read("database/configs/%s.config" % vidname)
+    #     config_all["data_%d"%(it+1)] = config["data_0"]
     
-    with open("database/configs/%s.config" % seqname, "w") as configfile:
-        config_all.write(configfile)
+    # with open("database/configs/%s.config" % seqname, "w") as configfile:
+    #     config_all.write(configfile)
 
     # flip=True
     # home_path = "database/configs/Feb26at10-02 PM-poly.config"

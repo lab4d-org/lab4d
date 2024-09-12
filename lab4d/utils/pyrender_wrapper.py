@@ -21,7 +21,7 @@ os.environ["PYOPENGL_PLATFORM"] = "egl"
 
 
 class PyRenderWrapper:
-    def __init__(self, image_size=(1024, 1024)) -> None:
+    def __init__(self, image_size=(1024, 1024), direct_l_intensity=0.0) -> None:
         # renderer
         render_size = max(image_size)
         self.r = OffscreenRenderer(render_size, render_size, point_size=3.0)
@@ -33,9 +33,9 @@ class PyRenderWrapper:
         # light
         self.light_pose = np.eye(4)
         self.set_light_topdown()
-        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
-        self.point_l = pyrender.SpotLight(color=np.ones(3), intensity=5.0)
-        self.ambient_light = 0.1 * np.asarray([1.0, 1.0, 1.0, 1.0])
+        self.direc_l = pyrender.DirectionalLight(color=np.ones(3), intensity=direct_l_intensity)
+        self.point_l = pyrender.SpotLight(color=np.ones(3), intensity=5.0, outerConeAngle=np.pi / 2)
+        self.ambient_light = 0.3 * np.asarray([1.0, 1.0, 1.0, 1.0])
         self.material = MetallicRoughnessMaterial(
             roughnessFactor=0.75, metallicFactor=0.75, alphaMode="BLEND"
         )

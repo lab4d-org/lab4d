@@ -126,8 +126,10 @@ def get_user_mesh(scale=0.2, color = [255,0,0,255]):
     mesh = trimesh.load("database/mesh-templates/user.obj")
     mesh.vertices = mesh.vertices * scale
     mesh.vertices[:,1] = mesh.vertices[:,1] * -1
-    mesh.visual.vertex_colors = 255
     mesh.visual.vertex_colors = np.tile(color, [len(mesh.vertices), 1])
+    # xyz = mesh.vertices
+    # xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+    # mesh.visual.vertex_colors[:, :3] = xyz * 255
     return mesh
 
 def draw_cams(
@@ -541,7 +543,7 @@ def append_xz_plane(mesh, world_to_cam, scale=5, gl=True):
     return trimesh.util.concatenate([mesh, plane])
 
 
-def get_pts_traj(kps, frame_idx, traj_len=100, cmap=cm.get_cmap("cool")):
+def get_pts_traj(kps, frame_idx, traj_len=30, cmap=cm.get_cmap("cool")):
     """
     Args:
         kps: (T, K, 3)

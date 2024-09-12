@@ -111,8 +111,7 @@ class Deformable(FeatureNeRF):
         if "smpl" in self.fg_motion:
             scale = self.logscale.detach().exp()[0]
 
-            sys.path.insert(0, "projects/gdmdm/")
-            from smpl import SMPL
+            from projects.csim.smpl import SMPL
             self.smpl_model = SMPL().eval()
             global_orient = torch.eye(3)
             global_orient[1:] *= -1

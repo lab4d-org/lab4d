@@ -28,6 +28,7 @@ parser.add_argument("--view", default="ref", type=str, help="{ref, bev, front}")
 parser.add_argument(
     "--scale_multiplier", default=1.0, type=float, help="scale multiplier"
 )
+parser.add_argument("--remove_ceiling", action="store_true", help="remove ceiling when rendering")
 args = parser.parse_args()
 
 
@@ -40,18 +41,23 @@ def main():
     raw_size = loader.raw_size
     raw_size = [int(i * args.scale_multiplier) for i in raw_size]
     loader.intrinsics = loader.intrinsics * args.scale_multiplier
-    renderer = PyRenderWrapper(raw_size)
+    if args.view == "bev":
+        direct_l_intensity = 5.0
+    else:
+        direct_l_intensity = 0.0
+    renderer = PyRenderWrapper(raw_size, direct_l_intensity=direct_l_intensity)
     print("Rendering [%s]:" % args.view)
     frames = []
     for idx, (frame_idx, _) in enumerate(tqdm.tqdm(loader.extr_dict.items())):
         # input dict
-        input_dict = loader.query_frame(frame_idx)
+        input_dict = loader.query_frame(frame_idx, remove_ceiling=args.remove_ceiling)
 
         if args.view == "ref":
             # set camera extrinsics
             renderer.set_camera(loader.extr_dict[frame_idx])
             # set camera intrinsics
             renderer.set_intrinsics(loader.intrinsics[idx])
+            del input_dict["camera"]
         elif args.view == "bev":
             # bev
             renderer.set_camera_bev(depth=20)

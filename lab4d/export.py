@@ -312,7 +312,7 @@ def export(opts, Trainer=Trainer):
     cmd = "python lab4d/render_mesh.py --mode shape --testdir %s" % (save_dir)
     print("Running: %s" % cmd)
     os.system(cmd)
-    cmd = "python lab4d/render_mesh.py --mode shape --view bev --testdir %s" % (save_dir)
+    cmd = "python lab4d/render_mesh.py --mode shape --view bev --testdir %s --remove_ceiling" % (save_dir)
     print("Running: %s" % cmd)
     os.system(cmd)
 

@@ -66,7 +66,7 @@ if __name__ == "__main__":
     concat_paths =[]
     for it, vidpath in enumerate(vidlist):
         if it==0:
-            vidpath = vidpath.replace("compose-ft", "bg-adapt3").replace("compose", "primary")
+            vidpath = vidpath.replace("compose-ft", "bg-adapt4").replace("compose", "primary")
         it = int(vidpath.split("/")[-2].split("_")[-1])
         print(vidpath)
         bev_vidpath = vidpath.replace("ref.mp4", "bev.mp4")#.replace("shape", "bone")
@@ -112,7 +112,8 @@ if __name__ == "__main__":
         )
 
         data.append(frame)
-        concat_paths.append(outpath)
+        if it > 0:
+            concat_paths.append(outpath)
     previous_dir = os.getcwd()
     os.chdir(input_dir)
     generate_html_table(data, output_path="%s.html" % outname, image_height="320px")

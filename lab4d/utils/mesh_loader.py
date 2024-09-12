@@ -11,7 +11,7 @@ import tqdm
 import configparser
 import matplotlib
 
-from lab4d.utils.vis_utils import draw_cams, get_pts_traj
+from lab4d.utils.vis_utils import draw_cams, get_pts_traj, get_user_mesh, get_camera_mesh
 from lab4d.utils.quat_transform import dual_quaternion_to_se3
 
 
@@ -24,9 +24,11 @@ class MeshLoader:
         if os.path.exists("%s/fg/motion.json" % (testdir)):
             primary_dir = "%s/fg" % testdir
             secondary_dir = "%s/bg" % testdir
+            data_class = "fg"
         else:
             primary_dir = "%s/bg" % testdir
             secondary_dir = "%s/fg" % testdir  # never use fg for secondary
+            data_class = "bg"
         path_list = sorted([i for i in glob.glob("%s/mesh/*.obj" % (primary_dir))])
         if len(path_list) == 0:
             print("Warning: no mesh found that matches %s*" % (primary_dir))
@@ -70,6 +72,7 @@ class MeshLoader:
         self.raw_size = raw_size
         self.path_list = path_list
         self.field2cam_fg_dict = field2cam_fg_dict
+        self.data_class = data_class
         if compose_mode == "compose":
             self.field2cam_bg_dict = field2cam_bg_dict
             self.field2world = field2world
@@ -161,14 +164,14 @@ class MeshLoader:
                 if mode == "bone":
                     bone_dict[frame_idx].apply_transform(object_to_scene)
 
-                    # world space keypoints
-                    kps = t_articulation[:, :3, 3]
-                    kps = kps @ object_to_scene[:3, :3].T + object_to_scene[:3, 3]
-                    kps_dict[frame_idx] = kps
+                # world space keypoints
+                kps = t_articulation[:, :3, 3]
+                kps = kps @ object_to_scene[:3, :3].T + object_to_scene[:3, 3]
+                kps_dict[frame_idx] = kps
+                # pts traj
+                kps_all = np.asarray(list(kps_dict.values()))
+                pts_traj_dict[frame_idx] = get_pts_traj(kps_all, counter)
 
-                    # pts traj
-                    kps_all = np.asarray(list(kps_dict.values()))
-                    pts_traj_dict[frame_idx] = get_pts_traj(kps_all, counter)
                 root_to_world[frame_idx] = object_to_scene
                 t_articulation_dict[frame_idx] = t_articulation
 
@@ -203,13 +206,26 @@ class MeshLoader:
         self.aabb_min = aabb_min
         self.aabb_max = aabb_max
 
+    @staticmethod
+    def remove_ceiling(mesh):
+        # remove ceiling
+        bounds = np.asarray(mesh.bounds.tolist())
+        bounds[0,1] = 0.0
+        box = trimesh.creation.box(bounds=bounds)
+        mesh = mesh.slice_plane(box.facets_origin, -box.facets_normal)
+        return mesh
+
     def query_frame(self, frame_idx, remove_ceiling=False):
         input_dict = {}
         input_dict["shape"] = self.mesh_dict[frame_idx]
         # XYZ color
-        xyz = input_dict["shape"].vertices
-        xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
-        input_dict["shape"].visual.vertex_colors[:, :3] = xyz * 255
+        if self.data_class == "bg":
+            if remove_ceiling:
+                input_dict["shape"] = self.remove_ceiling(input_dict["shape"])
+            xyz = input_dict["shape"].vertices
+            xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
+            input_dict["shape"].visual.vertex_colors[:, :3] = xyz * 255
+
         if self.mode == "bone":
             input_dict["bone"] = self.bone_dict[frame_idx]
             # make shape transparent and gray
@@ -218,16 +234,12 @@ class MeshLoader:
         if self.compose_mode == "compose":
             scene_mesh = self.scene_dict[frame_idx]
             scene_mesh.visual.vertex_colors[:, :3] = np.asarray([[0, 102, 153]])
-            # XYZ color
+            if remove_ceiling:
+                scene_mesh = self.remove_ceiling(scene_mesh)
+            # # XYZ color
             xyz = scene_mesh.vertices
             xyz = (xyz - xyz.min(0)) / (xyz.max(0) - xyz.min(0))
             scene_mesh.visual.vertex_colors[:, :3] = xyz * 255
-            if remove_ceiling:
-                # remove ceiling
-                bounds = np.asarray(scene_mesh.bounds.tolist())
-                bounds[0,1] = -1
-                box = trimesh.creation.box(bounds=bounds)
-                scene_mesh = scene_mesh.slice_plane(box.facets_origin, -box.facets_normal)
             input_dict["scene"] = scene_mesh
         if len(self.ghost_dict) > 0:
             ghost_mesh = trimesh.util.concatenate(self.ghost_dict[frame_idx])
@@ -239,7 +251,9 @@ class MeshLoader:
             input_dict["pts_traj"], input_dict["pts_color"] = pts_traj, pts_color
 
         # add camera
-        cam_mesh = trimesh.creation.axis(axis_length=0.2)
+        # cam_mesh = trimesh.creation.axis(axis_length=0.2)
+        # cam_mesh = get_camera_mesh(0.1, (255,0,0,192))
+        cam_mesh = get_user_mesh(scale=0.3, color = (255,0,0,192))
         cam_mesh.apply_transform(np.linalg.inv(self.extr_dict[frame_idx]))
         input_dict["camera"] = cam_mesh
         return input_dict
