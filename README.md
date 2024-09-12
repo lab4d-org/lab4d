@@ -26,5 +26,6 @@ Visualize
 python projects/diffgs/visergui.py --flagfile=logdir/eagle-d-diffgs-fs-fg-b4-bob-r120-mlp/opts.log --load_suffix latest --data_prefix crop --render_res 512 --lab4d_path ""
 ```
 
+During training, you may also use viser to visualzie the 3d asset interactively
 https://github.com/user-attachments/assets/63d3106c-f346-4327-aebc-c017dab2568c  
 
