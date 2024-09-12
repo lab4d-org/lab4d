@@ -20,8 +20,13 @@ from projects.diffgs.trainer import GSplatTrainer as Trainer
 
 
 def extract_deformation(field, frame_ids, use_timesync=False):
-    field.update_trajectory(frame_ids)
     start_id = frame_ids[0]
+    frame_ids_sub = frame_ids - start_id
+    
+    if use_timesync:
+        field.update_trajectory(frame_ids_sub)
+    else:
+        field.update_trajectory(frame_ids)
 
     motion_tuples = {}
     for frame_id in frame_ids:

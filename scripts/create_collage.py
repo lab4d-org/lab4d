@@ -22,11 +22,16 @@ def main():
     video_list = []
     for sub_seq in sorted(glob.glob("%s/%s*" % (args.testdir, args.prefix))):
         path_list = []
-        path_list.append("%s/ref/ref_rgb.mp4" % sub_seq)
+        inst_id = int(sub_seq.split("/")[-1].split("_")[-1])
+        # path_list.append("%s/ref/ref_rgb.mp4" % sub_seq)
         path_list.append("%s/ref/rgb.mp4" % sub_seq)
         path_list.append("%s/ref/xyz.mp4" % sub_seq)
-        path_list.append("%s/rot-0-360/rgb.mp4" % sub_seq)
-        path_list.append("%s/rot-0-360/xyz.mp4" % sub_seq)
+        path_list.append("%s/ref/flow.mp4" % sub_seq)
+        path_list.append("%s/ref/gauss_mask.mp4" % sub_seq)
+        path_list.append("%s/ref/vis2d.mp4" % sub_seq)
+        path_list.append("%s/../export_%04d/render-shape-primary-ref.mp4" % (sub_seq, inst_id))
+        # path_list.append("%s/rot-0-360/rgb.mp4" % sub_seq)
+        # path_list.append("%s/rot-0-360/xyz.mp4" % sub_seq)
 
         # make sure these exist
         if np.sum([os.path.exists(path) for path in path_list]) == len(path_list):

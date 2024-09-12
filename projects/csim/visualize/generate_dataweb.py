@@ -7,6 +7,7 @@ import sys
 import configparser
 import subprocess
 from showdata import generate_html_table
+import zipfile
 
 def concatenate_and_speedup_videos(video_paths, output_path, speed_factor):
     # Temporary file names
@@ -112,8 +113,7 @@ if __name__ == "__main__":
         )
 
         data.append(frame)
-        if it > 0:
-            concat_paths.append(outpath)
+        concat_paths.append(outpath)
     previous_dir = os.getcwd()
     os.chdir(input_dir)
     generate_html_table(data, output_path="%s.html" % outname, image_height="320px")
@@ -121,8 +121,13 @@ if __name__ == "__main__":
 
     # fast forward video
     concat_path = "%s/fast_forward.mp4"%input_dir
-    concatenate_and_speedup_videos(concat_paths, concat_path, 5)
+    concatenate_and_speedup_videos(concat_paths[1:], concat_path, 5)
 
-    os.system(
-        'cd %s; find . -type f -regex ".*render-shape-compose-concat.mp4" | xargs zip web.zip; zip web.zip index.html'%input_dir
-    )
+    output_zip = os.path.join(input_dir, "web.zip")
+    if os.path.exists(output_zip):
+        os.remove(output_zip)
+    # Create a zip file with the .mp4 files and index.html
+    with zipfile.ZipFile(output_zip, 'w') as zipf:
+        for file in concat_paths:
+            zipf.write(file, file.split('/', 2)[-1])
+    os.system('cd %s; zip web.zip index.html'%input_dir)

@@ -1,4 +1,4 @@
-import os
+import os, sys
 import cv2
 import glob
 import numpy as np
@@ -9,8 +9,10 @@ import moviepy
 
 # data_path = "database/processed/JPEGImages/Full-Resolution/2023-1"
 # dir_list = sorted(glob.glob(data_path + "*"))[:6]
-vidname = "home-2023-curated3"
-results_dir = "logdir//home-2023-curated3-compose-ft/"
+# vidname = "home-2023-curated3"
+# results_dir = "logdir//home-2023-curated3-compose-ft/"
+vidname = sys.argv[1]
+results_dir = sys.argv[2]
 
 # read config
 config = configparser.RawConfigParser()
