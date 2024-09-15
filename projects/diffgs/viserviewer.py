@@ -97,7 +97,7 @@ class ViserViewer:
         )
 
         self.toggle_outputs = self.server.add_gui_dropdown(
-            "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'flow', 'feature', 'mask_fg', 'vis2d', "gauss_mask"), initial_value="rgb"
+            "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'feature', 'mask_fg', 'vis2d', "gauss_mask"), initial_value="rgb"
         )
 
         self.toggle_view_sel = self.server.add_gui_dropdown("Toggle view control", ('rotation', 'all'), initial_value="rotation")

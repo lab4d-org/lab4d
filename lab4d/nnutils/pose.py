@@ -222,15 +222,15 @@ class CameraConst(nn.Module):
         frame_mapping = torch.tensor(frame_info["frame_mapping"])
         frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
         frame_mapping_inv[frame_mapping] = torch.arange(len(frame_mapping))
-        self.register_buffer("frame_mapping_inv", frame_mapping_inv, persistent=False)
+        self.register_buffer("frame_mapping_inv", frame_mapping_inv, persistent=True)
 
         # camera pose: field to camera
         if not torch.is_tensor(rtmat):
             rtmat = torch.tensor(rtmat, dtype=torch.float32)
         trans = rtmat[:, :3, 3]
         quat = matrix_to_quaternion(rtmat[:, :3, :3])
-        self.register_buffer("trans", trans, persistent=False)
-        self.register_buffer("quat", quat, persistent=False)
+        self.register_buffer("trans", trans, persistent=True)
+        self.register_buffer("quat", quat, persistent=True)
         self.register_buffer("init_vals", rtmat, persistent=False)
 
     def mlp_init(self):

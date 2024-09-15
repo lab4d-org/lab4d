@@ -41,7 +41,7 @@ def main():
     raw_size = loader.raw_size
     raw_size = [int(i * args.scale_multiplier) for i in raw_size]
     loader.intrinsics = loader.intrinsics * args.scale_multiplier
-    if args.view == "bev":
+    if args.view == "bev" or loader.compose_mode == "primary":
         direct_l_intensity = 5.0
     else:
         direct_l_intensity = 0.0
