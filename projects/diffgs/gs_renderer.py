@@ -942,19 +942,20 @@ class GaussianModel(nn.Module):
             sel_ptsid = np.concatenate([rand_ptsid, transparent_ptsid, invis_ptsid],0)
 
             # reset values
-            # randomize around good points
-            large_grad_pts = grad_xyz.topk(len(sel_ptsid), 0)[1]
-            rand_xyz = self._xyz.data[large_grad_pts]
-            rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * rand_xyz.std() * 0.01
-            # valid_pts = self._xyz.data[visible_mask]
-            # if len(valid_pts) == 0:
-            #     rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
-            #     aabb = torch.tensor(self.get_aabb(), device=dev, dtype=torch.float32)
-            #     aabb = extend_aabb(aabb, -aabb_ratio/2)
-            #     rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
-            # else:
-            #     rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
-            #     rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * 0.01
+            # # randomize around good points
+            # large_grad_pts = grad_xyz.topk(len(sel_ptsid), 0)[1]
+            # rand_xyz = self._xyz.data[large_grad_pts]
+            # rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * rand_xyz.std() * 0.01
+            # randomize around visible points
+            valid_pts = self._xyz.data[visible_mask]
+            if len(valid_pts) == 0:
+                rand_xyz = torch.rand_like(self._xyz.data[sel_ptsid])
+                aabb = torch.tensor(self.get_aabb(), device=rand_xyz.device, dtype=torch.float32)
+                aabb = extend_aabb(aabb, -aabb_ratio/2)
+                rand_xyz = rand_xyz * (aabb[1:] - aabb[:1]) + aabb[:1]
+            else:
+                rand_xyz = valid_pts[np.random.randint(0, len(valid_pts), len(sel_ptsid))]
+                rand_xyz = rand_xyz + torch.randn_like(rand_xyz) * 0.01
             print("reset %d gaussian values" % (len(sel_ptsid)))
 
             self._xyz.data[sel_ptsid] = rand_xyz
