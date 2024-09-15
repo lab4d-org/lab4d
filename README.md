@@ -36,3 +36,8 @@ Post-training GUI
 python projects/diffgs/visergui.py --flagfile=logdir/eagle-d-diffgs-fs-fg-b4-bob-r120-mlp/opts.log --load_suffix latest --data_prefix crop --render_res 512 --lab4d_path ""
 ```
 
+## Run on mouse dase (to be released)
+```
+bash projects/csim/run_sync_fg.sh mouse-1 1,2
+bash projects/diffgs/run_sync_refine.sh mouse-1 logdir/mouse-1-bob/opts.log fg crop 1,2
+```

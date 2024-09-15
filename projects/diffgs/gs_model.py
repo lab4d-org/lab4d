@@ -65,6 +65,7 @@ def load_lab4d(config):
         opts = load_flags_from_file(flags_path)
         opts["load_suffix"] = "latest"
         model, data_info, _ = Trainer.construct_test_model(opts, return_refs=False, to_cuda=False)
+        config["fg_motion"] = opts["fg_motion"]
         model.cuda()
         meshes = model.fields.extract_canonical_meshes(grid_size=256, vis_thresh=-10)
     # color
@@ -101,7 +102,6 @@ def fake_a_pair(tensor):
 class GSplatModel(nn.Module):
     def __init__(self, config, data_info, parent_list=None,mode_list=None):
         super().__init__()
-        self.config = config
         self.device = get_local_rank()
         self.data_info = data_info
         self.progress = 0.0
@@ -134,6 +134,7 @@ class GSplatModel(nn.Module):
             else:
                 raise NotImplementedError
         lab4d_model, lab4d_meshes = load_lab4d(config)
+        self.config = config
         self.gaussians = GaussianModel(sh_degree, config, data_info, 
                                        parent_list=parent_list, index=0, mode_list=mode_list,
                                        lab4d_model=lab4d_model, lab4d_meshes=lab4d_meshes)

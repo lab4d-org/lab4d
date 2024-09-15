@@ -27,7 +27,7 @@ args = parser.parse_args()
 
 
 def main():
-    renderer = PyRenderWrapper()
+    renderer = PyRenderWrapper(direct_l_intensity=5.0)
     # io
     path_list = [
         i for i in glob.glob("%s/*-%s-proxy.obj" % (args.testdir, args.data_class))
