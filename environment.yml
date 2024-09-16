@@ -52,6 +52,6 @@ dependencies:
     - openexr
     - recordclass
     - celluloid
-    - networkx==2.5
+    - networkx
     - dominate
     - showdata
