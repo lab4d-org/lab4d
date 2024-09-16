@@ -1,4 +1,10 @@
-# Installation
+# Lab4d-GS
+
+https://github.com/user-attachments/assets/537ff1cb-4e2d-4b58-b14c-5ea434dbe938
+
+https://github.com/user-attachments/assets/7a014cfb-ed3f-4e82-9fec-f01ad6a78b84
+
+## Installation
 ```
 git checkout lab4dgs
 git submodule update --init --recursive
@@ -9,8 +15,7 @@ Run the following to resolve dependency issue.
 pip install networkx==2.5
 ```
 
-# Lab4d-GS
-## Run on synthetic data
+## Run on eagle data
 Download dataset
 ```
 bash scripts/download_unzip.sh "https://www.dropbox.com/scl/fi/4u6saejl01okrhtkq3xdh/eagle-d.zip?rlkey=qjx292weid7uj53ok6aomm6px&st=8whvphtl&dl=0"
@@ -26,10 +31,6 @@ During training, you may also use viser to visualzie the 3d asset interactively
 https://github.com/user-attachments/assets/63d3106c-f346-4327-aebc-c017dab2568c  
 
 Results will be saved to `logdir/eagle-d-diffgs-fs-fg-b4-bob-r120-mlp/`
-
-https://github.com/user-attachments/assets/08408f89-3744-47cc-bbc6-12433f7fb158
-
-
 
 Post-training GUI
 ```
