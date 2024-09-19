@@ -2,7 +2,7 @@
 
 https://github.com/user-attachments/assets/537ff1cb-4e2d-4b58-b14c-5ea434dbe938
 
-https://github.com/user-attachments/assets/7a014cfb-ed3f-4e82-9fec-f01ad6a78b84
+https://github.com/user-attachments/assets/a07cccf7-0d1a-46f0-a479-d8149c150e0f
 
 ## Installation
 ```
