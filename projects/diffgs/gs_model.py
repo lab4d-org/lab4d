@@ -158,7 +158,7 @@ class GSplatModel(nn.Module):
             #     self.device, model_key="ashawkey/stable-zero123-diffusers"
             # )
 
-        if get_local_rank()==0:
+        if get_local_rank()==0 and config["use_gui"]:
             gui = ViserViewer(device=self.device, viewer_port=6789, data_info=data_info)
             gui.set_renderer(self)
             self.gui = gui

@@ -100,7 +100,7 @@ class ViserViewer:
             "Toggle outputs", ('rgb', 'depth', 'alpha', 'xyz', 'feature', 'mask_fg', 'vis2d', "gauss_mask"), initial_value="rgb"
         )
 
-        self.toggle_view_sel = self.server.add_gui_dropdown("Toggle view control", ('rotation', 'all'), initial_value="rotation")
+        self.toggle_view_sel = self.server.add_gui_dropdown("Toggle view control", ('rotation', 'all'), initial_value="all")
         self.toggle_viewpoint = self.server.add_gui_dropdown("Toggle viewpoint", ('ref', 'bev'), initial_value="ref")
 
         self.fps = self.server.add_gui_text("FPS", initial_value="-1", disabled=True)
