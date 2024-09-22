@@ -217,7 +217,7 @@ def integrate(field_dict, weights):
         "xyz_reproj",
         "gauss_density",
     ]
-    key_freeze = ["cyc_dist", "xyz_cam", "skin_entropy"]
+    key_freeze = ["cyc_dist", "l2_motion", "xyz_cam", "skin_entropy"]
 
     rendered = {}
     rendered["mask"] = torch.sum(weights, -1, keepdim=True)

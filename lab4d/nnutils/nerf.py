@@ -1303,10 +1303,12 @@ class NeRF(nn.Module):
             cyc_dict (Dict): Cycle consistency loss. Keys: "cyc_dist" (M,N,D,1)
         """
         cyc_dist = torch.zeros_like(xyz[..., :1])
+        l2_motion = torch.zeros_like(xyz[..., :1])
         delta_skin = torch.zeros_like(xyz[..., :1])
         skin_entropy = torch.zeros_like(xyz[..., :1])
         cyc_dict = {
             "cyc_dist": cyc_dist,
+            "l2_motion": l2_motion,
             "delta_skin": delta_skin,
             "skin_entropy": skin_entropy,
         }

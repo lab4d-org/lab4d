@@ -255,6 +255,13 @@ class dvr_model(nn.Module):
         type = "linear"
         self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
 
+        # l2 motion wt: steps(0->1000, 1->0), range (0,1)
+        loss_name = "reg_l2_motion_wt"
+        anchor_x = (0, 1000)
+        anchor_y = (1, 0)
+        type = "linear"
+        self.set_loss_weight(loss_name, anchor_x, anchor_y, current_steps, type=type)
+
         # reg_eikonal_wt: steps(0->24000, 1->100), range (1,100)
         loss_name = "reg_eikonal_wt"
         anchor_x = (800, 2000)
@@ -829,6 +836,7 @@ class dvr_model(nn.Module):
             loss_dict["reg_density_masked"] = rendered["density_masked"]
         if "fg" in aux_dict.keys():
             loss_dict["reg_deform_cyc"] = aux_dict["fg"]["cyc_dist"]
+            loss_dict["reg_l2_motion"] = aux_dict["fg"]["l2_motion"]
             loss_dict["reg_delta_skin"] = aux_dict["fg"]["delta_skin"]
             loss_dict["reg_skin_entropy"] = aux_dict["fg"]["skin_entropy"]
         loss_dict["reg_soft_deform"] = self.fields.soft_deform_loss()

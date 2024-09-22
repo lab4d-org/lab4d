@@ -27,6 +27,7 @@ class TrainModelConfig:
     flags.DEFINE_float(
         "reg_deform_cyc_wt", 0.05, "weight for deform cyc regularization"
     )
+    flags.DEFINE_float("reg_l2_motion_wt", 0.0, "weight for l2 motion regularization")
     flags.DEFINE_float("reg_delta_skin_wt", 1e-3, "weight for delta skinning reg")
     flags.DEFINE_float("reg_skin_entropy_wt", 0.0, "weight for delta skinning reg")
     flags.DEFINE_float("reg_gauss_skin_wt", 0.02, "weight for gauss density loss in 3D")
