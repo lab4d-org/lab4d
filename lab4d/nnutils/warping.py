@@ -49,7 +49,8 @@ def create_warp(fg_motion, data_info, num_inst):
     elif fg_motion == "se3":
         warp = SE3Warp(frame_info, num_inst)
     elif fg_motion == "bob":
-        warp = SkinningWarp(frame_info, num_inst)
+        # use a lower freq since bob is too flexible
+        warp = SkinningWarp(frame_info, num_inst, num_freq_t=6, D=5, W=256, skips=[])
     elif fg_motion.startswith("skel-"):
         warp = SkinningWarp(
             frame_info,
@@ -284,7 +285,8 @@ class SE3Warp(IdentityWarp):
 
         out = quaternion_translation_apply(quat, trans, xyz)
         warp_dict = {}
-        warp_dict["dual_quat"] = quaternion_translation_to_dual_quaternion(quat[:, 0], trans[:, 0])
+        bs = quat.shape[0]
+        warp_dict["dual_quat"] = quaternion_translation_to_dual_quaternion(quat.view(bs, -1,4), trans.view(bs, -1,3))
         if return_aux:
             return out, warp_dict
         else:
@@ -374,15 +376,15 @@ class SkinningWarp(IdentityWarp):
         num_inst,
         skel_type="flat",
         joint_angles=None,
+        D = 2,
+        W = 256,
+        skips = [1, 2],
         num_freq_xyz=10,
         num_freq_t=10,
         num_se3=25,
         init_gauss_scale=0.03,
         init_beta=0.01,
     ):
-        D = 2
-        W = 256
-        skips = [1, 2]
         super().__init__(
             frame_info=frame_info, num_inst=num_inst, num_freq_xyz=num_freq_xyz, num_freq_t=num_freq_t
         )

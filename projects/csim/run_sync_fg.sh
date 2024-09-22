@@ -7,6 +7,7 @@ rm -rf logdir/$seqname-$logname2
 bash scripts/train.sh lab4d/train.py $dev --seqname $seqname --logname $logname2 \
   --fg_motion $fg_motion --num_rounds 20 --feature_type cse --intrinsics_type const --init_scale_fg 0.5 --imgs_per_gpu 128 \
   --use_timesync # --reg_timesync_cam_wt 0.01 # --depth_wt 1e-3
+#   --fg_motion $fg_motion --num_rounds 20 --feature_type cse --intrinsics_type const --init_scale_fg 0.1 --extrinsics_type mlp_nodelta --imgs_per_gpu 128 \
 
 # # use higher rgb weight
 # logname3=$logname2-ft

@@ -197,7 +197,8 @@ class NeRF(nn.Module):
     def construct_extrinsics(self, rtmat, frame_info, extrinsics_type):
         if extrinsics_type == "mlp":
             self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
-            # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
+        elif extrinsics_type == "mlp_nodelta":
+            self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
         elif extrinsics_type == "const":
             self.camera_mlp = CameraConst(rtmat, frame_info=frame_info)
         elif extrinsics_type == "explicit":

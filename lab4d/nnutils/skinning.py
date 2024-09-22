@@ -238,5 +238,5 @@ class SkinningField(nn.Module):
         meshes = trimesh.util.concatenate(meshes)
         colormap_pad = np.ones((meshes.vertices.shape[0] - colormap.shape[0], 3))
         colormap = np.concatenate([colormap, 192 * colormap_pad], 0)
-        meshes.visual.vertex_colors = colormap
+        meshes.visual.vertex_colors[:,:3] = colormap
         return meshes

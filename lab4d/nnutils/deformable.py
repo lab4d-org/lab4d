@@ -66,6 +66,7 @@ class Deformable(FeatureNeRF):
         init_scale=0.1,
         color_act=True,
         feature_channels=16,
+        extrinsics_type="mlp",
         use_timesync=False,
         invalid_vid=-1,
     ):
@@ -87,6 +88,7 @@ class Deformable(FeatureNeRF):
             init_scale=init_scale,
             color_act=color_act,
             feature_channels=feature_channels,
+            extrinsics_type=extrinsics_type,
             invalid_vid=invalid_vid,
         )
 

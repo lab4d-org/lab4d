@@ -213,6 +213,10 @@ class VidDataset(Dataset):
                 print(f"Warning: cannot load {path}")
                 if k == "feature":
                     self.mmap_list[k] = np.zeros((self.__len__() + 1, 112, 112, 16))
+                elif k == "depth":
+                    self.mmap_list[k] = np.zeros(
+                        (self.__len__() + 1, self.img_size[0], self.img_size[1])
+                    )
                 else:
                     self.mmap_list[k] = np.zeros(
                         (self.__len__() + 1, self.img_size[0], self.img_size[1], 3)

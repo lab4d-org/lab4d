@@ -104,6 +104,7 @@ class MultiFields(nn.Module):
                 num_inst=1 if self.single_inst else num_inst,
                 init_scale=self.init_scale_fg,
                 init_beta=self.init_beta,
+                extrinsics_type=self.extrinsic_type,
                 feature_channels=self.feature_channels,
                 use_timesync=self.use_timesync,
                 invalid_vid=self.bg_vid,

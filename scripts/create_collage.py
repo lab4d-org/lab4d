@@ -1,12 +1,14 @@
 # python scripts/create_collage.py --testdir logdir/penguin-fg-skel-b120/ --prefix renderings_0002
 
-from moviepy.editor import clips_array, VideoFileClip, vfx
-import sys, os
-import numpy as np
-import pdb
-import glob
 import argparse
+import glob
 import itertools
+import os
+import pdb
+import sys
+
+import numpy as np
+from moviepy.editor import VideoFileClip, clips_array, vfx
 
 parser = argparse.ArgumentParser(description="combine results into a collage")
 parser.add_argument("--testdir", default="", help="path to test dir")
@@ -25,13 +27,16 @@ def main():
         inst_id = int(sub_seq.split("/")[-1].split("_")[-1])
         # path_list.append("%s/ref/ref_rgb.mp4" % sub_seq)
         path_list.append("%s/ref/rgb.mp4" % sub_seq)
+        path_list.append(
+            "%s/../export_%04d/render-shape-primary-ref.mp4" % (sub_seq, inst_id)
+        )
         path_list.append("%s/ref/xyz.mp4" % sub_seq)
-        path_list.append("%s/ref/flow.mp4" % sub_seq)
-        path_list.append("%s/ref/gauss_mask.mp4" % sub_seq)
-        path_list.append("%s/ref/vis2d.mp4" % sub_seq)
-        path_list.append("%s/../export_%04d/render-shape-primary-ref.mp4" % (sub_seq, inst_id))
+       # path_list.append("%s/ref/gauss_mask.mp4" % sub_seq)
         # path_list.append("%s/rot-0-360/rgb.mp4" % sub_seq)
         # path_list.append("%s/rot-0-360/xyz.mp4" % sub_seq)
+        # path_list.append("%s/ref/flow.mp4" % sub_seq)
+        # path_list.append("%s/ref/gauss_mask.mp4" % sub_seq)
+        # path_list.append("%s/ref/vis2d.mp4" % sub_seq)
 
         # make sure these exist
         if np.sum([os.path.exists(path) for path in path_list]) == len(path_list):
@@ -53,6 +58,8 @@ def main():
             )
 
     final_clip = clips_array(video_list)
+    # final_clip = clips_array([[video_list[0][0],video_list[0][1]],
+    #                           [video_list[0][2],video_list[0][3]]])
     final_clip.write_videofile(save_path)
 
 
