@@ -8,7 +8,7 @@ def get_local_rank():
     try:
         return int(os.environ["LOCAL_RANK"])
     except:
-        print("LOCAL_RANK not found, set to 0")
+        # print("LOCAL_RANK not found, set to 0")
         return 0
 
 

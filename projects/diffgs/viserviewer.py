@@ -78,11 +78,14 @@ class ViserViewer:
 
         self.pause_training_button = self.server.add_gui_button("Pause Training")
         self.pause_time_button = self.server.add_gui_button("Pause Time")
-        self.sh_order = self.server.add_gui_slider(
-            "SH Order", min=1, max=4, step=1, initial_value=1
-        )
+        # self.sh_order = self.server.add_gui_slider(
+        #     "SH Order", min=0, max=3, step=1, initial_value=0
+        # )
         self.resolution_slider = self.server.add_gui_slider(
-            "Resolution", min=384, max=4096, step=2, initial_value=1024
+            "Resolution", min=64, max=1024, step=2, initial_value=512
+        )
+        self.fov_slider = self.server.add_gui_slider(
+            "FoV", min=60, max=150, step=1, initial_value=90
         )
         self.inst_id_slider = self.server.add_gui_slider(
             "Video ID", min=0, max=len(self.sublen)-1, step=1, initial_value=0
@@ -141,10 +144,6 @@ class ViserViewer:
         def _(_):
             self.pause_time = not self.pause_time
 
-        @self.resolution_slider.on_update
-        def _(_):
-            self.need_update = True
-
         @self.server.on_client_connect
         def _(client: viser.ClientHandle):
             @client.camera.on_update
@@ -176,6 +175,8 @@ class ViserViewer:
         w2c = get_w2c(camera)
         # rot_offset = np.asarray([ 0.9624857, 2.3236458, -1.2028077])
         # w2c[:3,:3] = w2c[:3,:3] @ cv2.Rodrigues(rot_offset)[0].T
+        self.renderer.config["render_res"] = self.resolution_slider.value
+        camera.fov = self.fov_slider.value * np.pi / 180
         W = self.resolution_slider.value
         H = int(self.resolution_slider.value / camera.aspect)
         focal_x = W / 2 / np.tan(camera.fov / 2)
@@ -197,14 +198,18 @@ class ViserViewer:
             res = self.renderer.config["eval_res"]
 
         raw_size = self.renderer.data_info["raw_size"][0]
-        crop2raw = np.zeros(4)
-        # ratio = raw_size[0] / H # heights to be max
-        # crop2raw[0] = W * ratio / res
-        # crop2raw[1] = H * ratio / res
-        crop2raw[0] = W / res
-        crop2raw[1] = H / res
-        intrinsics = np.asarray([focal_y, focal_y, W/2, H/2])
-        intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
+        # crop2raw = np.zeros(4)
+        # # ratio = raw_size[0] / H # heights to be max
+        # # crop2raw[0] = W * ratio / res
+        # # crop2raw[1] = H * ratio / res
+        # crop2raw[0] = W / res
+        # crop2raw[1] = H / res
+        # tan(fov/2) = res/2 / focal
+        intrinsics = np.asarray([res / 2 / np.tan(camera.fov / 2) / camera.aspect,
+                                 res / 2 / np.tan(camera.fov / 2),
+                                 res / 2,
+                                 res / 2])
+        # intrinsics = mat2K(K2inv(crop2raw) @ K2mat(intrinsics))
 
         if self.toggle_view_sel.value == "all":
             extrinsics = w2c @ extrinsics
@@ -213,10 +218,21 @@ class ViserViewer:
         else:
             raise ValueError("Invalid view selection")
 
-        rot_offset = np.asarray([np.pi/2,0.,0.])
-        rot_offset = cv2.Rodrigues(rot_offset)[0]        
-        extrinsics_2ndscreen = extrinsics.copy()
-        extrinsics_2ndscreen[:3,:3] = rot_offset @ extrinsics[:3,:3]
+        if self.renderer.config["field_type"] == "fg":
+            # bev obj
+            rot_offset = np.asarray([np.pi/2,0.,0.])
+            rot_offset = cv2.Rodrigues(rot_offset)[0]        
+            extrinsics_2ndscreen = extrinsics.copy()
+            extrinsics_2ndscreen[:3,:3] = rot_offset @ extrinsics[:3,:3]
+        else:
+            # bev scene
+            rot_offset = cv2.Rodrigues(np.asarray([0., 0., np.pi/2]))[0] @ \
+                        cv2.Rodrigues(np.asarray([np.pi/2,0.,0.]))[0]        
+            extrinsics_2ndscreen = extrinsics.copy()
+            extrinsics_2ndscreen[:3,:3] = rot_offset # @ extrinsics[:3,:3]
+            extrinsics_2ndscreen[:3,3] = rot_offset @ extrinsics[:3,:3].T @ extrinsics[:3,3]
+            extrinsics_2ndscreen[2, 3] = 2
+
         if self.toggle_viewpoint.value == "bev":
             extrinsics = np.stack([extrinsics_2ndscreen, extrinsics],0)
         else:
@@ -282,12 +298,14 @@ class ViserViewer:
                     else:
                         pca_fn = None
                     out = img2color(toggle_outputs, out, pca_fn=pca_fn)
-                    out_small = cv2.resize(out[1], (out[1].shape[1]//3, out[1].shape[0]//3))
-                    out = out[0]
+                    out_big = cv2.resize(out[0], (out[0].shape[1]*3, out[1].shape[0]*3))
+                    out_small = out[1]
                     out_small = cv2.copyMakeBorder(out_small, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(255,0,0))
-                    if out.ndim != out_small.ndim:
+                    if out_big.ndim != out_small.ndim:
                         out_small = out_small[...,None]
-                    out[:out_small.shape[0], :out_small.shape[1]] = out_small
+                    out_big[:out_small.shape[0], :out_small.shape[1]] = out_small
+                    # out = out_big # cv2.resize(out_big, (out_big.shape[1]//4, out_big.shape[0]//4))
+                    out = cv2.resize(out_big, (out_big.shape[1]//2, out_big.shape[0]//2))
                 except RuntimeError as e:
                     print(e)
                     interval = 1
