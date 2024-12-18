@@ -41,6 +41,14 @@ class CanonicalRegistration(nn.Module):
             @ self.cams_canonical[self.annotated_idx, :3, :3].permute(0, 2, 1)
         )
 
+        loss_unary_translation = torch.norm(
+            cams_pred[self.annotated_idx, :3, 3]
+            - self.cams_canonical[self.annotated_idx, :3, 3],
+            2,
+            dim=-1,
+        )
+        loss_unary = loss_unary + loss_unary_translation
+
         # (2) relative translation should be close to procrustes
         cams_rel = cams_pred[1:, :3, :3] @ cams_pred[:-1, :3, :3].permute(0, 2, 1)
 

@@ -21,6 +21,11 @@ def get_bone_coords(xyz, bone2obj):
 
     # reshape
     xyz = xyz[..., None, :].expand(xyz.shape[:-1] + (bone2obj[0].shape[-2], 3)).clone()
+    expand_shape = xyz.shape[:-2] + (-1, -1)
+    obj2bone = (
+        obj2bone[0].expand(expand_shape).clone(),
+        obj2bone[1].expand(expand_shape).clone(),
+    )
     xyz_bone = dual_quaternion_apply(obj2bone, xyz)
     return xyz_bone
 
@@ -29,11 +34,11 @@ def get_xyz_bone_distance(xyz, bone2obj):
     """Compute squared distances from points to bone centers
 
     Argss:
-        xyz: (..., 3) Points in object canonical space
-        bone2obj: ((..., B, 4), (..., B, 4)) Bone-to-object SE(3) transforms, written as dual quaternions
+        xyz: (M, 3) Points in object canonical space
+        bone2obj: ((M, B, 4), (M, B, 4)) Bone-to-object SE(3) transforms, written as dual quaternions
 
     Returns:
-        dist2: (..., B) Squared distance to each bone center
+        dist2: (M, B) Squared distance to each bone center
     """
     _, center = dual_quaternion_to_quaternion_translation(bone2obj)
     dist2 = (xyz[..., None, :] - center).pow(2).sum(-1)  # M, K

@@ -7,26 +7,34 @@ import trimesh
 
 from lab4d.nnutils.base import CondMLP, BaseMLP, ScaleLayer
 from lab4d.nnutils.time import TimeMLP
-from lab4d.utils.geom_utils import so3_to_exp_map
+from lab4d.nnutils.embedding import TimeEmbedding
+from lab4d.utils.geom_utils import (
+    so3_to_exp_map,
+    rot_angle,
+    interpolate_slerp,
+    interpolate_linear,
+)
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
     quaternion_mul,
     quaternion_translation_to_dual_quaternion,
-    dual_quaternion_to_quaternion_translation,
+    dual_quaternion_mul,
     quaternion_translation_to_se3,
+    dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.skel_utils import (
     fk_se3,
     get_predefined_skeleton,
     rest_joints_to_local,
     shift_joints_to_bones_dq,
-    shift_joints_to_bones,
+    apply_root_offset,
 )
 from lab4d.utils.vis_utils import draw_cams
+from lab4d.utils.torch_utils import reinit_model
 
 
-class CameraMLP(TimeMLP):
+class CameraMLP_old(TimeMLP):
     """Encode camera pose over time (rotation + translation) with an MLP
 
     Args:
@@ -80,9 +88,11 @@ class CameraMLP(TimeMLP):
 
         # camera pose: field to camera
         self.base_quat = nn.Parameter(torch.zeros(self.time_embedding.num_vids, 4))
+        self.base_trans = nn.Parameter(torch.zeros(self.time_embedding.num_vids, 3))
         self.register_buffer(
             "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
         )
+        self.base_init()
 
         # override the loss function
         def loss_fn(gt):
@@ -100,10 +110,10 @@ class CameraMLP(TimeMLP):
         base_rmat = rtmat[frame_offset[:-1], :3, :3]
         base_quat = matrix_to_quaternion(base_rmat)
         self.base_quat.data = base_quat
+        self.base_trans.data = rtmat[frame_offset[:-1], :3, 3]
 
     def mlp_init(self):
         """Initialize camera SE(3) transforms from external priors"""
-        self.base_init()
         super().mlp_init()
 
         # with torch.no_grad():
@@ -141,13 +151,327 @@ class CameraMLP(TimeMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
+
+        # multiply with per-instance base rotation
+        base_quat = self.base_quat[inst_id]
+        base_quat = F.normalize(base_quat, dim=-1)
+        quat = quaternion_mul(quat, base_quat)
+
+        base_trans = self.base_trans[inst_id]
+        trans = trans + base_trans
+        return quat, trans
+
+class CameraMLP(TimeMLP):
+    """Encode camera pose over time (rotation + translation) with an MLP
+
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+        num_freq_t (int): Number of frequencies in time Fourier embedding
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+    """
+
+    def __init__(
+        self,
+        rtmat,
+        frame_info=None,
+        D=2,
+        W=256,
+        num_freq_t=6,
+        skips=[],
+        activation=nn.ReLU(True),
+    ):
+        if frame_info is None:
+            num_frames = len(rtmat)
+            frame_info = {
+                "frame_offset": np.asarray([0, num_frames]),
+                "frame_mapping": list(range(num_frames)),
+                "frame_offset_raw": np.asarray([0, num_frames]),
+            }
+        # xyz encoding layers
+        super().__init__(
+            frame_info,
+            D=D,
+            W=W,
+            num_freq_t=num_freq_t,
+            skips=skips,
+            activation=activation,
+        )
+
+        self.time_embedding_rot = TimeEmbedding(
+            num_freq_t,
+            frame_info,
+            out_channels=W,
+            time_scale=1,
+        )
+
+        self.base_rot = BaseMLP(
+            D=D,
+            W=W,
+            in_channels=W,
+            out_channels=W,
+            skips=skips,
+            activation=activation,
+            final_act=True,
+        )
+
+        # output layers
+        self.trans = nn.Sequential(
+            nn.Linear(W, W // 2),
+            activation,
+            nn.Linear(W // 2, 3),
+        )
+        self.quat = nn.Sequential(
+            nn.Linear(W, W // 2),
+            activation,
+            nn.Linear(W // 2, 4),
+        )
+
+        # camera pose: field to camera
+        self.base_quat = nn.Parameter(torch.zeros(self.time_embedding.num_vids, 4))
+        self.register_buffer(
+            "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
+        )
+        self.base_init()
+
+        # override the loss function
+        def loss_fn(gt):
+            quat, trans = self.get_vals()
+            pred = quaternion_translation_to_se3(quat, trans)
+            loss = F.mse_loss(pred, gt)
+            return loss
+
+        self.loss_fn = loss_fn
+
+    def base_init(self):
+        """Initialize base camera rotations from initial camera trajectory"""
+        rtmat = self.init_vals
+        frame_offset = self.get_frame_offset()
+        base_rmat = rtmat[frame_offset[:-1], :3, :3]
+        base_quat = matrix_to_quaternion(base_rmat)
+        self.base_quat.data = base_quat
+
+    def mlp_init(self):
+        """Initialize camera SE(3) transforms from external priors"""
+        super().mlp_init()
+
+        # with torch.no_grad():
+        #     os.makedirs("tmp", exist_ok=True)
+        #     draw_cams(rtmat.cpu().numpy()).export("tmp/cameras_gt.obj")
+        #     quat, trans = self.get_vals()
+        #     rtmat_pred = quaternion_translation_to_se3(quat, trans)
+        #     draw_cams(rtmat_pred.cpu()).export("tmp/cameras_pred.obj")
+
+    def forward(self, t_embed, t_embed_rot):
+        """
+        Args:
+            t_embed: (M, self.W) Input Fourier time embeddings
+        Returns:
+            quat: (M, 4) Output camera rotation quaternions
+            trans: (M, 3) Output camera translations
+        """
+        t_feat = super().forward(t_embed)
+        trans = self.trans(t_feat)
+        quat = self.quat(self.base_rot(t_embed_rot))
+        quat = F.normalize(quat, dim=-1)
+        return quat, trans
+
+    def get_vals(self, frame_id=None):
+        """Compute camera pose at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute values at all frames
+        Returns:
+            quat: (M, 4) Output camera rotations
+            trans: (M, 3) Output camera translations
+        """
+        t_embed = self.time_embedding(frame_id)
+        t_embed_rot = self.time_embedding_rot(frame_id)
+        quat, trans = self.forward(t_embed, t_embed_rot)
+        if frame_id is None:
+            inst_id = self.time_embedding.frame_to_vid
+        else:
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
 
         # multiply with per-instance base rotation
         base_quat = self.base_quat[inst_id]
         base_quat = F.normalize(base_quat, dim=-1)
         quat = quaternion_mul(quat, base_quat)
         return quat, trans
+
+
+class CameraMLP_so3(TimeMLP):
+    """Encode camera pose over time (rotation + translation) with an MLP
+
+    Args:
+        rtmat: (N,4,4) Object to camera transform
+        frame_info (Dict): Metadata about the frames in a dataset
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+        num_freq_t (int): Number of frequencies in time Fourier embedding
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+    """
+
+    def __init__(
+        self,
+        rtmat,
+        frame_info=None,
+        D=5,
+        W=256,
+        num_freq_t=6,
+        skips=[],
+        activation=nn.ReLU(True),
+    ):
+        if frame_info is None:
+            num_frames = len(rtmat)
+            frame_info = {
+                "frame_offset": np.asarray([0, num_frames]),
+                "frame_mapping": list(range(num_frames)),
+                "frame_offset_raw": np.asarray([0, num_frames]),
+            }
+        # xyz encoding layers
+        super().__init__(
+            frame_info,
+            D=D,
+            W=W,
+            num_freq_t=num_freq_t,
+            skips=skips,
+            activation=activation,
+        )
+
+        self.time_embedding_rot = TimeEmbedding(
+            num_freq_t,
+            frame_info,
+            out_channels=W,
+            time_scale=1,
+        )
+
+        self.base_rot = BaseMLP(
+            D=D,
+            W=W,
+            in_channels=W,
+            out_channels=W,
+            skips=skips,
+            activation=activation,
+            final_act=True,
+        )
+
+        # output layers
+        self.trans = nn.Sequential(
+            nn.Linear(W, 3),
+        )
+        self.so3 = nn.Sequential(
+            nn.Linear(W, 3),
+        )
+
+        # camera pose: field to camera
+        base_quat = torch.zeros(frame_info["frame_offset"][-1], 4)
+        base_trans = torch.zeros(frame_info["frame_offset"][-1], 3)
+        self.register_buffer("base_quat", base_quat)
+        self.register_buffer("base_trans", base_trans)
+        self.register_buffer(
+            "init_vals", torch.tensor(rtmat, dtype=torch.float32), persistent=False
+        )
+        self.base_init()
+
+        # override the loss function
+        def loss_fn(gt):
+            quat, trans = self.get_vals()
+            pred = quaternion_translation_to_se3(quat, trans)
+            loss = F.mse_loss(pred, gt)
+            return loss
+
+        self.loss_fn = loss_fn
+
+    def base_init(self):
+        """Initialize base camera rotations from initial camera trajectory"""
+        rtmat = self.init_vals
+
+        # initialize with corresponding frame rotation
+        # self.base_quat.data = matrix_to_quaternion(rtmat[:, :3, :3])
+        self.base_trans.data = rtmat[:, :3, 3]
+
+        # initialize with per-sequence pose
+        frame_offset = self.get_frame_offset()
+        for i in range(len(frame_offset) - 1):
+            base_rmat = rtmat[frame_offset[i], :3, :3]
+            base_quat = matrix_to_quaternion(base_rmat)
+            self.base_quat.data[frame_offset[i] : frame_offset[i + 1]] = base_quat
+
+    def mlp_init(self):
+        """Initialize camera SE(3) transforms from external priors"""
+        super().mlp_init()
+
+        # with torch.no_grad():
+        #     os.makedirs("tmp", exist_ok=True)
+        #     draw_cams(rtmat.cpu().numpy()).export("tmp/cameras_gt.obj")
+        #     quat, trans = self.get_vals()
+        #     rtmat_pred = quaternion_translation_to_se3(quat, trans)
+        #     draw_cams(rtmat_pred.cpu()).export("tmp/cameras_pred.obj")
+
+    def forward(self, t_embed, t_embed_rot):
+        """
+        Args:
+            t_embed: (M, self.W) Input Fourier time embeddings
+        Returns:
+            quat: (M, 4) Output camera rotation quaternions
+            trans: (M, 3) Output camera translations
+        """
+        t_feat = super().forward(t_embed)
+        trans = self.trans(t_feat)
+        so3 = self.so3(self.base_rot(t_embed_rot))
+        quat = axis_angle_to_quaternion(so3)
+        return quat, trans
+
+    def get_vals(self, frame_id=None):
+        """Compute camera pose at the given frames.
+
+        Args:
+            frame_id: (M,) Frame id. If None, compute values at all frames
+        Returns:
+            quat: (M, 4) Output camera rotations
+            trans: (M, 3) Output camera translations
+        """
+        t_embed = self.time_embedding(frame_id)
+        t_embed_rot = self.time_embedding_rot(frame_id)
+        quat, trans = self.forward(t_embed, t_embed_rot)
+
+        # multiply with per-instance base rotation
+        if frame_id is None:
+            base_quat = self.base_quat
+            base_trans = self.base_trans
+        else:
+            base_quat, base_trans = self.interpolate_base(frame_id)
+        base_quat = F.normalize(base_quat, dim=-1)
+        quat = quaternion_mul(quat, base_quat)
+        trans = trans + base_trans
+        return quat, trans
+
+    def update_base_quat(self):
+        """Update base camera rotations from current camera trajectory"""
+        self.base_quat.data, self.base_trans.data = self.get_vals()
+        # reinit the mlp head
+        reinit_model(self.so3, std=0.01)
+        reinit_model(self.trans, std=0.01)
+
+    def interpolate_base(self, frame_id):
+        idx = self.time_embedding.frame_mapping_inv[frame_id.long()]
+        idx_ceil = idx + 1
+        idx_ceil.clamp_(max=self.time_embedding.num_frames - 1)
+        t_len = (
+            self.time_embedding.frame_mapping[idx_ceil]
+            - self.time_embedding.frame_mapping[idx]
+        )
+        t_frac = frame_id - self.time_embedding.frame_mapping[idx]
+        t_frac = t_frac / (1e-6 + t_len)
+        base_quat = interpolate_slerp(self.base_quat, idx, idx + 1, t_frac)
+        base_trans = interpolate_linear(self.base_trans, idx, idx + 1, t_frac)
+        return base_quat, base_trans
 
 
 class ArticulationBaseMLP(TimeMLP):
@@ -377,6 +701,8 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
 
         self.logscale = nn.Parameter(torch.zeros(1))
         self.shift = nn.Parameter(torch.zeros(3))
+        self.register_buffer("orient", torch.tensor([1.0, 0.0, 0.0, 0.0]))
+
         # instance bone length
         num_inst = len(frame_info["frame_offset"]) - 1
         self.log_bone_len = CondMLP(
@@ -459,9 +785,13 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             local_rest_joints = override_local_rest_joints
 
         # run forward kinematics
-        out = fk_se3(local_rest_joints, so3, self.edges)
-        out = shift_joints_to_bones_dq(out, self.edges, shift=self.shift)
+        out = self.fk_se3(local_rest_joints, so3, self.edges)
+        out = self.shift_joints_to_bones(out)
+        out = apply_root_offset(out, self.shift, self.orient)
         return out
+
+    def shift_joints_to_bones(self, se3):
+        return shift_joints_to_bones_dq(se3, self.edges)
 
     def compute_rel_rest_joints(self, inst_id=None, override_log_bone_len=None):
         """Compute relative position difference from parent to child bone
@@ -475,7 +805,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
             rel_rest_joints: Translations from parent to child joints
         """
         # get relative joints
-        rel_rest_joints = rest_joints_to_local(self.rest_joints, self.edges)
+        rel_rest_joints = self.rest_joints_to_local(self.rest_joints, self.edges)
 
         # match the shape
         rel_rest_joints = rel_rest_joints[None]
@@ -493,6 +823,14 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         rel_rest_joints = rel_rest_joints * bone_length[..., None]
         return rel_rest_joints
 
+    def fk_se3(self, local_rest_joints, so3, edges):
+        """Forward kinematics for a skeleton"""
+        return fk_se3(local_rest_joints, so3, edges)
+
+    def rest_joints_to_local(self, rest_joints, edges):
+        """Convert rest joints to local coordinates"""
+        return rest_joints_to_local(rest_joints, edges)
+
     def get_vals(self, frame_id=None, return_so3=False, override_so3=None):
         """Compute articulation parameters at the given frames.
 
@@ -508,7 +846,7 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         if frame_id is None:
             inst_id = self.time_embedding.frame_to_vid
         else:
-            inst_id = self.time_embedding.raw_fid_to_vid[frame_id]
+            inst_id = self.time_embedding.raw_fid_to_vid[frame_id.long()]
         t_embed = self.time_embedding(frame_id)
         pred = self.forward(
             t_embed, inst_id, return_so3=return_so3, override_so3=override_so3
@@ -580,9 +918,12 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         loss_so3 = so3.pow(2).mean()
 
         # get average log bone length increment
+        # inst_id = torch.arange(0, self.time_embedding.num_vids).long().to(device)
+        # empty_feat = torch.zeros_like(inst_id[:, None][:, :0])  # (1, 0)
+        # log_bone_len_inc = self.log_bone_len(empty_feat, inst_id)
         empty_feat = torch.zeros_like(so3[..., 0, :0])  # (1, 0)
         log_bone_len_inc = self.log_bone_len(empty_feat, None)
-        loss_bone = 0.02 * log_bone_len_inc.pow(2).mean()
+        loss_bone = 0.2 * log_bone_len_inc.pow(2).mean()
 
         loss = loss_so3 + loss_bone
 
@@ -590,11 +931,136 @@ class ArticulationSkelMLP(ArticulationBaseMLP):
         # device = self.parameters().__next__().device
         # t_embed = self.time_embedding.get_mean_embedding(device)
         # bones_dq = self.forward(t_embed, None)
-        # bones_pred = dual_quaternion_to_quaternion_translation(bones_dq)[1][0]  # B,3
+        # trans_pred, rot_pred = dual_quaternion_to_quaternion_translation(bones_dq)[1]
 
-        # joints_gt = self.rest_joints * self.logscale.exp() + self.shift[None]
-        # bones_gt = shift_joints_to_bones(joints_gt, self.edges)
+        # bones_dq = self.forward(
+        #     None,
+        #     None,
+        #     override_so3=torch.zeros(1, self.num_se3, 3, device=device),
+        #     override_log_bone_len=torch.zeros(1, self.num_se3, device=device),
+        # )
+        # trans_gt, rot_gt = dual_quaternion_to_quaternion_translation(bones_dq)[1]  # B,3
 
-        # loss = (bones_gt - bones_pred).norm(2, -1).mean()
-        # loss = loss * 0.2
+        # loss = (trans_gt - trans_pred).norm(2, -1).mean()
+        # trimesh.Trimesh(vertices=bones_pred.detach().cpu()).export("tmp/bones_pred.obj")
+        # trimesh.Trimesh(vertices=bones_gt.detach().cpu()).export("tmp/bones_gt.obj")
         return loss
+
+
+class ArticulationURDFMLP(ArticulationSkelMLP):
+    """Encode a skeleton over time using an MLP
+
+    Args:
+        frame_info (FrameInfo): Metadata about the frames in a dataset
+        skel_type (str): Skeleton type ("human" or "quad")
+        joint_angles: (B, 3) If provided, initial joint angles
+        num_se3 (int): Number of bones
+        D (int): Number of linear layers
+        W (int): Number of hidden units in each MLP layer
+        num_freq_t (int): Number of frequencies in time Fourier embedding
+        skips (List(int)): List of layers to add skip connections at
+        activation (Function): Activation function to use (e.g. nn.ReLU())
+    """
+
+    def __init__(
+        self,
+        frame_info,
+        skel_type,
+        joint_angles,
+        D=5,
+        W=256,
+        num_freq_t=6,
+        skips=[],
+        activation=nn.ReLU(True),
+    ):
+        super().__init__(
+            frame_info,
+            skel_type,
+            joint_angles,
+            D=D,
+            W=W,
+            num_freq_t=num_freq_t,
+            skips=skips,
+            activation=activation,
+        )
+
+        (
+            local_rest_coord,
+            scale_factor,
+            orient,
+            offset,
+            bone_centers,
+            bone_sizes,
+        ) = self.parse_urdf(skel_type)
+        self.logscale.data = torch.log(scale_factor)
+        self.shift.data = offset  # same scale as object field
+        self.orient.data = orient
+        self.register_buffer("bone_centers", bone_centers, persistent=False)
+        self.register_buffer("bone_sizes", bone_sizes, persistent=False)
+
+        # get local rest rotation matrices, pick the first coordinate in rpy of ball joints
+        # by default: transform points from child to parent
+        local_rest_coord = torch.tensor(local_rest_coord, dtype=torch.float32)
+        self.register_buffer("local_rest_coord", local_rest_coord, persistent=False)
+        self.rest_joints = None
+
+    def parse_urdf(self, urdf_name):
+        """Load the URDF file for the skeleton"""
+        from urdfpy import URDF
+
+        urdf_path = f"projects/ppr/ppr-diffphys/data/urdf_templates/{urdf_name}.urdf"
+        urdf = URDF.load(urdf_path)
+
+        local_rest_coord = np.stack([i.origin for i in urdf.joints], 0)[::3]
+
+        if urdf_name == "human":
+            offset = torch.tensor([0.0, 0.0, 0.0])
+            orient = torch.tensor([0.0, -1.0, 0.0, 0.0])  # wxyz
+            scale_factor = torch.tensor([0.1])
+        elif urdf_name == "quad":
+            offset = torch.tensor([0.0, -0.02, 0.02])
+            orient = torch.tensor([1.0, -0.8, 0.0, 0.0])
+            scale_factor = torch.tensor([0.1])
+        else:
+            raise NotImplementedError
+        orient = F.normalize(orient, dim=-1)
+
+        # get center/size of each link
+        bone_centers = []
+        bone_sizes = []
+        for link in urdf._reverse_topo:
+            if len(link.visuals) == 0:
+                continue
+            bone_bounds = link.collision_mesh.bounds
+            center = (bone_bounds[1] + bone_bounds[0]) / 2
+            size = (bone_bounds[1] - bone_bounds[0]) / 2
+            center = torch.tensor(center, dtype=torch.float)
+            size = torch.tensor(size, dtype=torch.float)
+            bone_centers.append(center)
+            bone_sizes.append(size)
+
+        bone_centers = torch.stack(bone_centers, dim=0)[1:]  # skip root
+        bone_sizes = torch.stack(bone_sizes, dim=0)[1:]  # skip root
+        return local_rest_coord, scale_factor, orient, offset, bone_centers, bone_sizes
+
+    def fk_se3(self, local_rest_joints, so3, edges):
+        return fk_se3(
+            local_rest_joints,
+            so3,
+            edges,
+            local_rest_coord=self.local_rest_coord.clone(),
+        )
+
+    def rest_joints_to_local(self, rest_joints, edges):
+        return self.local_rest_coord[:, :3, 3].clone()
+
+    def shift_joints_to_bones(self, bone_to_obj):
+        idn_quat = torch.zeros_like(bone_to_obj[0])
+        idn_quat[..., 0] = 1.0
+        bone_centers = self.bone_centers.expand_as(idn_quat[..., :3])
+        bone_centers = bone_centers * self.logscale.exp().clone()
+        link_transform = quaternion_translation_to_dual_quaternion(
+            idn_quat, bone_centers
+        )
+        bone_to_obj = dual_quaternion_mul(bone_to_obj, link_transform)
+        return bone_to_obj

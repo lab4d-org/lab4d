@@ -29,6 +29,7 @@ def extract_crop(seqname, crop_size, use_full):
     rgb_list = []
     mask_list = []
     depth_list = []
+    normal_list = []
     crop2raw_list = []
     is_detected_list = []
 
@@ -51,6 +52,7 @@ def extract_crop(seqname, crop_size, use_full):
                 rgb_list.append(data_dict0["img"])
                 mask_list.append(data_dict0["mask"])
                 depth_list.append(data_dict0["depth"])
+                normal_list.append(data_dict0["normal"])
                 crop2raw_list.append(data_dict0["crop2raw"])
                 is_detected_list.append(data_dict0["is_detected"])
 
@@ -58,6 +60,7 @@ def extract_crop(seqname, crop_size, use_full):
                     rgb_list.append(data_dict1["img"])
                     mask_list.append(data_dict1["mask"])
                     depth_list.append(data_dict1["depth"])
+                    normal_list.append(data_dict1["normal"])
                     crop2raw_list.append(data_dict1["crop2raw"])
                     is_detected_list.append(data_dict1["is_detected"])
 
@@ -93,6 +96,11 @@ def extract_crop(seqname, crop_size, use_full):
     np.save(
         "database/processed/Depth/Full-Resolution/%s/%s.npy" % (seqname, save_prefix),
         np.stack(depth_list, 0),
+    )
+
+    np.save(
+        "database/processed/Normal/Full-Resolution/%s/%s.npy" % (seqname, save_prefix),
+        np.stack(normal_list, 0),
     )
 
     np.save(

@@ -109,6 +109,13 @@ def read_depth(depth_path, shape):
     return depth
 
 
+def read_normal(normal_path, shape):
+    normal = np.load(normal_path).astype(np.float32)
+    if normal.shape[0] != shape[0] or normal.shape[1] != shape[1]:
+        normal = cv2.resize(normal, shape[:2][::-1], interpolation=cv2.INTER_LINEAR)
+    return normal
+
+
 @record_function("read_raw")
 def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
     img = cv2.imread(img_path)[..., ::-1] / 255.0
@@ -120,6 +127,8 @@ def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
     crop2raw = compute_crop_params(mask, crop_size=crop_size, use_full=use_full)
     depth_path = img_path.replace("JPEGImages", "Depth").replace(".jpg", ".npy")
     depth = read_depth(depth_path, shape)
+    normal_path = img_path.replace("JPEGImages", "Normal").replace(".jpg", ".npy")
+    normal = read_normal(normal_path, shape)
 
     is_fw = delta > 0
     delta = abs(delta)
@@ -148,6 +157,7 @@ def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
         flow = cv2.remap(flow, x0, y0, interpolation=cv2.INTER_LINEAR)
         occ = cv2.remap(occ, x0, y0, interpolation=cv2.INTER_LINEAR)
     depth = cv2.remap(depth, x0, y0, interpolation=cv2.INTER_LINEAR)
+    normal = cv2.remap(normal, x0, y0, interpolation=cv2.INTER_LINEAR)
     # print('crop:%f'%(time.time()-ss))
 
     data_dict = {}
@@ -157,6 +167,7 @@ def read_raw(img_path, delta, crop_size, use_full, with_flow=True):
         data_dict["flow"] = flow
         data_dict["occ"] = occ
     data_dict["depth"] = depth.astype(np.float16)
+    data_dict["normal"] = normal.astype(np.float16)
     data_dict["crop2raw"] = crop2raw
     data_dict["hxy"] = hp_crop
     data_dict["hp_raw"] = hp_raw

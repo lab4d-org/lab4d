@@ -26,6 +26,7 @@ config = DictConfig(
                 "field_type": "bg",  # {bg, fg, comp}
                 "fg_motion": "rigid",  # {rigid, dense, bob, skel}
                 "single_inst": True,  # assume the same morphology over objs
+                "single_scene": True,  # assume the same scene over videos
             },
             "io": {
                 "seqname": "cat",  # name of the sequence

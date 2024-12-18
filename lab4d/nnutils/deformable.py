@@ -4,13 +4,16 @@ import torch
 import trimesh
 from torch import nn
 from torch.nn import functional as F
+import sys
+import os
+
+os.environ["CUDA_PATH"] = sys.prefix  # needed for geomloss
+from geomloss import SamplesLoss
 
 from lab4d.nnutils.feature import FeatureNeRF
 from lab4d.nnutils.warping import SkinningWarp, create_warp
 from lab4d.utils.decorator import train_only_fields
-from lab4d.utils.geom_utils import extend_aabb
-from lab4d.utils.loss_utils import align_vectors
-from lab4d.engine.train_utils import get_local_rank
+from lab4d.utils.geom_utils import extend_aabb, check_inside_aabb
 
 
 class Deformable(FeatureNeRF):
@@ -83,6 +86,15 @@ class Deformable(FeatureNeRF):
         self.warp = create_warp(fg_motion, data_info)
         self.fg_motion = fg_motion
 
+    # def update_aabb(self, beta=0.5):
+    #     """Update axis-aligned bounding box by interpolating with the current
+    #     proxy geometry's bounds
+
+    #     Args:
+    #         beta (float): Interpolation factor between previous/current values
+    #     """
+    #     super().update_aabb(beta=beta)
+
     def init_proxy(self, geom_path, init_scale):
         """Initialize proxy geometry as a sphere
 
@@ -111,7 +123,7 @@ class Deformable(FeatureNeRF):
             sdf = self.warp.get_gauss_sdf(pts)
             return sdf
 
-        if "skel-" in self.fg_motion:
+        if "skel-" in self.fg_motion or "urdf-" in self.fg_motion:
             return sdf_fn_torch_skel
         else:
             return sdf_fn_torch_sphere
@@ -141,7 +153,7 @@ class Deformable(FeatureNeRF):
             xyz_t,
             frame_id,
             inst_id,
-            backward=True,
+            type="backward",
             samples_dict=samples_dict,
             return_aux=True,
         )
@@ -170,6 +182,34 @@ class Deformable(FeatureNeRF):
         xyz_cam = self.field_to_cam(xyz_next, field2cam)
         return xyz_cam
 
+    def flow_warp(
+        self,
+        xyz_1,
+        field2cam_flip,
+        frame_id,
+        inst_id,
+        samples_dict={},
+    ):
+        """Warp points from camera space from time t1 to time t2
+
+        Args:
+            xyz_1: (M,N,D,3) Points along rays in canonical space at time t1
+            field2cam_flip: (M,SE(3)) Object-to-camera SE(3) transform at time t2
+            frame_id: (M,) Frame id. If None, warp for all frames
+            inst_id: (M,) Instance id. If None, warp for the average instance
+            samples_dict (Dict): Time-dependent bone articulations. Keys:
+                "rest_articulation": ((M,B,4), (M,B,4)) and
+                "t_articulation": ((M,B,4), (M,B,4))
+
+        Returns:
+            xyz_2: (M,N,D,3) Points along rays in camera space at time t2
+        """
+        xyz_2 = self.warp(
+            xyz_1, frame_id, inst_id, type="flow", samples_dict=samples_dict
+        )
+        xyz_2 = self.field_to_cam(xyz_2, field2cam_flip)
+        return xyz_2
+
     @train_only_fields
     def cycle_loss(self, xyz, xyz_t, frame_id, inst_id, samples_dict={}):
         """Enforce cycle consistency between points in object canonical space,
@@ -197,22 +237,68 @@ class Deformable(FeatureNeRF):
         cyc_dict.update(warp_dict)
         return cyc_dict
 
-    def gauss_skin_consistency_loss(self, nsample=2048):
-        """Enforce consistency between the NeRF's SDF and the SDF of Gaussian bones
+    def gauss_skin_consistency_loss(self, type="optimal_transport"):
+        """Enforce consistency between the NeRF's SDF and the SDF of Gaussian bones,
+
+        Args:
+            type (str): "optimal_transport" or "density"
+        Returns:
+            loss: (0,) Skinning consistency loss
+        """
+        if type == "optimal_transport":
+            return self.gauss_optimal_transport_loss()
+        elif type == "density":
+            return self.gauss_skin_density_loss()
+        else:
+            raise NotImplementedError
+
+    def gauss_skin_density_loss(self, nsample=4096):
+        """Enforce consistency between the NeRF's SDF and the SDF of Gaussian bones,
+        based on density.
 
         Args:
             nsample (int): Number of samples to take from both distance fields
         Returns:
             loss: (0,) Skinning consistency loss
         """
-        pts = self.sample_points_aabb(nsample, extend_factor=0.25)
+        pts, frame_id, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
+        inst_id = None
+        samples_dict = {}
+        (
+            samples_dict["t_articulation"],
+            samples_dict["rest_articulation"],
+        ) = self.warp.articulation.get_vals_and_mean(frame_id)
 
         # match the gauss density to the reconstructed density
-        density_gauss = self.warp.get_gauss_density(pts)  # (N,1)
+        bones2obj = samples_dict["t_articulation"]
+        bones2obj = (
+            torch.cat([bones2obj[0], samples_dict["rest_articulation"][0]], 0),
+            torch.cat([bones2obj[1], samples_dict["rest_articulation"][1]], 0),
+        )
+        pts_gauss = torch.cat([pts, pts], dim=0)
+        density_gauss = self.warp.get_gauss_density(pts_gauss, bone2obj=bones2obj)
+
         with torch.no_grad():
-            density = self.forward(pts, inst_id=None, get_density=True)
+            density = torch.zeros_like(density_gauss)
+            pts_warped = self.warp(
+                pts[:, None, None],
+                frame_id,
+                inst_id,
+                type="backward",
+                samples_dict=samples_dict,
+                return_aux=False,
+            )[:, 0, 0]
+            pts = torch.cat([pts_warped, pts], dim=0)
+
+            # check whether the point is inside the aabb
+            aabb = self.get_aabb()
+            aabb = extend_aabb(aabb)
+            inside_aabb = check_inside_aabb(pts, aabb)
+
+            _, density[inside_aabb] = self.forward(pts[inside_aabb], inst_id=inst_id)
             density = density / self.logibeta.exp()  # (0,1)
 
+        # loss = ((density_gauss - density).pow(2)).mean()
         # binary cross entropy loss to align gauss density to the reconstructed density
         # weight the loss such that:
         # wp lp = wn ln
@@ -220,10 +306,10 @@ class Deformable(FeatureNeRF):
         weight_pos = 0.5 / (1e-6 + density.mean())
         weight_neg = 0.5 / (1e-6 + 1 - density).mean()
         weight = density * weight_pos + (1 - density) * weight_neg
-        # loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
-        loss = F.binary_cross_entropy(
-            density_gauss, density.detach(), weight=weight.detach()
-        )
+        loss = ((density_gauss - density).pow(2) * weight.detach()).mean()
+        # loss = F.binary_cross_entropy(
+        #     density_gauss, density.detach(), weight=weight.detach()
+        # )
 
         # if get_local_rank() == 0:
         #     is_inside = density > 0.5
@@ -232,6 +318,34 @@ class Deformable(FeatureNeRF):
 
         #     is_inside = density_gauss > 0.5
         #     mesh = trimesh.Trimesh(vertices=pts[is_inside[..., 0]].detach().cpu())
+        #     mesh.export("tmp/1.obj")
+        return loss
+
+    def gauss_optimal_transport_loss(self, nsample=1024):
+        """Enforce consistency between the NeRF's proxy rest shape
+         and the gaussian bones, based on optimal transport.
+
+        Args:
+            nsample (int): Number of samples to take from proxy geometry
+        Returns:
+            loss: (0,) Gaussian optimal transport loss
+        """
+        # optimal transport loss
+        device = self.parameters().__next__().device
+        pts = self.get_proxy_geometry().vertices
+        # sample points from the proxy geometry
+        pts = pts[np.random.choice(len(pts), nsample)]
+        pts = torch.tensor(pts, device=device, dtype=torch.float32)
+        pts_gauss = self.warp.get_gauss_pts()
+        samploss = SamplesLoss(
+            loss="sinkhorn", p=2, blur=0.002, scaling=0.5, truncate=1
+        )
+        scale_proxy = self.get_scale()  # to normalize pts to 1
+        loss = samploss(2 * pts_gauss / scale_proxy, 2 * pts / scale_proxy).mean()
+        # if get_local_rank() == 0:
+        #     mesh = trimesh.Trimesh(vertices=pts.detach().cpu())
+        #     mesh.export("tmp/0.obj")
+        #     mesh = trimesh.Trimesh(vertices=pts_gauss.detach().cpu())
         #     mesh.export("tmp/1.obj")
         return loss
 
@@ -244,10 +358,7 @@ class Deformable(FeatureNeRF):
         Returns:
             loss: (0,) Soft deformation loss
         """
-        device = next(self.parameters()).device
-        pts = self.sample_points_aabb(nsample, extend_factor=1.0)
-        frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
-        inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+        pts, frame_id, inst_id = self.sample_points_aabb(nsample, extend_factor=1.0)
         dist2 = self.warp.compute_post_warp_dist2(pts[:, None, None], frame_id, inst_id)
         return dist2.mean()
 
@@ -293,7 +404,7 @@ class Deformable(FeatureNeRF):
         from an external skeleton
         """
         super().mlp_init()
-        if self.fg_motion.startswith("skel"):
+        if "skel-" in self.fg_motion or "urdf-" in self.fg_motion:
             if hasattr(self.warp.articulation, "init_vals"):
                 self.warp.articulation.mlp_init()
 
@@ -321,12 +432,13 @@ class Deformable(FeatureNeRF):
 
         # xyz = feat_dict["xyz"].detach()  # don't backprop to cam/dfm fields
         xyz = feat_dict["xyz"]
-        gauss_field = self.compute_gauss_density(xyz, samples_dict)
+        xyz_t = feat_dict["xyz_t"]
+        gauss_field = self.compute_gauss_density(xyz, xyz_t, samples_dict)
         feat_dict.update(gauss_field)
 
         return feat_dict, deltas, aux_dict
 
-    def compute_gauss_density(self, xyz, samples_dict):
+    def compute_gauss_density(self, xyz, xyz_t, samples_dict):
         """If this is a SkinningWarp, compute density from Gaussian bones
 
         Args:
@@ -339,18 +451,30 @@ class Deformable(FeatureNeRF):
         Returns:
             gauss_field (Dict): Density. Keys: "gauss_density" (M,N,D,1)
         """
+        M, N, D, _ = xyz.shape
         gauss_field = {}
         if isinstance(self.warp, SkinningWarp):
-            shape = xyz.shape[:-1]
-            if "rest_articulation" in samples_dict:
-                rest_articulation = (
-                    samples_dict["rest_articulation"][0][:1],
-                    samples_dict["rest_articulation"][1][:1],
-                )
-            xyz = xyz.view(-1, 3)
-            gauss_density = self.warp.get_gauss_density(xyz, bone2obj=rest_articulation)
+            # supervise t articulation
+            xyz_t = xyz_t.view(-1, 3).detach()
+            t_articulation = (
+                samples_dict["t_articulation"][0][:, None]
+                .repeat(1, N * D, 1, 1)
+                .view(M * N * D, -1, 4),
+                samples_dict["t_articulation"][1][:, None]
+                .repeat(1, N * D, 1, 1)
+                .view(M * N * D, -1, 4),
+            )
+            gauss_density = self.warp.get_gauss_density(xyz_t, bone2obj=t_articulation)
+
+            # supervise rest articulation
+            # rest_articulation = (
+            #     samples_dict["rest_articulation"][0][:1],
+            #     samples_dict["rest_articulation"][1][:1],
+            # )
+            # xyz = xyz.view(-1, 3).detach()
+            # gauss_density = self.warp.get_gauss_density(xyz, bone2obj=rest_articulation)
             # gauss_density = gauss_density * 100  # [0,100] heuristic value
             gauss_density = gauss_density * self.warp.logibeta.exp()
-            gauss_field["gauss_density"] = gauss_density.view(shape + (1,))
+            gauss_field["gauss_density"] = gauss_density.view((M, N, D, 1))
 
         return gauss_field
