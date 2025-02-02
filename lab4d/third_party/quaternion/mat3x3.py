@@ -1,3 +1,4 @@
+# Copyright (c) 2023 Chaoyang Wang, Carnegie Mellon University.
 import torch
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable

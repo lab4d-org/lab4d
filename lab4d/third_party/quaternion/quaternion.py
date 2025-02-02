@@ -1,3 +1,4 @@
+# Copyright (c) 2023 Chaoyang Wang, Carnegie Mellon University.
 import torch
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
@@ -67,8 +68,7 @@ class _Quaternion_mul(Function):
         _backend.quaternion_mul_forward(inputs_1, inputs_2, outputs, B, D1, D2)
 
         ctx.save_for_backward(inputs_1, inputs_2)
-        # ctx.dims = [B, D1, D2]
-        # ctx.calc_grad_inputs = calc_grad_inputs
+
 
         return outputs
     
@@ -77,23 +77,11 @@ class _Quaternion_mul(Function):
     def backward(ctx, grad):
         # grad: [B, C * C]
 
-        # if ctx.calc_grad_inputs:
         grad = grad.contiguous()
         inputs_1, inputs_2 = ctx.saved_tensors
 
         grad_inputs_1, grad_inputs_2 = _quaternion_mul_backward(grad, inputs_1, inputs_2)
 
-        # B = inputs_1.shape[0] # batch size, coord dim
-        # D1 = inputs_1.shape[1]
-        # D2 = inputs_2.shape[1]
-
-        # dtype, device = inputs_1.dtype, inputs_1.device
-        # grad_inputs_1 = torch.empty(B, D1, device=device, dtype=dtype)
-        # grad_inputs_2 = torch.empty(B, D2, device=device, dtype=dtype)
-        # _backend.quaternion_mul_backward(grad, B, D1, D2, inputs_1, inputs_2, grad_inputs_1, grad_inputs_2)
-        # # print('inputs_1', inputs_1)
-        # # print('dy_dx1', dy_dx1)
-        # # print('grad_inputs_1', grad_inputs_1)
         return grad_inputs_1, grad_inputs_2
         # else:
         #     return None, None

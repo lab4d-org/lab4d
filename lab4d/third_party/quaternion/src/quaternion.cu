@@ -1,3 +1,4 @@
+// Copyright (c) 2023 Chaoyang Wang, Carnegie Mellon University.
 #include <stdint.h>
 
 #include <cuda.h>
@@ -120,22 +121,6 @@ __global__ void kernel_quaternion_mul_backward(
 		grad_inputs_2[0] = grad[0] * (-az) + grad[1] * ay + grad[2] * (-ax) + grad[3] * aw;
 	}
 
-	// if (d==0) {
-	// 	grad_inputs_1[t] = grad[0] * bw + grad[1] * bx + grad[2] * by + grad[3] * bz;
-	// 	grad_inputs_2[t] = grad[0] * aw + grad[1] * ax + grad[2] * ay + grad[3] * az;
-	// } else if (d==1)
-	// {
-	// 	grad_inputs_1[t] = grad[0] * (-bx) + grad[1] * bw + grad[2] * (-bz) + grad[3] * by;
-	// 	grad_inputs_2[t] = grad[0] * (-ax) + grad[1] * aw + grad[2] * az + grad[3] * (-ay);
-	// } else if (d==2)
-	// {
-	// 	grad_inputs_1[t] = grad[0] * (-by) + grad[1] * bz + grad[2] * bw + grad[3] * (-bx);
-	// 	grad_inputs_2[t] = grad[0] * (-ay) + grad[1] * (-az) + grad[2] * aw + grad[3] * ax;
-	// } else 
-	// {
-	// 	grad_inputs_1[t] = grad[0] * (-bz) + grad[1] * (-by) + grad[2] * bx + grad[3] * bw;
-	// 	grad_inputs_2[t] = grad[0] * (-az) + grad[1] * ay + grad[2] * (-ax) + grad[3] * aw;
-	// }
 
 }
 
@@ -213,78 +198,6 @@ __global__ void kernel_quaternion_mul_backward_backward(
 	}
 }
 
-// template <typename scalar_t>
-// inline scalar_t compute_sin_over_half_angle(scalar_t angle) {
-// 	scalar_t half_angle = 0.5 * angle;
-
-// } 
-
-/*
-template <typename scalar_t>
-__global__ void kernel_axis_angle_to_quaternion_forward(
-    const scalar_t * __restrict__ inputs,
-    uint32_t B,
-	scalar_t * angles,
-	scalar_t * sin_over_half_angles,
-	scalar_t * outputs
-) {
-	const uint32_t b = threadIdx.x + blockIdx.x * blockDim.x;
-	if (b >= B) return;
-
-	inputs += b*3;
-	outputs += b*4;
-	
-	scalar_t angle = sqrt(inputs[0]**2 + inputs[1]**2 + inputs[2]**2);
-	scalar_t half_angle = 0.5 * angle;
-	outputs[0] = cos(half_angle);
-	scalar_t sin_over_half_angle = 0
-	if (angle > 1e-6) {
-		scalar_t sin_over_half_angle = sin(half_angle) / angle;
-
-	} else {
-		scalar_t sin_over_half_angle = 0.5 - (angle**2) / 48.0
-
-	}
-	outputs[1] = inputs[0] * sin_over_half_angle;
-	outputs[2] = inputs[1] * sin_over_half_angle;
-	outputs[3] = inputs[2] * sin_over_half_angle;
-
-	angles[b] = angle;
-	sin_over_half_angles[b] = sin_over_half_angle;
-}
-*/
-/*
-template <typename scalar_t>
-__global__ void kernel_axis_angle_to_quaternion_backward(
-    const scalar_t * __restrict__ grad,
-	const scalar_t * __restrict__ inputs,
-	const scalar_t * __restrict__ angles,
-	const scalar_t * __restrict__ sin_over_half_angles
-    uint32_t B,
-	scalar_t * grad_inputs
-) {
-	const uint32_t b = threadIdx.x + blockIdx.x * blockDim.x;
-	if (b >= B) return;
-
-	inputs += b*3;
-	grad += b*4;
-	
-	scalar_t angle = angles[b];
-	scalar_t half_angle = 0.5 * angle;
-	scalar_t sin_over_half_angle = sin_over_half_angles[b];
-
-	grad_inputs += 3*b;
-
-	scalar_t dw_dx = -0.5 * sin_over_half_angle;
-
-	scalar_t J = 0;
-	if (angle > 1e-6) {
-		J = 0.5 * cos(half_angle) - sin_over_half_angle;
-		
- 	}
-
-}
-*/
 
 template <typename scalar_t>
 __global__ void kernel_quaternion_conjugate(
