@@ -1,3 +1,4 @@
+// Copyright (c) 2023 Chaoyang Wang, Carnegie Mellon University.
 #include <stdint.h>
 
 #include <cuda.h>
