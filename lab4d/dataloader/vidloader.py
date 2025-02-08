@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import cv2
 import torch
 from torch.utils.data import Dataset
 
@@ -57,6 +58,7 @@ class VidDataset(Dataset):
 
     def __init__(self, opts, rgblist, dataid, ks, raw_size):
         self.delta_list = opts["delta_list"]
+        self.field_type = opts["field_type"]
         self.dict_list = self.construct_data_list(
             rgblist, opts["data_prefix"], opts["feature_type"]
         )
@@ -66,6 +68,7 @@ class VidDataset(Dataset):
         self.ks = ks
         self.raw_size = raw_size
         self.img_size = np.load(self.dict_list["rgb"]).shape[1:3]  # (H, W)
+        self.res = (opts["eval_res"], opts["eval_res"])
         self.load_data_list(self.dict_list)
 
         self.idx_sampler = RangeSampler(num_elems=self.img_size[0] * self.img_size[1])
@@ -88,13 +91,28 @@ class VidDataset(Dataset):
         flowfw_path = rgb_path.replace("JPEGImages", "FlowFW")
         flowbw_path = rgb_path.replace("JPEGImages", "FlowBW")
         depth_path = rgb_path.replace("JPEGImages", "Depth")
+        normal_path = rgb_path.replace("JPEGImages", "Normal")
+        if self.field_type == "bg":
+            group_id = 0
+        else:
+            group_id = 1
         feature_path = str(
             Path(rgb_path.replace("JPEGImages", "Features")).parent
-        ) + "/%s-%s-01.npy" % (prefix, feature_type)
+        ) + "/%s-%s-%02d.npy" % (prefix, feature_type, group_id)
 
-        camlist_bg = (
-            reflist[0].replace("JPEGImages", "Cameras").replace("00000.jpg", "00.npy")
-        )  # bg
+        canonical_path_bg = (
+            reflist[0]
+            .replace("JPEGImages", "Cameras")
+            .replace("00000.jpg", "00-canonical.npy")
+        )
+        if os.path.exists(canonical_path_bg):
+            camlist_bg = canonical_path_bg
+        else:
+            camlist_bg = (
+                reflist[0]
+                .replace("JPEGImages", "Cameras")
+                .replace("00000.jpg", "00.npy")
+            )  # bg
         camlist_fg = (
             reflist[0]
             .replace("JPEGImages", "Cameras")
@@ -115,6 +133,7 @@ class VidDataset(Dataset):
             "flowfw": flowfw_path,
             "flowbw": flowbw_path,
             "depth": depth_path,
+            "normal": normal_path,
             "feature": feature_path,
             "crop2raw": crop2raw_path,
             "is_detected": is_detected_path,
@@ -155,7 +174,11 @@ class VidDataset(Dataset):
                 self.mmap_list[k] = np.load(path, mmap_mode="r")
             except:
                 print(f"Warning: cannot load {path}")
-                self.mmap_list[k] = np.random.rand(self.__len__() + 1, 112, 112, 16)
+                if k=="feature":
+                    self.mmap_list[k] = np.random.rand(self.__len__() + 1, 112, 112, 16)
+                else:
+                    self.mmap_list[k] = np.random.rand(self.__len__() + 1, self.img_size[0], self.img_size[1], 3)
+
 
     def __len__(self):
         return len(self.dict_list["ref"]) - 1
@@ -228,12 +251,13 @@ class VidDataset(Dataset):
             delta (int): Distance to other frame id in the pair
             rand_xy (array or None): (N, 2) pixels to load, if given
         Returns:
-            data_dict (Dict): Dict with keys "rgb", "mask", "depth", "feature",
+            data_dict (Dict): Dict with keys "rgb", "mask", "depth", "normal", "feature",
                 "flow", "vis2d", "crop2raw", "dataid", "frameid_sub", "hxy"
         """
         rgb = self.read_rgb(im0idx, rand_xy=rand_xy)
         mask, vis2d, crop2raw, is_detected = self.read_mask(im0idx, rand_xy=rand_xy)
         depth = self.read_depth(im0idx, rand_xy=rand_xy)
+        normal = self.read_normal(im0idx, rand_xy=rand_xy)
         flow = self.read_flow(im0idx, delta, rand_xy=rand_xy)
         feature = self.read_feature(im0idx, rand_xy=rand_xy)
 
@@ -250,6 +274,7 @@ class VidDataset(Dataset):
         data_dict["rgb"] = rgb
         data_dict["mask"] = mask
         data_dict["depth"] = depth
+        data_dict["normal"] = normal
         data_dict["feature"] = feature
         data_dict["flow"] = flow[..., :2]
         data_dict["flow_uct"] = flow[..., 2:]
@@ -272,7 +297,9 @@ class VidDataset(Dataset):
         """
         rgb = self.mmap_list["rgb"][im0idx]
         shape = rgb.shape
-        if rand_xy is not None:
+        if rand_xy is None:
+            rgb = cv2.resize(rgb.astype(np.float32), self.res)
+        else:
             rgb = rgb[rand_xy[:, 1], rand_xy[:, 0]]  # N,3
 
         if len(shape) == 2:  # gray image
@@ -294,7 +321,10 @@ class VidDataset(Dataset):
                 from cropped (H,W) image to raw image, (fx, fy, cx, cy)
         """
         mask = self.mmap_list["mask"][im0idx]
-        if rand_xy is not None:
+        if rand_xy is None:
+            mask = mask.astype(int)
+            mask = cv2.resize(mask, self.res, interpolation=cv2.INTER_NEAREST)
+        else:
             mask = mask[rand_xy[:, 1], rand_xy[:, 0]]  # N,3
 
         vis2d = mask[..., 1:]
@@ -314,10 +344,28 @@ class VidDataset(Dataset):
             depth (np.array): (H,W,1) or (N,1) Depth map, float16
         """
         depth = self.mmap_list["depth"][im0idx]
-        if rand_xy is not None:
+        if rand_xy is None:
+            depth = cv2.resize(depth.astype(np.float32), self.res)
+        else:
             depth = depth[rand_xy[:, 1], rand_xy[:, 0]]
 
         return depth[..., None]
+
+    def read_normal(self, im0idx, rand_xy=None):
+        """Read surface normal map for a single frame
+
+        Args:
+            im0idx (int): Frame id to load
+            rand_xy (np.array or None): (N,2) Pixels to load, if given
+        Returns:
+            normal (np.array): (H,W,3) or (N,3) Surface normal map, float16
+        """
+        normal = self.mmap_list["normal"][im0idx]
+        if rand_xy is None:
+            normal = cv2.resize(normal.astype(np.float32), self.res)
+        else:
+            normal = normal[rand_xy[:, 1], rand_xy[:, 0]]
+        return normal
 
     def read_feature(self, im0idx, rand_xy=None):
         """Read feature map for a single frame
@@ -329,9 +377,13 @@ class VidDataset(Dataset):
             feat (np.array): (112,112,16) or (N,16) Feature map, float32
         """
         feat = self.mmap_list["feature"][im0idx]  # (112,112,16)
-        if rand_xy is not None:
+        if rand_xy is None:
+            feat = cv2.resize(feat.astype(np.float32), self.res)
+        else:
             rand_xy = rand_xy / self.img_size[0] * 112
             feat = bilinear_interp(feat, rand_xy)
+        # normalize
+        feat = feat / (np.linalg.norm(feat, axis=-1, keepdims=True) + 1e-6)
         feat = feat.astype(np.float32)
         return feat
 
@@ -351,7 +403,11 @@ class VidDataset(Dataset):
             flow = self.mmap_list["flowfw"][delta][im0idx // delta]
         else:
             flow = self.mmap_list["flowbw"][delta][im0idx // delta - 1]
-        if rand_xy is not None:
+        if rand_xy is None:
+            flow = cv2.resize(flow.astype(np.float32), self.res)
+            flow[..., 0] *= self.res[1] / self.img_size[1]
+            flow[..., 1] *= self.res[0] / self.img_size[0]
+        else:
             flow = flow[rand_xy[:, 1], rand_xy[:, 0]]
 
         flow = flow.astype(np.float32)

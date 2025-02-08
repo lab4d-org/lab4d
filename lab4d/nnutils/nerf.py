@@ -5,11 +5,13 @@ import torch.nn.functional as F
 import trimesh
 from pysdf import SDF
 from torch import nn
+from torch.autograd.functional import jacobian
+
 
 from lab4d.nnutils.appearance import AppearanceEmbedding
 from lab4d.nnutils.base import CondMLP
 from lab4d.nnutils.embedding import PosEmbedding
-from lab4d.nnutils.pose import CameraMLP
+from lab4d.nnutils.pose import CameraMLP, CameraMLP_so3
 from lab4d.nnutils.visibility import VisField
 from lab4d.utils.decorator import train_only_fields
 from lab4d.utils.geom_utils import (
@@ -20,8 +22,9 @@ from lab4d.utils.geom_utils import (
     marching_cubes,
     pinhole_projection,
     check_inside_aabb,
+    compute_rectification_se3,
 )
-from lab4d.utils.loss_utils import align_vectors
+from lab4d.utils.loss_utils import align_tensors
 from lab4d.utils.quat_transform import (
     quaternion_apply,
     quaternion_translation_inverse,
@@ -30,7 +33,9 @@ from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
 )
 from lab4d.utils.render_utils import sample_cam_rays, sample_pdf, compute_weights
-from lab4d.utils.torch_utils import compute_gradient
+from lab4d.utils.torch_utils import compute_gradient, flip_pair, compute_gradients_sdf
+from lab4d.utils.vis_utils import append_xz_plane
+
 
 class NeRF(nn.Module):
     """A static neural radiance field with an MLP backbone.
@@ -63,7 +68,7 @@ class NeRF(nn.Module):
         self,
         data_info,
         D=5,
-        W=128,
+        W=256,
         num_freq_xyz=10,
         num_freq_dir=4,
         appr_channels=32,
@@ -75,6 +80,7 @@ class NeRF(nn.Module):
         init_beta=0.1,
         init_scale=0.1,
         color_act=True,
+        field_arch=CondMLP,
     ):
         rtmat = data_info["rtmat"]
         frame_info = data_info["frame_info"]
@@ -96,7 +102,7 @@ class NeRF(nn.Module):
 
         # xyz encoding layers
         # TODO: add option to replace with instNGP
-        self.basefield = CondMLP(
+        self.basefield = field_arch(
             num_inst=self.num_inst,
             D=D,
             W=W,
@@ -109,8 +115,8 @@ class NeRF(nn.Module):
         )
 
         # color
-        self.pos_embedding_color = PosEmbedding(3, num_freq_xyz + 2)
-        self.colorfield = CondMLP(
+        self.pos_embedding_color = PosEmbedding(3, 12)
+        self.colorfield = field_arch(
             num_inst=self.num_inst,
             D=2,
             W=W,
@@ -149,22 +155,28 @@ class NeRF(nn.Module):
 
         # camera pose: field to camera
         rtmat[..., :3, 3] *= init_scale
-        self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
+        self.camera_mlp = CameraMLP_so3(rtmat, frame_info=frame_info)
+        # self.camera_mlp = CameraMLP(rtmat, frame_info=frame_info)
 
         # visibility mlp
-        self.vis_mlp = VisField(self.num_inst)
+        self.vis_mlp = VisField(self.num_inst, field_arch=field_arch)
 
-        # load initial mesh
+        # load initial mesh, define aabb
         self.init_proxy(geom_path, init_scale)
-        self.register_buffer("aabb", torch.zeros(2, 3))
-        self.update_aabb(beta=0)
+        self.init_aabb()
 
         # non-parameters are not synchronized
         self.register_buffer(
             "near_far", torch.zeros(frame_offset_raw[-1], 2), persistent=False
         )
 
-    def forward(self, xyz, dir=None, frame_id=None, inst_id=None, get_density=True):
+        field2world = torch.zeros(4, 4)[None].expand(self.num_inst, -1, -1).clone()
+        self.register_buffer("field2world", field2world, persistent=True)
+
+        # inverse sampling
+        self.use_importance_sampling = True
+
+    def forward(self, xyz, dir=None, frame_id=None, inst_id=None):
         """
         Args:
             xyz: (M,N,D,3) Points along ray in object canonical space
@@ -173,26 +185,22 @@ class NeRF(nn.Module):
             inst_id: (M,) Instance id. If None, render for the average instance
         Returns:
             rgb: (M,N,D,3) Rendered RGB
-            sigma: (M,N,D,1) If get_density=True, return density. Otherwise
-                return signed distance (negative inside)
+            sdf: (M,N,D,1) Signed distance (negative inside)
+            sigma: (M,N,D,1) Denstiy
         """
         if frame_id is not None:
             assert frame_id.ndim == 1
         if inst_id is not None:
             assert inst_id.ndim == 1
-        xyz_embed = self.pos_embedding(xyz)
-        xyz_feat = self.basefield(xyz_embed, inst_id)
 
-        sdf = self.sdf(xyz_feat)  # negative inside, positive outside
-        if get_density:
-            ibeta = self.logibeta.exp()
-            # density = torch.sigmoid(-sdf * ibeta) * ibeta  # neus
-            density = (
-                0.5 + 0.5 * sdf.sign() * torch.expm1(-sdf.abs() * ibeta)
-            ) * ibeta  # volsdf
-            out = density
-        else:
-            out = sdf
+        sdf, xyz_feat = self.forward_sdf(xyz, inst_id=inst_id)
+
+        ibeta = self.logibeta.exp()
+        # density = torch.sigmoid(-sdf * ibeta) * ibeta  # neus
+        density = (
+            0.5 + 0.5 * sdf.sign() * torch.expm1(-sdf.abs() * ibeta)
+        ) * ibeta  # volsdf
+        out = sdf, density
 
         if dir is not None:
             dir_embed = self.dir_embedding(dir)
@@ -211,8 +219,24 @@ class NeRF(nn.Module):
             rgb = self.rgb(torch.cat([xyz_feat, appr_embed], -1))
             if self.color_act:
                 rgb = rgb.sigmoid()
-            out = rgb, out
+            out = (rgb,) + out
         return out
+
+    def forward_sdf(self, xyz, inst_id=None):
+        """Forward pass for signed distance function
+        Args:
+            xyz: (M,N,D,3) Points along ray in object canonical space
+            inst_id: (M,) Instance id. If None, render for the average instance
+
+        Returns:
+            sdf: (M,N,D,1) Signed distance (negative inside)
+            xyz_feat: (M,N,D,W) Features from the xyz encoder
+        """
+        xyz_embed = self.pos_embedding(xyz)
+        xyz_feat = self.basefield(xyz_embed, inst_id)
+
+        sdf = self.sdf(xyz_feat)  # negative inside, positive outside
+        return sdf, xyz_feat
 
     def get_init_sdf_fn(self):
         """Initialize signed distance function from mesh geometry
@@ -241,14 +265,27 @@ class NeRF(nn.Module):
         """Initialize the geometry from a mesh
 
         Args:
-            geom_path (str): Initial shape mesh
+            geom_path (List(str)): paths to initial shape mesh
             init_scale (float): Geometry scale factor
         """
-        mesh = trimesh.load(geom_path)
+        mesh = trimesh.load(geom_path[0])
         mesh.vertices = mesh.vertices * init_scale
         self.proxy_geometry = mesh
 
-    def geometry_init(self, sdf_fn, nsample=256):
+    def get_proxy_geometry(self):
+        """Get proxy geometry
+
+        Returns:
+            proxy_geometry (Trimesh): Proxy geometry
+        """
+        return self.proxy_geometry
+
+    def init_aabb(self):
+        """Initialize axis-aligned bounding box"""
+        self.register_buffer("aabb", torch.zeros(2, 3))
+        self.update_aabb(beta=0)
+
+    def geometry_init(self, sdf_fn, nsample=4096):
         """Initialize SDF using tsdf-fused geometry if radius is not given.
         Otherwise, initialize sdf using a unit sphere
 
@@ -261,21 +298,21 @@ class NeRF(nn.Module):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
 
         # optimize
-        for i in range(500):
+        for i in range(1000):
             optimizer.zero_grad()
 
             # sample points and gt sdf
             inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
 
             # sample points
-            pts = self.sample_points_aabb(nsample, extend_factor=0.25)
+            pts, _, _ = self.sample_points_aabb(nsample, extend_factor=0.5)
 
             # get sdf from proxy geometry
             sdf_gt = sdf_fn(pts)
 
             # evaluate sdf loss
-            sdf = self.forward(pts, inst_id=inst_id, get_density=False)
-            scale = align_vectors(sdf, sdf_gt)
+            sdf, _ = self.forward(pts, inst_id=inst_id)
+            scale = align_tensors(sdf, sdf_gt)
             sdf_loss = (sdf * scale.detach() - sdf_gt).pow(2).mean()
 
             # evaluate visibility loss
@@ -284,9 +321,11 @@ class NeRF(nn.Module):
             vis_loss = vis_loss * 0.01
 
             # evaluate eikonal loss
-            eikonal_loss = self.compute_eikonal(pts[:, None, None], inst_id=inst_id)
+            eikonal_loss, _ = self.compute_eikonal(
+                pts[:, None, None], inst_id=inst_id, sample_ratio=1
+            )
             eikonal_loss = eikonal_loss[eikonal_loss > 0].mean()
-            eikonal_loss = eikonal_loss * 1e-4
+            eikonal_loss = eikonal_loss * 1e-3
 
             total_loss = sdf_loss + vis_loss + eikonal_loss
             total_loss.backward()
@@ -297,7 +336,7 @@ class NeRF(nn.Module):
     def update_proxy(self):
         """Extract proxy geometry using marching cubes"""
         mesh = self.extract_canonical_mesh(level=0.005)
-        if mesh is not None:
+        if len(mesh.vertices) > 3:
             self.proxy_geometry = mesh
 
     @torch.no_grad()
@@ -306,7 +345,7 @@ class NeRF(nn.Module):
         grid_size=64,
         level=0.0,
         inst_id=None,
-        use_visibility=True,
+        vis_thresh=0.0,
         use_extend_aabb=True,
     ):
         """Extract canonical mesh using marching cubes
@@ -315,9 +354,8 @@ class NeRF(nn.Module):
             grid_size (int): Marching cubes resolution
             level (float): Contour value to search for isosurfaces on the signed
                 distance function
-            inst_id: (M,) Instance id. If None, extract for the average instance
-            use_visibility (bool): If True, use visibility mlp to mask out invisible
-              region.
+            inst_id: (int) Instance id. If None, extract for the average instance
+            vis_thresh (float): threshold for visibility value to remove invisible pts.
             use_extend_aabb (bool): If True, extend aabb by 50% to get a loose proxy.
               Used at training time.
         Returns:
@@ -325,21 +363,40 @@ class NeRF(nn.Module):
         """
         if inst_id is not None:
             inst_id = torch.tensor([inst_id], device=next(self.parameters()).device)
-        sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id, get_density=False)
-        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > 0
-        if use_extend_aabb:
-            aabb = extend_aabb(self.aabb, factor=0.5)
+            aabb = self.get_aabb(inst_id=inst_id)  # 2,3
         else:
-            aabb = self.aabb
+            aabb = self.get_aabb()
+        sdf_func = lambda xyz: self.forward(xyz, inst_id=inst_id)[0]
+        vis_func = lambda xyz: self.vis_mlp(xyz, inst_id=inst_id) > vis_thresh
+        if use_extend_aabb:
+            aabb = extend_aabb(aabb, factor=0.5)
         mesh = marching_cubes(
             sdf_func,
-            aabb,
-            visibility_func=vis_func if use_visibility else None,
+            aabb[0],
+            visibility_func=vis_func,
             grid_size=grid_size,
             level=level,
             apply_connected_component=True if self.category == "fg" else False,
         )
         return mesh
+
+    def get_aabb(self, inst_id=None):
+        """Get axis-aligned bounding box
+        Args:
+            inst_id: (N,) Instance id
+        Returns:
+            aabb: (2,3) Axis-aligned bounding box if inst_id is None, (N,2,3) otherwise
+        """
+        if inst_id is None:
+            return self.aabb[None]
+        else:
+            return self.aabb[None].repeat(len(inst_id), 1, 1)
+
+    def get_scale(self):
+        """Get scale of the proxy geometry"""
+        assert self.category == "fg"
+        aabb = self.get_aabb()[0]
+        return (aabb[1] - aabb[0]).mean()
 
     def update_aabb(self, beta=0.9):
         """Update axis-aligned bounding box by interpolating with the current
@@ -352,6 +409,7 @@ class NeRF(nn.Module):
         bounds = self.proxy_geometry.bounds
         if bounds is not None:
             aabb = torch.tensor(bounds, dtype=torch.float32, device=device)
+            aabb = extend_aabb(aabb, factor=0.2)  # 1.4x larger
             self.aabb = self.aabb * beta + aabb * (1 - beta)
 
     def update_near_far(self, beta=0.9):
@@ -375,24 +433,29 @@ class NeRF(nn.Module):
                 frame_mapping
             ] * beta + near_far * (1 - beta)
 
-    def sample_points_aabb(self, nsample, extend_factor=1.0):
+    def sample_points_aabb(self, nsample, extend_factor=1.0, aabb=None):
         """Sample points within axis-aligned bounding box
 
         Args:
             nsample (int): Number of samples
             extend_factor (float): Extend aabb along each side by factor of
                 the previous size
+            aabb: (2,3) Axis-aligned bounding box to sample from, optional
         Returns:
             pts: (nsample, 3) Sampled points
         """
         device = next(self.parameters()).device
-        aabb = extend_aabb(self.aabb, factor=extend_factor)
+        frame_id = torch.randint(0, self.num_frames, (nsample,), device=device)
+        inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+        if aabb is None:
+            aabb = self.get_aabb(inst_id=inst_id)
+            aabb = extend_aabb(aabb, factor=extend_factor)
         pts = (
             torch.rand(nsample, 3, dtype=torch.float32, device=device)
-            * (aabb[1:] - aabb[:1])
-            + aabb[:1]
+            * (aabb[..., 1, :] - aabb[..., 0, :])
+            + aabb[..., 0, :]
         )
-        return pts
+        return pts, frame_id, inst_id
 
     def visibility_decay_loss(self, nsample=512):
         """Encourage visibility to be low at random points within the aabb. The
@@ -404,9 +467,7 @@ class NeRF(nn.Module):
             loss: (0,) Visibility decay loss
         """
         # sample random points
-        device = next(self.parameters()).device
-        pts = self.sample_points_aabb(nsample)
-        inst_id = torch.randint(0, self.num_inst, (nsample,), device=device)
+        pts, _, inst_id = self.sample_points_aabb(nsample)
 
         # evaluate loss
         vis = self.vis_mlp(pts, inst_id=inst_id)
@@ -414,7 +475,7 @@ class NeRF(nn.Module):
         return loss
 
     def compute_eikonal(self, xyz, inst_id=None, sample_ratio=16):
-        """Compute eikonal loss
+        """Compute eikonal loss and normal in the canonical space
 
         Args:
             xyz: (M,N,D,3) Input coordinates in canonical space
@@ -432,6 +493,7 @@ class NeRF(nn.Module):
             inst_id = inst_id[:, None].expand(-1, N)
             inst_id = inst_id.reshape(-1)
         eikonal_loss = torch.zeros_like(xyz[..., 0])
+        normal = torch.zeros_like(xyz)
 
         # subsample to make it more efficient
         if M * N > sample_size:
@@ -444,15 +506,26 @@ class NeRF(nn.Module):
             rand_inds = Ellipsis
 
         xyz = xyz.detach()
-        inst_id = inst_id.detach() if inst_id is not None else None
-        fn_sdf = lambda x: self.forward(x, inst_id=inst_id, get_density=False)
-        g = compute_gradient(fn_sdf, xyz)[..., 0]
+        fn_sdf = lambda x: self.forward(x, inst_id=inst_id)[0]
+        g = compute_gradients_sdf(fn_sdf, xyz, training=self.training)
+        # g = compute_gradient(fn_sdf, xyz)[..., 0]
+
+        # def fn_sdf(x):
+        #     sdf, _ = self.forward(x, inst_id=inst_id)
+        #     sdf_sum = sdf.sum()
+        #     return sdf_sum
+
+        # g = jacobian(fn_sdf, xyz, create_graph=True, strict=True)
 
         eikonal_loss[rand_inds] = (g.norm(2, dim=-1) - 1) ** 2
         eikonal_loss = eikonal_loss.reshape(M, N, D, 1)
-        return eikonal_loss
+        normal[rand_inds] = g  # self.grad_to_normal(g)
+        normal = normal.reshape(M, N, D, 3)
+        return eikonal_loss, normal
 
-    def compute_normal(self, xyz_cam, dir_cam, field2cam, frame_id=None, inst_id=None, samples_dict={}):
+    def compute_eikonal_view(
+        self, xyz_cam, dir_cam, field2cam, frame_id=None, inst_id=None, samples_dict={}
+    ):
         """Compute eikonal loss and normals in camera space
 
         Args:
@@ -469,6 +542,17 @@ class NeRF(nn.Module):
         """
         M, N, D, _ = xyz_cam.shape
 
+        xyz_cam = xyz_cam.detach()
+        dir_cam = dir_cam.detach()
+        field2cam = (field2cam[0].detach(), field2cam[1].detach())
+        samples_dict_copy = {}
+        for k, v in samples_dict.items():
+            if isinstance(v, tuple):
+                samples_dict_copy[k] = (v[0].detach(), v[1].detach())
+            else:
+                samples_dict_copy[k] = v.detach()
+        samples_dict = samples_dict_copy
+
         def fn_sdf(xyz_cam):
             xyz = self.backward_warp(
                 xyz_cam,
@@ -478,19 +562,30 @@ class NeRF(nn.Module):
                 inst_id=inst_id,
                 samples_dict=samples_dict,
             )["xyz"]
-            sdf = self.forward(xyz, inst_id=inst_id, get_density=False)
+            sdf, _ = self.forward(xyz, inst_id=inst_id)
             return sdf
 
-        g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
+        # g = compute_gradient(fn_sdf, xyz_cam)[..., 0]
+        g = compute_gradients_sdf(fn_sdf, xyz_cam, training=self.training)
 
         eikonal = (g.norm(2, dim=-1, keepdim=True) - 1) ** 2
-        normal = torch.nn.functional.normalize(g, dim=-1)
+        normal = g  # self.grad_to_normal(g)
+        return eikonal, normal
+
+    @staticmethod
+    def grad_to_normal(g):
+        """
+        Args:
+            g: (...,3) Gradient of sdf
+        Returns:
+            normal: (...,3) Normal vector field
+        """
+        normal = F.normalize(g, dim=-1)
 
         # Multiply by [1, -1, -1] to match normal conventions from ECON
         # https://github.com/YuliangXiu/ECON/blob/d98e9cbc96c31ecaa696267a072cdd5ef78d14b8/apps/infer.py#L257
         normal = normal * torch.tensor([1, -1, -1], device="cuda")
-
-        return eikonal, normal
+        return normal
 
     @torch.no_grad()
     def get_valid_idx(self, xyz, xyz_t=None, vis_score=None, samples_dict={}):
@@ -504,7 +599,8 @@ class NeRF(nn.Module):
             valid_idx: (M,N,D) Visibility mask, bool
         """
         # check whether the point is inside the aabb
-        aabb = extend_aabb(self.aabb)
+        aabb = self.get_aabb(samples_dict["inst_id"])
+        aabb = extend_aabb(aabb)
         # (M,N,D), whether the point is inside the aabb
         inside_aabb = check_inside_aabb(xyz, aabb)
 
@@ -518,7 +614,7 @@ class NeRF(nn.Module):
             )[1][0]
             t_aabb = torch.stack([t_bones.min(0)[0], t_bones.max(0)[0]], 0)
             t_aabb = extend_aabb(t_aabb, factor=1.0)
-            inside_aabb = check_inside_aabb(xyz_t, t_aabb)
+            inside_aabb = check_inside_aabb(xyz_t, t_aabb[None])
             valid_idx = valid_idx & inside_aabb
 
         # temporally disable visibility mask
@@ -559,10 +655,7 @@ class NeRF(nn.Module):
             near_far = self.near_far.to(device)
             near_far = near_far[batch["frameid"]]
         else:
-            corners = trimesh.bounds.corners(self.proxy_geometry.bounds)
-            corners = torch.tensor(corners, dtype=torch.float32, device=device)
-            field2cam_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])
-            near_far = get_near_far(corners, field2cam_mat, tol_fac=1.5)
+            near_far = self.get_near_far(frame_id, field2cam)
 
         # auxiliary outputs
         samples_dict = {}
@@ -576,6 +669,14 @@ class NeRF(nn.Module):
         if "feature" in batch.keys():
             samples_dict["feature"] = batch["feature"]
         return samples_dict
+
+    def get_near_far(self, frame_id, field2cam):
+        device = next(self.parameters()).device
+        corners = trimesh.bounds.corners(self.proxy_geometry.bounds)
+        corners = torch.tensor(corners, dtype=torch.float32, device=device)
+        field2cam_mat = quaternion_translation_to_se3(field2cam[0], field2cam[1])
+        near_far = get_near_far(corners, field2cam_mat, tol_fac=1.5)
+        return near_far
 
     def query_field(self, samples_dict, flow_thresh=None):
         """Render outputs from a neural radiance field.
@@ -602,7 +703,7 @@ class NeRF(nn.Module):
         hxy = samples_dict["hxy"]  # (M,N,2)
 
         # sample camera space rays
-        if not self.training:
+        if self.use_importance_sampling:
             # importance sampling
             xyz_cam, dir_cam, deltas, depth = self.importance_sampling(
                 hxy,
@@ -612,10 +713,15 @@ class NeRF(nn.Module):
                 frame_id,
                 inst_id,
                 samples_dict,
+                n_depth=64,
             )
         else:
             xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-                hxy, Kinv, near_far, perturb=False
+                hxy,
+                Kinv,
+                near_far,
+                n_depth=64,
+                perturb=False,
             )  # (M, N, D, x)
 
         # backward warping
@@ -627,7 +733,7 @@ class NeRF(nn.Module):
         xyz_t = backwarp_dict["xyz_t"]
 
         # visibility
-        vis_score = self.vis_mlp(xyz, inst_id=inst_id)  # (M, N, D, 1)
+        vis_score = self.vis_mlp(xyz.detach(), inst_id=inst_id)  # (M, N, D, 1)
 
         # compute valid_indices to speed up querying fields
         if self.training:
@@ -674,6 +780,7 @@ class NeRF(nn.Module):
 
         # canonical point
         feat_dict["xyz"] = xyz
+        feat_dict["xyz_t"] = xyz_t
         feat_dict["xyz_cam"] = xyz_cam
 
         # depth
@@ -683,7 +790,6 @@ class NeRF(nn.Module):
         aux_dict = {}
         return feat_dict, deltas, aux_dict
 
-    @torch.no_grad()
     def importance_sampling(
         self,
         hxy,
@@ -693,51 +799,79 @@ class NeRF(nn.Module):
         frame_id,
         inst_id,
         samples_dict,
-        n_depth=64,
+        n_depth,
     ):
         """
         importance sampling coarse
         """
+        with torch.no_grad():
+            # sample camera space rays
+            xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
+                hxy, Kinv, near_far, n_depth // 2, perturb=False
+            )  # (M, N, D, x)
+
+            # backward warping
+            xyz = self.backward_warp(
+                xyz_cam,
+                dir_cam,
+                field2cam,
+                frame_id,
+                inst_id,
+                samples_dict=samples_dict,
+            )["xyz"]
+
+            # get pdf
+            _, density = self.forward(
+                xyz,
+                dir=None,
+                frame_id=frame_id,
+                inst_id=inst_id,
+            )  # (M, N, D, x)
+            weights, _ = compute_weights(density, deltas)  # (M, N, D, 1)
+            weights = weights.view(-1, n_depth // 2)[:, 1:-1]  # (M*N, D-2)
+            # modify the weights such that only do is when there is a clear surface (wt is high)
+            weights_fill = 1 - weights.sum(-1, keepdim=True)
+            weights = weights + weights_fill / (n_depth // 2 - 2)
+            # assert torch.allclose(weights.sum(-1), torch.ones_like(weights[:, 0]))
+
+            depth_mid = 0.5 * (depth[:, :, :-1] + depth[:, :, 1:])  # (M, N, D-1)
+            depth_mid = depth_mid.view(-1, n_depth // 2 - 1)  # (M*N, D-1)
+
+            depth_ = sample_pdf(depth_mid, weights, n_depth // 2, det=True)
+            depth_ = depth_.reshape(depth.shape)  # (M, N, D, 1)
+
+            depth, _ = torch.sort(torch.cat([depth, depth_], -2), -2)  # (M, N, D, 1)
+
+            # # plot depth and depth_
+            # import matplotlib.pyplot as plt
+            # import pdb
+
+            # pdb.set_trace()
+
+            # valid_ind = weights.sum(-1) > 0
+            # plt.figure()
+            # depth_vis = depth[0, :, :, 0][valid_ind].cpu().numpy()
+
+            # plt.plot(depth_vis[::10].T)
+            # plt.show()
+            # plt.savefig("tmp/depth.png")
+
+            # plt.figure()
+            # weights_vis = weights[valid_ind].cpu().numpy()
+            # plt.plot(weights_vis[::10].T)
+            # plt.show()
+            # plt.savefig("tmp/weights.png")
+
         # sample camera space rays
         xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-            hxy, Kinv, near_far, perturb=False, n_depth=n_depth // 2
-        )  # (M, N, D, x)
-
-        # backward warping
-        xyz = self.backward_warp(
-            xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict=samples_dict
-        )["xyz"]
-
-        # get pdf
-        density = self.forward(
-            xyz,
-            dir=None,
-            frame_id=frame_id,
-            inst_id=inst_id,
-        )  # (M, N, D, x)
-        weights, _ = compute_weights(density, deltas)  # (M, N, D, x)
-
-        depth_mid = 0.5 * (depth[:, :, :-1] + depth[:, :, 1:])  # (M, N, D-1)
-        is_det = not self.training
-        depth_mid = depth_mid.view(-1, n_depth // 2 - 1)
-        weights = weights.view(-1, n_depth // 2)
-
-        depth_ = sample_pdf(
-            depth_mid, weights[:, 1:-1], n_depth // 2, det=is_det
-        ).detach()
-        depth_ = depth_.reshape(depth.shape)
-        # detach so that grad doesn't propogate to weights_sampled from here
-
-        depth, _ = torch.sort(torch.cat([depth, depth_], -2), -2)  # (M, N, D)
-
-        # sample camera space rays
-        xyz_cam, dir_cam, deltas, depth = sample_cam_rays(
-            hxy, Kinv, near_far, depth=depth, perturb=False
+            hxy, Kinv, near_far, None, depth=depth, perturb=False
         )
 
         return xyz_cam, dir_cam, deltas, depth
 
-    def compute_jacobian(self, xyz, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict):
+    def compute_jacobian(
+        self, xyz, xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
+    ):
         """Compute eikonal and normal fields from Jacobian of SDF
 
         Args:
@@ -758,12 +892,24 @@ class NeRF(nn.Module):
         jacob_dict = {}
         if self.training:
             # For efficiency, compute subsampled eikonal loss in canonical space
-            jacob_dict["eikonal"] = self.compute_eikonal(xyz, inst_id=inst_id)
+            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
+                xyz, inst_id=inst_id
+            )
+            # convert to camera space
+            jacob_dict["normal"] = quaternion_apply(
+                field2cam[0][:, None, None]
+                .expand(jacob_dict["normal"].shape[:-1] + (4,))
+                .clone(),
+                jacob_dict["normal"],
+            )
         else:
             # For rendering, compute full eikonal loss and normals in camera space
-            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_normal(
+            jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal_view(
                 xyz_cam, dir_cam, field2cam, frame_id, inst_id, samples_dict
             )
+            # jacob_dict["eikonal"], jacob_dict["normal"] = self.compute_eikonal(
+            #     xyz, inst_id=inst_id, sample_ratio=1.0
+            # )
         return jacob_dict
 
     def query_nerf(self, xyz, dir, frame_id, inst_id, valid_idx=None):
@@ -788,6 +934,7 @@ class NeRF(nn.Module):
                     % self.category: torch.zeros(
                         valid_idx.shape + (1,), device=xyz.device
                     ),
+                    "sdf": torch.zeros(valid_idx.shape + (1,), device=xyz.device),
                 }
                 return field_dict
             # reshape
@@ -797,18 +944,43 @@ class NeRF(nn.Module):
             frame_id = frame_id[:, None, None].expand(shape[:3])[valid_idx]
             inst_id = inst_id[:, None, None].expand(shape[:3])[valid_idx]
 
-        rgb, density = self.forward(
+        # # symmetrically normalize
+        # symm_ratio = 0.5
+        # xyz_x = xyz[..., :1].clone()
+        # symm_mask = torch.rand_like(xyz_x) < symm_ratio
+        # xyz_x[symm_mask] = -xyz_x[symm_mask]
+        # xyz = torch.cat([xyz_x, xyz[..., 1:3]], -1)
+
+        rgb, sdf, density = self.forward(
             xyz,
             dir=dir,
             frame_id=frame_id,
             inst_id=inst_id,
         )  # (M, N, D, x)
 
+        # # density drop out, to enforce motion to explain the missing density
+        # # get aabb
+        # ratio = 4
+        # aabb = self.get_aabb()
+        # # select a random box from aabb with 1/ratio size
+        # aabb_size = aabb[..., 1, :] - aabb[..., 0, :]
+        # aabb_size_sub = aabb_size / ratio
+        # aabb_sub_min = aabb[..., 0, :] + torch.rand_like(aabb_size) * (
+        #     aabb_size - aabb_size_sub
+        # )
+        # aabb_sub_max = aabb_sub_min + aabb_size_sub
+        # aabb_sub = torch.stack([aabb_sub_min, aabb_sub_max], -2)
+        # # check whether the point is inside the aabb
+        # inside_aabb = check_inside_aabb(xyz, aabb_sub)
+        # density[inside_aabb] = 0
+
         # reshape
         field_dict = {
             "rgb": rgb,
+            "sdf": sdf,
             "density": density,
-            "density_%s" % self.category: density,
+            "density_%s"
+            % self.category: (density / self.logibeta.exp()).detach(),  # (0,1)
         }
 
         if valid_idx is not None:
@@ -817,6 +989,25 @@ class NeRF(nn.Module):
                 tmpv[valid_idx] = v.view(-1, v.shape[-1])
                 field_dict[k] = tmpv
         return field_dict
+
+    def wipe_loss(self, nsample=512):
+        # density drop out, to enforce motion to explain the missing density
+        # get aabb
+        ratio = 4
+        aabb = self.get_aabb()
+        # select a random box from aabb with 1/ratio size
+        aabb_size = aabb[..., 1, :] - aabb[..., 0, :]
+        aabb_size_sub = aabb_size / ratio
+        aabb_sub_min = aabb[..., 0, :] + torch.rand_like(aabb_size) * (
+            aabb_size - aabb_size_sub
+        )
+        aabb_sub_max = aabb_sub_min + aabb_size_sub
+        aabb_sub = torch.stack([aabb_sub_min, aabb_sub_max], -2)
+        pts, frame_id, inst_id = self.sample_points_aabb(nsample, aabb=aabb_sub)
+        # check whether the point is inside the aabb
+        sdf, _ = self.forward(pts, frame_id=frame_id, inst_id=inst_id)
+        wipe_loss = (-sdf).exp().mean()
+        return wipe_loss
 
     @staticmethod
     def cam_to_field(xyz_cam, dir_cam, field2cam):
@@ -926,25 +1117,6 @@ class NeRF(nn.Module):
         }
         return cyc_dict
 
-    @staticmethod
-    def flip_pair(tensor):
-        """Flip the tensor along the pair dimension
-
-        Args:
-            tensor: (M*2, ...) Inputs [x0, x1, x2, x3, ..., x_{2k}, x_{2k+1}]
-
-        Returns:
-            tensor: (M*2, ...) Outputs [x1, x0, x3, x2, ..., x_{2k+1}, x_{2k}]
-        """
-        if torch.is_tensor(tensor):
-            if len(tensor) < 2:
-                return tensor
-            return tensor.view(tensor.shape[0] // 2, 2, -1).flip(1).view(tensor.shape)
-        elif isinstance(tensor, tuple):
-            return tuple([NeRF.flip_pair(t) for t in tensor])
-        elif isinstance(tensor, dict):
-            return {k: NeRF.flip_pair(v) for k, v in tensor.items()}
-
     @train_only_fields
     def compute_flow(
         self,
@@ -962,7 +1134,7 @@ class NeRF(nn.Module):
 
         Args:
             hxy: (M,N,D,3) Homogeneous pixel coordinates on the image plane
-            xyz: (M,N,D,3) Canonical field coordinates
+            xyz_t: (M,N,D,3) Canonical field coordinates at time t
             Kinv: (M,3,3) Inverse of camera intrinsics
             flow_thresh (float): Threshold for flow magnitude
 
@@ -970,15 +1142,18 @@ class NeRF(nn.Module):
             flow: (M,N,D,2) Optical flow proposal
         """
         # flip the frame id
-        frame_id_next = self.flip_pair(frame_id)
-        field2cam_next = (self.flip_pair(field2cam[0]), self.flip_pair(field2cam[1]))
-        Kinv_next = self.flip_pair(Kinv)
-        samples_dict_next = self.flip_pair(samples_dict)
+        frame_id_next = flip_pair(frame_id)
+        field2cam_next = (flip_pair(field2cam[0]), flip_pair(field2cam[1]))
+        Kinv_next = flip_pair(Kinv)
+        samples_dict_next = flip_pair(samples_dict)
 
         # forward warp points to camera space
         xyz_cam_next = self.forward_warp(
             xyz, field2cam_next, frame_id_next, inst_id, samples_dict=samples_dict_next
         )
+        # xyz_cam_next = self.flow_warp(
+        #     xyz_t, field2cam_next, frame_id, inst_id, samples_dict
+        # )
 
         # project to next camera image plane
         Kmat_next = Kmatinv(Kinv_next)  # (M,1,1,3,3) @ (M,N,D,3) = (M,N,D,3)
@@ -1004,3 +1179,63 @@ class NeRF(nn.Module):
         """
         loss = self.camera_mlp.compute_distance_to_prior()
         return loss
+
+    def get_camera(self, frame_id=None):
+        """Compute camera matrices in world units
+
+        Returns:
+            field2cam (Dict): Maps field names ("fg" or "bg") to (M,4,4) cameras
+        """
+        quat, trans = self.camera_mlp.get_vals(frame_id=frame_id)
+        trans = trans / self.logscale.exp()
+        field2cam = quaternion_translation_to_se3(quat, trans)
+        return field2cam
+
+    def compute_field2world(self, up_direction=[0, -1, 0]):
+        """Compute SE(3) to transform points in the scene space to world space
+        For background, this is computed by detecting planes with ransac.
+
+        Returns:
+            rect_se3: (4,4) SE(3) transform
+        """
+        for inst_id in range(self.num_inst):
+            # TODO: move this to background nerf, and use each proxy geometry
+            mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
+            self.field2world[inst_id] = compute_rectification_se3(mesh, up_direction)
+
+    def get_field2world(self, inst_id=None):
+        """Compute SE(3) to transform points in the scene space to world space
+        For background, this is computed by detecting planes with ransac.
+
+        Returns:
+            rect_se3: (4,4) SE(3) transform
+        """
+        if inst_id is None:
+            field2world = self.field2world
+        else:
+            field2world = self.field2world[inst_id]
+        field2world = field2world.clone()
+        field2world[..., :3, 3] /= self.logscale.exp()
+        return field2world
+
+    @torch.no_grad()
+    def visualize_floor_mesh(self, inst_id, to_world=False):
+        """Visualize floor and canonical mesh in the world space
+        Args:
+            inst_id: (int) Instance id
+        """
+        field2world = self.get_field2world(inst_id)
+        world2field = field2world.inverse().cpu()
+        mesh = self.extract_canonical_mesh(level=0.0, inst_id=inst_id)
+        scale = self.logscale.exp().cpu().numpy()
+        mesh.vertices /= scale
+        mesh = append_xz_plane(mesh, world2field, gl=False, scale=20 * scale)
+        if to_world:
+            mesh.apply_transform(field2world.cpu().numpy())
+        return mesh
+
+    def valid_field2world(self):
+        if self.field2world.abs().sum() == 0:
+            return False
+        else:
+            return True

@@ -8,3 +8,9 @@
 [submodule "docs/pytorch_sphinx_theme"]
 	path = docs/pytorch_sphinx_theme
 	url = https://github.com/gengshan-y/pytorch_sphinx_theme
+[submodule "projects/ppr/ppr-diffphys"]
+	path = projects/ppr/ppr-diffphys
+	url = git@github.com:gengshan-y/ppr-diffphys.git
+[submodule "projects/ppr/eval/third_party/ChamferDistancePytorch"]
+	path = projects/ppr/eval/third_party/ChamferDistancePytorch
+	url = https://github.com/ThibaultGROUEIX/ChamferDistancePytorch

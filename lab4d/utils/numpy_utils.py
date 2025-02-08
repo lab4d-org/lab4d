@@ -35,7 +35,18 @@ def interp_wt(x, y, x2, type="linear"):
 
         # Transform back to original space
         y2 = 10**log_y2
+    elif type == "exp":
+        # clip
+        assert x0 >= 1
+        assert x1 >= 1
+        x2 = np.clip(x2, x0, x1)
+        # Transform to log space
+        log_x0 = np.log10(x0)
+        log_x1 = np.log10(x1)
+        log_x2 = np.log10(x2)
 
+        # Perform linear interpolation in log space
+        y2 = y0 + (log_x2 - log_x0) * (y1 - y0) / (log_x1 - log_x0)
     else:
         raise ValueError("interpolation_type must be 'linear' or 'log'")
 

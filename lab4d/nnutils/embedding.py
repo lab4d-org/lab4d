@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from lab4d.utils.torch_utils import frameid_to_vid
+from lab4d.utils.geom_utils import get_pre_rotation
 
 
 def get_fourier_embed_dim(in_channels, N_freqs):
@@ -31,12 +32,19 @@ class PosEmbedding(nn.Module):
         in_channels (int): Number of input channels (3 for both xyz, direction)
         N_freqs (int): Number of frequency bands
         logscale (bool): If True, construct frequency bands in log-space
+        pre_rotate (bool): If True, pre-rotate the input along each plane
     """
 
-    def __init__(self, in_channels, N_freqs, logscale=True):
+    def __init__(self, in_channels, N_freqs, logscale=True, pre_rotate=False):
         super().__init__()
         self.N_freqs = N_freqs
         self.in_channels = in_channels
+
+        if pre_rotate:
+            # rotate along each dimension for 45 degrees
+            rot_mat = get_pre_rotation(in_channels)
+            rot_mat = torch.tensor(rot_mat, dtype=torch.float32)
+            self.register_buffer("rot_mat", rot_mat, persistent=False)
 
         # no embedding
         if N_freqs == -1:
@@ -52,8 +60,7 @@ class PosEmbedding(nn.Module):
         else:
             freq_bands = torch.linspace(1, 2 ** (N_freqs - 1), N_freqs)
         self.register_buffer("freq_bands", freq_bands, persistent=False)
-
-        self.set_alpha(None)
+        self.register_buffer("alpha", torch.tensor(-1.0, dtype=torch.float32))
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -62,9 +69,9 @@ class PosEmbedding(nn.Module):
         """Set the alpha parameter for the annealing window
 
         Args:
-            alpha (float or None): 0 to 1
+            alpha (float): 0 to 1, -1 represents full frequency band
         """
-        self.alpha = alpha
+        self.alpha.data = alpha
 
     def forward(self, x):
         """Embeds x to (x, sin(2^k x), cos(2^k x), ...)
@@ -92,18 +99,27 @@ class PosEmbedding(nn.Module):
             out = torch.empty(x.shape[0], output_dim, dtype=x.dtype, device=device)
             out[:, :input_dim] = x
 
+            if hasattr(self, "rot_mat"):
+                x = x @ self.rot_mat.T
+                x = x.view(x.shape[0], input_dim, -1)
+
             # assign fourier features to the remaining channels
             out_bands = out[:, input_dim:].view(
                 -1, self.N_freqs, self.nfuncs, input_dim
             )
             for i, func in enumerate(self.funcs):
                 # (B, nfreqs, input_dim) = (1, nfreqs, 1) * (B, 1, input_dim)
-                out_bands[:, :, i] = func(
-                    self.freq_bands[None, :, None] * x[:, None, :]
-                )
+                if hasattr(self, "rot_mat"):
+                    signal = self.freq_bands[None, :, None, None] * x[:, None]
+                    response = func(signal)
+                    response = response.view(-1, self.N_freqs, input_dim, x.shape[-1])
+                    response = response.mean(-1)
+                else:
+                    signal = self.freq_bands[None, :, None] * x[:, None, :]
+                    response = func(signal)
+                out_bands[:, :, i] = response
 
             self.apply_annealing(out_bands)
-
             out = out.view(out_shape)
         else:
             out = x
@@ -116,7 +132,7 @@ class PosEmbedding(nn.Module):
             out_bands: (..., N_freqs, nfuncs, in_channels) Frequency bands
         """
         device = out_bands.device
-        if self.alpha is not None:
+        if self.alpha >= 0:
             alpha_freq = self.alpha * self.N_freqs
             window = alpha_freq - torch.arange(self.N_freqs).to(device)
             window = torch.clamp(window, 0.0, 1.0)
@@ -150,6 +166,7 @@ class TimeEmbedding(nn.Module):
         self.out_channels = out_channels
 
         self.frame_offset = frame_info["frame_offset"]
+        self.frame_offset_raw = frame_info["frame_offset_raw"]
         self.num_frames = self.frame_offset[-1]
         self.num_vids = len(self.frame_offset) - 1
 
@@ -170,6 +187,9 @@ class TimeEmbedding(nn.Module):
         )
         # M, in range [0,N-1], M<N
         self.register_buffer("frame_mapping", frame_mapping, persistent=False)
+        frame_mapping_inv = torch.full((frame_mapping.max().item() + 1,), 0)
+        frame_mapping_inv[frame_mapping] = torch.arange(len(frame_mapping))
+        self.register_buffer("frame_mapping_inv", frame_mapping_inv, persistent=False)
         # N
         self.register_buffer("raw_fid_to_vid", raw_fid_to_vid, persistent=False)
         self.register_buffer("raw_fid_to_vidlen", raw_fid_to_vidlen, persistent=False)
@@ -177,12 +197,17 @@ class TimeEmbedding(nn.Module):
 
         # a function, make it more/less senstiive to time
         def frame_to_tid_fn(frame_id):
-            if not torch.is_tensor(frame_id):
-                frame_id = torch.tensor(frame_id).to(self.frame_to_vid.device)
+            if torch.is_tensor(frame_id):
+                device = frame_id.device
+            else:
+                frame_id = torch.tensor(frame_id)
+                device = "cpu"
+            frame_id = frame_id.to(self.frame_to_vid.device)
             vid_len = self.raw_fid_to_vidlen[frame_id.long()]
             tid_sub = frame_id - self.raw_fid_to_vstart[frame_id.long()]
             tid = (tid_sub - vid_len / 2) / max_ts * 2  # [-1, 1]
             tid = tid * time_scale
+            tid = tid.to(device)
             return tid
 
         self.frame_to_tid = frame_to_tid_fn
@@ -198,10 +223,13 @@ class TimeEmbedding(nn.Module):
         Returns:
             t_embed (..., self.W): Output time embeddings
         """
+        device = self.parameters().__next__().device
         if frame_id is None:
             inst_id, t_sample = self.frame_to_vid, self.frame_to_tid(self.frame_mapping)
         else:
-            inst_id = self.raw_fid_to_vid[frame_id]
+            if not torch.is_tensor(frame_id):
+                frame_id = torch.tensor(frame_id, device=device)
+            inst_id = self.raw_fid_to_vid[frame_id.long()]
             t_sample = self.frame_to_tid(frame_id)
 
         if inst_id.ndim == 1:
@@ -225,6 +253,17 @@ class TimeEmbedding(nn.Module):
         t_embed = self.forward(self.frame_mapping).mean(0, keepdim=True)
         # t_embed = self.basis.weight.mean(1)
         return t_embed
+
+
+class TimeEmbeddingRest(TimeEmbedding):
+    """Time embedding with a rest embedding"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rest_embedding = nn.Parameter(torch.zeros(1, self.out_channels))
+
+    def get_mean_embedding(self, device):
+        return self.rest_embedding
 
 
 class InstEmbedding(nn.Module):
@@ -257,10 +296,11 @@ class InstEmbedding(nn.Module):
             return torch.zeros(inst_id.shape + (0,), device=inst_id.device)
         else:
             if self.num_inst == 1:
-                return self.mapping(torch.zeros_like(inst_id))
-            if self.training and self.beta_prob > 0:
-                inst_id = self.randomize_instance(inst_id)
-            inst_code = self.mapping(inst_id)
+                inst_code = self.mapping(torch.zeros_like(inst_id))
+            else:
+                if self.training and self.beta_prob > 0:
+                    inst_id = self.randomize_instance(inst_id)
+                inst_code = self.mapping(inst_id)
             return inst_code
 
     def randomize_instance(self, inst_id):

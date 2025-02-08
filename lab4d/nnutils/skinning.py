@@ -10,6 +10,7 @@ from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding
 from lab4d.utils.quat_transform import (
     dual_quaternion_to_quaternion_translation,
     quaternion_to_matrix,
+    dual_quaternion_apply,
 )
 from lab4d.utils.transforms import get_bone_coords
 from lab4d.utils.vis_utils import get_colormap
@@ -58,17 +59,22 @@ class SkinningField(nn.Module):
     ):
         super().__init__()
 
-        # 3D gaussians
-        gaussians = init_scale * torch.ones(
-            num_coords, 3
-        )  # scale of bone skinning field
+        # 3D gaussians: scale of bone skinning field
+        if torch.is_tensor(init_scale):
+            gaussians = init_scale
+        else:
+            gaussians = init_scale * torch.ones(num_coords, 3)
+        # clip minimum radius to 0.01
+        gaussians = torch.clamp(gaussians, min=0.01)
         self.log_gauss = nn.Parameter(torch.log(gaussians))
+        # self.register_buffer("log_gauss", torch.log(gaussians), persistent=False)
+        self.logscale = nn.Parameter(torch.zeros(1))
         self.num_coords = num_coords
 
         if delta_skin:
             # position and direction embedding
-            self.pos_embedding = PosEmbedding(3 * num_coords, num_freq_xyz)
-            self.time_embedding = TimeEmbedding(num_freq_t, frame_info)
+            self.pos_embedding = PosEmbedding(4 * num_coords, num_freq_xyz)
+            # self.time_embedding = TimeEmbedding(num_freq_t, frame_info)
 
             # xyz encoding layers
             self.delta_field = CondMLP(
@@ -76,9 +82,10 @@ class SkinningField(nn.Module):
                 D=D,
                 W=W,
                 in_channels=self.pos_embedding.out_channels
-                + self.time_embedding.out_channels,
+                # + self.time_embedding.out_channels,
+                ,
                 inst_channels=inst_channels,
-                out_channels=num_coords,
+                out_channels=num_coords * 2,
                 skips=skips,
                 activation=activation,
                 final_act=False,
@@ -105,18 +112,24 @@ class SkinningField(nn.Module):
         dist2 = xyz_bone.pow(2).sum(dim=-1)
 
         if hasattr(self, "delta_field"):
+            xyz_bone = torch.cat([xyz_bone, xyz_bone.norm(2, -1)[..., None]], dim=-1)
             # modulate with t/inst
             xyz_embed = self.pos_embedding(xyz_bone.reshape(xyz.shape[:-1] + (-1,)))
-            if frame_id is None:
-                t_embed = self.time_embedding.get_mean_embedding(xyz.device)
-            else:
-                t_embed = self.time_embedding(frame_id)
-            t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
-            t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
-            xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
-            delta = self.delta_field(xyzt_embed, inst_id)
-            delta = F.relu(delta) * 0.1
-            skin = -(dist2 + delta)
+            # if frame_id is None:
+            #     t_embed = self.time_embedding.get_mean_embedding(xyz.device)
+            # else:
+            #     t_embed = self.time_embedding(frame_id)
+            # t_embed = t_embed.reshape(-1, 1, 1, t_embed.shape[-1])
+            # t_embed = t_embed.expand(xyz.shape[:-1] + (-1,))
+            # xyzt_embed = torch.cat([xyz_embed, t_embed], dim=-1)
+            # delta = self.delta_field(xyzt_embed, inst_id)
+            delta = self.delta_field(xyz_embed, inst_id)
+            # delta = F.relu(delta) * 0.1
+            # skin = -(dist2 + delta)
+            logscale, shift = torch.split(delta, delta.shape[-1] // 2, dim=-1)
+            dist2 = dist2 * (0.1 * logscale).exp()
+            dist2 = dist2 + 0.1 * shift
+            skin = -dist2
         else:
             skin = -dist2
             delta = None
@@ -150,9 +163,35 @@ class SkinningField(nn.Module):
         log_gauss = self.log_gauss
         if self.symm_idx is not None:
             log_gauss = (log_gauss[self.symm_idx] + log_gauss) / 2
+        log_gauss = log_gauss + self.logscale
         return log_gauss.exp()
 
-    def draw_gaussian(self, articulation, edges):
+    def get_gauss_pts(self, articulation):
+        """
+        Compute gaussian points (differentiable wrt articulation)
+        Args:
+            articulation: ((B,4), (B,4)) Bone-to-object SE(3) transforms,
+                written as dual quaternions
+        """
+        dev = articulation[0].device
+        gaussians = self.get_gauss()  # B,3
+
+        # append gaussians
+        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        pts = torch.tensor(sph.vertices, device=dev, dtype=torch.float32)
+        pts = pts[:, None] * gaussians[None]  # N,B,3
+
+        # apply articulation
+        articulation = (
+            articulation[0][None].repeat(pts.shape[0], 1, 1),
+            articulation[1][None].repeat(pts.shape[0], 1, 1),
+        )
+        pts = dual_quaternion_apply(articulation, pts)  # N,B,3
+        pts = pts.view(-1, 3)  # NB,3
+        return pts
+
+    @torch.no_grad()
+    def draw_gaussian(self, articulation, edges, show_joints=False):
         """Visualize Gaussian bones as a mesh
 
         Args:
@@ -161,41 +200,42 @@ class SkinningField(nn.Module):
             edges (Dict(int, int) or None): If given, a mapping from each joint
                 to its parent joint on an articulated skeleton
         """
-        with torch.no_grad():
-            meshes = []
-            gaussians = self.get_gauss().cpu().numpy()
+        meshes = []
+        gaussians = self.get_gauss().cpu().numpy()
 
-            qr, trans = dual_quaternion_to_quaternion_translation(articulation)
-            articulation = np.eye(4, 4)[None].repeat(len(qr), axis=0)
-            articulation[:, :3, :3] = quaternion_to_matrix(qr).cpu().numpy()
-            articulation[:, :3, 3] = trans.cpu().numpy()
+        qr, trans = dual_quaternion_to_quaternion_translation(articulation)
+        articulation = np.eye(4, 4)[None].repeat(len(qr), axis=0)
+        articulation[:, :3, :3] = quaternion_to_matrix(qr).cpu().numpy()
+        articulation[:, :3, 3] = trans.cpu().numpy()
 
-            # add bone center / joints
-            sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
-            colormap = get_colormap(self.num_coords, repeat=sph.vertices.shape[0])
-            for k, gauss in enumerate(gaussians):
-                ellips = sph.copy()
-                # make it smaller for visualization
+        # add bone center / joints
+        sph = trimesh.creation.uv_sphere(radius=1, count=[4, 4])
+        colormap = get_colormap(self.num_coords, repeat=sph.vertices.shape[0])
+        for k, gauss in enumerate(gaussians):
+            ellips = sph.copy()
+            # make it smaller for visualization
+            if show_joints:
                 ellips.vertices *= 5e-3
-                # ellips.vertices *= gauss[None]
-                ellips.apply_transform(articulation[k])
-                meshes.append(ellips)
+            else:
+                ellips.vertices *= gauss[None]
+            ellips.apply_transform(articulation[k])
+            meshes.append(ellips)
 
-            # add edges if any
-            if edges is not None:
-                # rad = gaussians.mean() * 0.1
-                rad = 5e-4
-                for idx, parent_idx in edges.items():
-                    if parent_idx == 0:
-                        continue
-                    parent_center = articulation[parent_idx - 1][:3, 3]
-                    child_center = articulation[idx - 1][:3, 3]
-                    cyl = np.stack([parent_center, child_center], 0)
-                    cyl = trimesh.creation.cylinder(rad, segment=cyl, sections=3)
-                    meshes.append(cyl)
+        # add edges if any
+        if edges is not None:
+            # rad = gaussians.mean() * 0.1
+            rad = 5e-4
+            for idx, parent_idx in edges.items():
+                if parent_idx == 0:
+                    continue
+                parent_center = articulation[parent_idx - 1][:3, 3]
+                child_center = articulation[idx - 1][:3, 3]
+                cyl = np.stack([parent_center, child_center], 0)
+                cyl = trimesh.creation.cylinder(rad, segment=cyl, sections=3)
+                meshes.append(cyl)
 
-            meshes = trimesh.util.concatenate(meshes)
-            colormap_pad = np.ones((meshes.vertices.shape[0] - colormap.shape[0], 3))
-            colormap = np.concatenate([colormap, 192 * colormap_pad], 0)
-            meshes.visual.vertex_colors = colormap
-            return meshes
+        meshes = trimesh.util.concatenate(meshes)
+        colormap_pad = np.ones((meshes.vertices.shape[0] - colormap.shape[0], 3))
+        colormap = np.concatenate([colormap, 192 * colormap_pad], 0)
+        meshes.visual.vertex_colors = colormap
+        return meshes

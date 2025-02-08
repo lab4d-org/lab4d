@@ -3,6 +3,7 @@ import os
 import time
 from collections import defaultdict
 from copy import deepcopy
+import gc
 
 import numpy as np
 import torch
@@ -15,7 +16,11 @@ cudnn.benchmark = True
 from lab4d.dataloader import data_utils
 from lab4d.dataloader.vidloader import VidDataset
 from lab4d.engine.model import dvr_model
-from lab4d.engine.train_utils import DataParallelPassthrough, get_local_rank
+from lab4d.engine.train_utils import (
+    DataParallelPassthrough,
+    get_local_rank,
+    match_param_name,
+)
 from lab4d.utils.profile_utils import torch_profile
 from lab4d.utils.torch_utils import remove_ddp_prefix
 from lab4d.utils.vis_utils import img2color, make_image_grid
@@ -29,7 +34,6 @@ class Trainer:
             opts (Dict): Command-line args from absl (defined in lab4d/config.py)
         """
         # When profiling, use fewer iterations per round so trace files are smaller
-        is_resumed = opts["load_path"] != ""
         if opts["profile"]:
             opts["iters_per_round"] = 10
 
@@ -38,11 +42,19 @@ class Trainer:
         self.define_dataset()
         self.trainer_init()
         self.define_model()
-        self.optimizer_init(is_resumed=is_resumed)
+
+        # move model to ddp
+        self.model = DataParallelPassthrough(
+            self.model,
+            device_ids=[get_local_rank()],
+            output_device=get_local_rank(),
+            find_unused_parameters=False,
+        )
+
+        self.optimizer_init(is_resumed=opts["load_path"] != "")
 
         # load model
-        if is_resumed:
-            self.load_checkpoint_train()
+        self.load_checkpoint_train()
 
     def trainer_init(self):
         """Initialize logger and other misc things"""
@@ -63,9 +75,12 @@ class Trainer:
 
         self.current_steps = 0  # 0-total_steps
         self.current_round = 0  # 0-num_rounds
+        self.first_round = 0  # 0
+        self.first_step = 0  # 0
 
         # 0-last image in eval dataset
         self.eval_fid = np.linspace(0, len(self.evalloader) - 1, 9).astype(int)
+        # self.eval_fid = np.linspace(1200, 1200, 9).astype(int)
 
         # torch.manual_seed(8)  # do it again
         # torch.cuda.manual_seed(1)
@@ -88,18 +103,17 @@ class Trainer:
     def init_model(self):
         """Initialize camera transforms, geometry, articulations, and camera
         intrinsics from external priors, if this is the first run"""
-        opts = self.opts
         # init mlp
         if get_local_rank() == 0:
             self.model.mlp_init()
 
-    def define_model(self):
+    def define_model(self, model=dvr_model):
         """Define a Lab4D model and wrap it with DistributedDataParallel"""
         opts = self.opts
         data_info = self.data_info
 
         self.device = torch.device("cuda:{}".format(get_local_rank()))
-        self.model = dvr_model(opts, data_info)
+        self.model = model(opts, data_info)
 
         # ddp
         self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -107,19 +121,23 @@ class Trainer:
 
         self.init_model()
 
-        self.model = DataParallelPassthrough(
-            self.model,
-            device_ids=[get_local_rank()],
-            output_device=get_local_rank(),
-            find_unused_parameters=False,
-        )
-
         # cache queue of length 2
         self.model_cache = [None, None]
         self.optimizer_cache = [None, None]
         self.scheduler_cache = [None, None]
 
-    def get_lr_dict(self):
+        self.grad_queue = {}
+        self.param_clip_startwith = {
+            "module.fields.field_params.fg.camera_mlp": 10.0,
+            "module.fields.field_params.fg.warp.articulation": 10.0,
+            "module.fields.field_params.fg.basefield": 10.0,
+            "module.fields.field_params.fg.sdf": 10.0,
+            "module.fields.field_params.bg.camera_mlp": 10.0,
+            "module.fields.field_params.bg.basefield": 10.0,
+            "module.fields.field_params.bg.sdf": 10.0,
+        }
+
+    def get_lr_dict(self, pose_correction=False):
         """Return the learning rate for each category of trainable parameters
 
         Returns:
@@ -130,21 +148,33 @@ class Trainer:
         opts = self.opts
         lr_base = opts["learning_rate"]
         lr_explicit = lr_base * 10
+        lr_intrinsics = 0.0 if opts["freeze_intrinsics"] else lr_base
 
         param_lr_startwith = {
             "module.fields.field_params": lr_base,
-            "module.intrinsics": lr_base,
+            "module.intrinsics": lr_intrinsics,
         }
         param_lr_with = {
             ".logibeta": lr_explicit,
             ".logsigma": lr_explicit,
             ".logscale": lr_explicit,
-            ".log_gauss": lr_explicit,
-            ".base_quat": lr_explicit,
-            ".base_logfocal": lr_explicit,
-            ".base_ppoint": lr_explicit,
+            ".log_gauss": 0.0,
+            ".base_quat": 0.0,
             ".shift": lr_explicit,
+            ".orient": lr_explicit,
         }
+
+        if pose_correction:
+            del param_lr_with[".logscale"]
+            del param_lr_with[".log_gauss"]
+            param_lr_with_pose_correction = {
+                "module.fields.field_params.fg.basefield.": 0.0,
+                "module.fields.field_params.fg.sdf.": 0.0,
+                "module.fields.field_params.fg.feature_field": 0.0,
+                "module.fields.field_params.fg.warp.skinning_model": 0.0,
+            }
+            param_lr_with.update(param_lr_with_pose_correction)
+
         return param_lr_startwith, param_lr_with
 
     def optimizer_init(self, is_resumed=False):
@@ -155,59 +185,94 @@ class Trainer:
             is_resumed (bool): True if resuming from checkpoint
         """
         opts = self.opts
+        self.params_ref_list, params_list, lr_list = self.get_optimizable_param_list()
 
-        param_lr_startwith, param_lr_with = self.get_lr_dict()
+        # # one cycle lr
+        # self.optimizer = torch.optim.AdamW(
+        #     params_list,
+        #     lr=opts["learning_rate"],
+        #     betas=(0.9, 0.999),
+        #     weight_decay=1e-4,
+        # )
+        # # initial_lr = lr/div_factor
+        # # min_lr = initial_lr/final_div_factor
+        # # if is_resumed:
+        # if False:
+        #     div_factor = 1.0
+        #     final_div_factor = 25.0
+        #     pct_start = 0.0  # cannot be 0
+        # else:
+        #     div_factor = 25.0
+        #     final_div_factor = 1.0
+        #     pct_start = min(
+        #         1 - 1e-5, 2.0 / opts["num_rounds"]
+        #     )  # use 2 epochs to warm up
+        # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        #     self.optimizer,
+        #     lr_list,
+        #     int(self.total_steps),
+        #     pct_start=pct_start,
+        #     cycle_momentum=False,
+        #     anneal_strategy="linear",
+        #     div_factor=div_factor,
+        #     final_div_factor=final_div_factor,
+        # )
 
-        if opts["freeze_bone_len"]:
-            param_lr_with[".log_bone_len"] = 0
-
-        params_list = []
-        lr_list = []
-        for name, p in self.model.named_parameters():
-            name_found = False
-            for params_name, lr in param_lr_with.items():
-                if params_name in name:
-                    params_list.append({"params": p})
-                    lr_list.append(lr)
-                    name_found = True
-                    if get_local_rank() == 0:
-                        print(name, p.shape, lr)
-
-            if name_found:
-                continue
-            for params_name, lr in param_lr_startwith.items():
-                if name.startswith(params_name):
-                    params_list.append({"params": p})
-                    lr_list.append(lr)
-                    if get_local_rank() == 0:
-                        print(name, p.shape, lr)
-
+        # cyclic lr
+        assert self.total_steps // 2000 * 2000 == self.total_steps # dividible by 2k
         self.optimizer = torch.optim.AdamW(
             params_list,
             lr=opts["learning_rate"],
-            betas=(0.9, 0.999),
+            betas=(0.9, 0.99),
             weight_decay=1e-4,
         )
-        # initial_lr = lr/div_factor
-        # min_lr = initial_lr/final_div_factor
-        if is_resumed:
-            div_factor = 1.0
-            final_div_factor = 5.0
-            pct_start = 0.0  # cannot be 0
-        else:
-            div_factor = 25.0
-            final_div_factor = 1.0
-            pct_start = 2.0 / opts["num_rounds"]  # use 2 epochs to warm up
-        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        self.scheduler = torch.optim.lr_scheduler.CyclicLR(
             self.optimizer,
+            [i * 0.01 for i in lr_list],
             lr_list,
-            int(self.total_steps),
-            pct_start=pct_start,
+            step_size_up=10,
+            step_size_down=1990,
+            mode="triangular",
+            gamma=1.0,
+            scale_mode="cycle",
             cycle_momentum=False,
-            anneal_strategy="linear",
-            div_factor=div_factor,
-            final_div_factor=final_div_factor,
         )
+
+    def get_optimizable_param_list(self):
+        """
+        Get the optimizable param list
+        Returns:
+            params_ref_list (List): List of params
+            params_list (List): List of params
+            lr_list (List): List of learning rates
+        """
+        param_lr_startwith, param_lr_with = self.get_lr_dict(
+            pose_correction=self.opts["pose_correction"]
+        )
+        params_ref_list = []
+        params_list = []
+        lr_list = []
+
+        for name, p in self.model.named_parameters():
+            matched_loose, lr_loose = match_param_name(name, param_lr_with, type="with")
+            matched_strict, lr_strict = match_param_name(
+                name, param_lr_startwith, type="startwith"
+            )
+            if matched_loose > 0:
+                lr = lr_loose  # higher priority
+            elif matched_strict > 0:
+                lr = lr_strict
+            else:
+                lr = 0.0  # not found
+                # print(name, "not found")
+            if lr > 0:
+                params_ref_list.append({name: p})
+                params_list.append({"params": p})
+                lr_list.append(lr)
+                if get_local_rank() == 0:
+                    print(name, p.shape, lr)
+
+        return params_ref_list, params_list, lr_list
 
     def train(self):
         """Training loop"""
@@ -221,36 +286,38 @@ class Trainer:
 
         # start training loop
         self.save_checkpoint(round_count=self.current_round)
-        for round_count in range(
-            self.current_round, self.current_round + opts["num_rounds"]
-        ):
+        for _ in range(self.current_round, self.current_round + opts["num_rounds"]):
             start_time = time.time()
             with torch_profile(
-                self.save_dir, f"{round_count:03d}", enabled=opts["profile"]
+                self.save_dir, f"{self.current_round:03d}", enabled=opts["profile"]
             ):
-                self.run_one_round(round_count)
+                self.run_one_round()
 
             if get_local_rank() == 0:
-                print(f"Round {round_count:03d}: time={time.time() - start_time:.3f}s")
+                print(
+                    f"Round {self.current_round:03d}: time={time.time() - start_time:.3f}s"
+                )
+            self.save_checkpoint(round_count=self.current_round)
 
-    def run_one_round(self, round_count):
-        """Evaluation and training for a single round
-
-        Args:
-            round_count (int): Current round index
-        """
-        self.model.eval()
+    def run_one_round(self):
+        """Evaluation and training for a single round"""
         if get_local_rank() == 0:
-            with torch.no_grad():
+            if self.current_round == self.first_round:
                 self.model_eval()
 
         self.model.update_geometry_aux()
-        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, round_count))
+        self.model.export_geometry_aux("%s/%03d" % (self.save_dir, self.current_round))
+        if (
+            self.current_round > self.opts["num_rounds_cam_init"]
+            and self.opts["absorb_base"]
+        ):
+            self.model.update_camera_aux()
 
         self.model.train()
-        self.train_one_round(round_count)
+        self.train_one_round()
         self.current_round += 1
-        self.save_checkpoint(round_count=self.current_round)
+        if get_local_rank() == 0:
+            self.model_eval()
 
     def save_checkpoint(self, round_count):
         """Save model checkpoint to disk
@@ -300,6 +367,9 @@ class Trainer:
             model_states = remove_ddp_prefix(model_states)
         model.load_state_dict(model_states, strict=False)
 
+        # reset near_far
+        model.fields.reset_geometry_aux()
+
         # if optimizer is not None:
         #     # use the new param_groups that contains the learning rate
         #     checkpoint["optimizer"]["param_groups"] = optimizer.state_dict()[
@@ -312,33 +382,33 @@ class Trainer:
         """Load a checkpoint at training time and update the current step count
         and round count
         """
-        # training time
-        checkpoint = self.load_checkpoint(
-            self.opts["load_path"], self.model, optimizer=self.optimizer
-        )
-        if not self.opts["reset_steps"]:
-            self.current_steps = checkpoint["current_steps"]
-            self.current_round = checkpoint["current_round"]
+        if self.opts["load_path"] != "":
+            # training time
+            checkpoint = self.load_checkpoint(
+                self.opts["load_path"], self.model, optimizer=self.optimizer
+            )
+            if not self.opts["reset_steps"]:
+                self.current_steps = checkpoint["current_steps"]
+                self.current_round = checkpoint["current_round"]
+                self.first_round = self.current_round
+                self.first_step = self.current_steps
 
-        # reset near_far
-        self.model.fields.reset_geometry_aux()
-
-    def train_one_round(self, round_count):
-        """Train a single round (going over mini-batches)
-
-        Args:
-            round_count (int): round index
-        """
+    def train_one_round(self):
+        """Train a single round (going over mini-batches)"""
         opts = self.opts
+        gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
         self.model.train()
+        self.optimizer.zero_grad()
 
-        self.trainloader.sampler.set_epoch(round_count)  # necessary for shuffling
+        # necessary for shuffling
+        self.trainloader.sampler.set_epoch(self.current_round)
         for i, batch in enumerate(self.trainloader):
             if i == opts["iters_per_round"]:
                 break
 
-            self.model.set_progress(self.current_steps)
+            progress = (self.current_steps - self.first_step) / self.total_steps
+            self.model.set_progress(self.current_steps, progress)
 
             loss_dict = self.model(batch)
             total_loss = torch.sum(torch.stack(list(loss_dict.values())))
@@ -346,12 +416,16 @@ class Trainer:
             # print(total_loss)
             # self.print_sum_params()
 
-            self.check_grad()
+            grad_dict = self.check_grad()
             self.optimizer.step()
             self.scheduler.step()
             self.optimizer.zero_grad()
 
             if get_local_rank() == 0:
+                # update scalar dict
+                loss_dict["loss/total"] = total_loss
+                loss_dict.update(self.model.get_field_betas())
+                loss_dict.update(grad_dict)
                 self.add_scalar(self.log, loss_dict, self.current_steps)
             self.current_steps += 1
 
@@ -370,6 +444,8 @@ class Trainer:
         opts_dict["load_pair"] = True
         opts_dict["data_prefix"] = "%s-%d" % (opts["data_prefix"], opts["train_res"])
         opts_dict["feature_type"] = opts["feature_type"]
+        opts_dict["field_type"] = opts["field_type"]
+        opts_dict["eval_res"] = opts["eval_res"]
         opts_dict["dataset_constructor"] = dataset_constructor
 
         if is_eval:
@@ -397,8 +473,11 @@ class Trainer:
                 sum += p.abs().sum()
         print(f"{sum:.16f}")
 
+    @torch.no_grad()
     def model_eval(self):
         """Evaluate the current model"""
+        self.model.eval()
+        gc.collect()  # need to be used together with empty_cache()
         torch.cuda.empty_cache()
         ref_dict, batch = self.load_batch(self.evalloader.dataset, self.eval_fid)
         self.construct_eval_batch(batch)
@@ -447,7 +526,7 @@ class Trainer:
         """
         ref_dict = defaultdict(list)
         batch_aggr = defaultdict(list)
-        ref_keys = ["rgb", "mask", "depth", "feature", "vis2d"]
+        ref_keys = ["rgb", "mask", "depth", "feature", "vis2d", "normal"]
         batch_keys = ["dataid", "frameid_sub", "crop2raw"]
         for fid in fids:
             batch = dataset[fid]
@@ -578,27 +657,68 @@ class Trainer:
 
         return model, data_info, ref_dict
 
-    def check_grad(self, thresh=5.0):
+    def check_grad(self, thresh=10.0):
         """Check if gradients are above a threshold
 
         Args:
             thresh (float): Gradient clipping threshold
         """
-        # parameters that are sensitive to large gradients
+        # detect large gradients and reload model
+        params_list = []
+        for param_dict in self.params_ref_list:
+            ((name, p),) = param_dict.items()
+            if p.requires_grad and p.grad is not None:
+                params_list.append(p)
+                # if p.grad.isnan().any():
+                #     p.grad.zero_()
 
-        param_list = []
-        for name, p in self.model.named_parameters():
-            if p.requires_grad:
-                param_list.append(p)
-
-        grad_norm = torch.nn.utils.clip_grad_norm_(param_list, thresh)
-        if grad_norm > thresh:
+        # check individual parameters
+        grad_norm = torch.nn.utils.clip_grad_norm_(params_list, thresh)
+        if grad_norm > thresh or torch.isnan(grad_norm):
             # clear gradients
             self.optimizer.zero_grad()
+            if get_local_rank() == 0:
+                print("large grad: %.2f, clear gradients" % grad_norm)
             # load cached model from two rounds ago
             if self.model_cache[0] is not None:
                 if get_local_rank() == 0:
-                    print("large grad: %.2f, resume from cached weights" % grad_norm)
+                    print("fallback to cached model")
                 self.model.load_state_dict(self.model_cache[0])
                 self.optimizer.load_state_dict(self.optimizer_cache[0])
                 self.scheduler.load_state_dict(self.scheduler_cache[0])
+            return {}
+
+        # clip individual parameters
+        grad_dict = {}
+        queue_length = 10
+        for param_dict in self.params_ref_list:
+            ((name, p),) = param_dict.items()
+            if p.requires_grad and p.grad is not None:
+                grad = p.grad.reshape(-1).norm(2, -1)
+                grad_dict["grad/" + name] = grad
+                # maintain a queue of grad norm, and clip outlier grads
+                matched_strict, clip_strict = match_param_name(
+                    name, self.param_clip_startwith, type="startwith"
+                )
+                if matched_strict:
+                    scale_threshold = clip_strict
+                else:
+                    continue
+
+                # check the gradient norm
+                if name not in self.grad_queue:
+                    self.grad_queue[name] = []
+                if len(self.grad_queue[name]) > queue_length:
+                    med_grad = torch.stack(self.grad_queue[name][:-1]).median()
+                    grad_dict["grad_med/" + name] = med_grad
+                    if grad > scale_threshold * med_grad:
+                        torch.nn.utils.clip_grad_norm_(p, med_grad)
+                        # if get_local_rank() == 0:
+                        #     print("large grad: %.2f, clear %s" % (grad, name))
+                    else:
+                        self.grad_queue[name].append(grad)
+                        self.grad_queue[name].pop(0)
+                else:
+                    self.grad_queue[name].append(grad)
+
+        return grad_dict

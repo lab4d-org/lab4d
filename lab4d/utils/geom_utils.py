@@ -1,13 +1,17 @@
 # Copyright (c) 2023 Gengshan Yang, Carnegie Mellon University.
+import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 import trimesh
 from scipy.spatial.transform import Rotation as R
 from skimage import measure
+import open3d as o3d
 
 from lab4d.utils.quat_transform import (
     dual_quaternion_apply,
     quaternion_translation_apply,
+    dual_quaternion_to_se3,
 )
 
 
@@ -81,6 +85,101 @@ def dual_quaternion_skinning(dual_quat, pts, skin):
 
     pts = pts.view(*shape)
     return pts
+
+
+def linear_blend_skinning(dual_quat, xyz, skin_prob):
+    """Attach points to SE(3) bones according to skinning weights
+
+    Args:
+        dual_quat: ((M,B,4), (M,B,4)) per-bone SE(3) transforms,
+            written as dual quaternions
+        xyz: (M, ..., 3) Points in object canonical space
+        skin_prob: (M, ..., B) Skinning weights from each point to each bone
+    Returns:
+        pts: (M, ..., 3) Articulated points
+    """
+    shape = xyz.shape
+    xyz = xyz.view(shape[0], -1, 3)  # M, N*D, 3
+    skin_prob = skin_prob.view(shape[0], -1, skin_prob.shape[-1])  # M, N*D, B
+    se3 = dual_quaternion_to_se3(dual_quat)  # M,B,4,4
+    # M ND B 4 4
+    out = se3[:, None, :, :3, :3] @ xyz[:, :, None, :, None]
+    out = out + se3[:, None, :, :3, 3:4]  # M,ND,B,3,1
+    out = (out[..., 0] * skin_prob[..., None]).sum(-2)  # M,ND,B,3
+    out = out.view(shape)
+    return out
+
+
+def slerp(val, low, high, eps=1e-6):
+    """
+    Args:
+        val: (M,) Interpolation value
+        low: (M,4) Low quaternions
+        high: (M,4) High quaternions
+    Returns:
+        out: (M,4) Interpolated quaternions
+    """
+    # Normalize input quaternions.
+    low_norm = F.normalize(low, dim=1)
+    high_norm = F.normalize(high, dim=1)
+
+    # Compute cosine of angle between quaternions.
+    cos_angle = torch.clamp((low_norm * high_norm).sum(dim=1), -1.0 + eps, 1.0 - eps)
+    omega = torch.acos(cos_angle)
+
+    so = torch.sin(omega)
+    t1 = torch.sin((1.0 - val) * omega) / (so + eps)
+    t2 = torch.sin(val * omega) / (so + eps)
+    return t1.unsqueeze(-1) * low + t2.unsqueeze(-1) * high
+
+
+def interpolate_slerp(y, idx_floor, idx_ceil, t_frac):
+    """
+    Args:
+        y: (N,4) Quaternions
+        idx_floor: (M,) Floor indices
+        idx_ceil: (M,) Ceil indices
+        t_frac: (M,) Fractional indices (0-1)
+    Returns:
+        y_interpolated: (M,4) Interpolated quaternions
+    """
+    # Use integer parts to index y
+    idx_ceil.clamp_(max=len(y) - 1)
+    y_floor = y[idx_floor]
+    y_ceil = y[idx_ceil]
+
+    # Check dot product to ensure the shortest path
+    dp = torch.sum(y_floor * y_ceil, dim=-1, keepdim=True)
+    y_ceil = torch.where(dp < 0.0, -y_ceil, y_ceil)
+
+    # Normalize quaternions to be sure
+    y_floor_norm = F.normalize(y_floor, dim=1)
+    y_ceil_norm = F.normalize(y_ceil, dim=1)
+
+    # Compute interpolated quaternion
+    y_interpolated = slerp(t_frac, y_floor_norm, y_ceil_norm)
+    y_interpolated_norm = F.normalize(y_interpolated, dim=1)
+    return y_interpolated_norm
+
+
+def interpolate_linear(y, idx_floor, idx_ceil, t_frac):
+    """
+    Args:
+        y: (N,4) translation
+        idx_floor: (M,) Floor indices
+        idx_ceil: (M,) Ceil indices
+        t_frac: (M,) Fractional indices (0-1)
+    Returns:
+        y_interpolated: (M,4) Interpolated translation
+    """
+    # Use integer parts to index y
+    idx_ceil.clamp_(max=len(y) - 1)
+    y_floor = y[idx_floor]
+    y_ceil = y[idx_ceil]
+
+    # Compute interpolated quaternion
+    y_interpolated = y_floor + t_frac[..., None] * (y_ceil - y_floor)
+    return y_interpolated
 
 
 def hat_map(v):
@@ -411,14 +510,15 @@ def extend_aabb(aabb, factor=0.1):
     If aabb = [-1,1] and factor = 1, the extended aabb will be [-3,3]
 
     Args:
-        aabb: Axis-aligned bounding box, (2,3)
+        aabb: Axis-aligned bounding box, ((N,)2,3)
         factor (float): Amount to extend on each side
     Returns:
-        aabb_new: Extended aabb, (2,3)
+        aabb_new: Extended aabb, ((N,)2,3)
     """
     aabb_new = aabb.clone()
-    aabb_new[0] = aabb[0] - (aabb[1] - aabb[0]) * factor
-    aabb_new[1] = aabb[1] + (aabb[1] - aabb[0]) * factor
+    size = (aabb[..., 1, :] - aabb[..., 0, :]) * factor
+    aabb_new[..., 0, :] = aabb[..., 0, :] - size
+    aabb_new[..., 1, :] = aabb[..., 1, :] + size
     return aabb_new
 
 
@@ -507,11 +607,276 @@ def check_inside_aabb(xyz, aabb):
     """Return a mask of whether the input poins are inside the aabb
 
     Args:
-        xyz: (N,3) Points in object canonical space to query
-        aabb: (2,3) axis-aligned bounding box
+        xyz: (N,...,3) Points in object canonical space to query
+        aabb: (N,2,3) axis-aligned bounding box
     Returns:
-        inside_aabb: (N) Inside mask, bool
+        inside_aabb: (N,...,) Inside mask, bool
     """
     # check whether the point is inside the aabb
-    inside_aabb = ((xyz > aabb[:1]) & (xyz < aabb[1:])).all(-1)
+    shape = xyz.shape[:-1]
+    aabb = aabb.view((aabb.shape[0], 2) + (1,) * (len(shape) - 1) + (3,))
+    inside_aabb = ((xyz > aabb[:, 0]) & (xyz < aabb[:, 1])).all(-1)
     return inside_aabb
+
+
+def compute_rectification_se3(mesh, up_direction, threshold=0.01, init_n=3, iter=2000):
+    # run ransac to get plane
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
+    hypos = []
+    n_hypo = 5
+    for _ in range(n_hypo):
+        if len(pcd.points) < 3:
+            break
+        best_eq, index = pcd.segment_plane(threshold, init_n, iter)
+        # visibile plane given z direction
+        if best_eq[2] > 0:
+            best_eq = -1 * best_eq
+
+        segmented_pts = pcd.select_by_index(index)
+        pts_left = np.asarray(pcd.points)[~np.isin(np.arange(len(pcd.points)), index)]
+        pcd.points = o3d.utility.Vector3dVector(pts_left)
+        # print("segmented plane pts: ", len(segmented_pts.points) / len(mesh.vertices))
+        score = np.asarray(up_direction).dot(best_eq[:3])
+        hypos.append((best_eq, segmented_pts, score))
+    # find the one with best score
+    best_eq, segmented_pts, score = sorted(hypos, key=lambda x: x[-1])[-1]
+
+    # get se3
+    plane_n = np.asarray(best_eq[:3])
+    center = np.asarray(segmented_pts.points).mean(0)
+    dist = (center * plane_n).sum() + best_eq[3]
+    plane_o = center - plane_n * dist
+    plane = np.concatenate([plane_o, plane_n])
+
+    # xz plane
+    bg2world = plane_transform(origin=plane[:3], normal=plane[3:6], axis=[0, -1, 0])
+
+    # further transform the xz plane center to align with origin
+    mesh_rectified = mesh.copy()
+    mesh_rectified.apply_transform(bg2world)
+    bounds = mesh_rectified.bounds
+    center = (bounds[0] + bounds[1]) / 2
+    bg2world[0, 3] -= center[0]
+    bg2world[2, 3] -= center[2]
+
+    # # DEBUG only
+    # mesh.export("tmp/raw.obj")
+    # mesh.apply_transform(bg2world)
+    # mesh.export("tmp/rect.obj")
+    # import pdb
+
+    # pdb.set_trace()
+
+    bg2world = torch.Tensor(bg2world)
+    return bg2world
+
+
+def plane_transform(origin, normal, axis=[0, 1, 0]):
+    """
+    # modified from https://github.com/mikedh/trimesh/blob/main/trimesh/geometry.py#L14
+    Given the origin and normal of a plane find the transform
+    that will move that plane to be coplanar with the XZ plane.
+    Parameters
+    ----------
+    origin : (3,) float
+        Point that lies on the plane
+    normal : (3,) float
+        Vector that points along normal of plane
+    Returns
+    ---------
+    transform: (4,4) float
+        Transformation matrix to move points onto XZ plane
+    """
+    normal = normal / (1e-6 + np.linalg.norm(normal))
+    # transform = align_vectors(normal, axis)
+    transform = np.eye(4)
+    transform[:3, :3] = align_vector_a_to_b(normal, axis)
+    if origin is not None:
+        transform[:3, 3] = -np.dot(transform, np.append(origin, 1))[:3]
+    return transform
+
+
+def align_vector_a_to_b(a, b):
+    """Find the rotation matrix that transforms one 3D vector
+    to another.
+    Args:
+        a : (3,) float
+          Unit vector
+        b : (3,) float
+          Unit vector
+    Returns:
+        matrix : (3, 3) float
+          Rotation matrix to rotate from `a` to `b`
+    """
+    # Ensure the vectors are numpy arrays
+    a = np.array(a)
+    b = np.array(b)
+
+    # Check if vectors are non-zero
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        raise ValueError("Vectors must be non-zero")
+
+    # Normalize the vectors
+    a_hat = a / np.linalg.norm(a)
+    b_hat = b / np.linalg.norm(b)
+
+    # Compute the rotation axis (normal to the plane formed by a and b)
+    axis = np.cross(a_hat, b_hat)
+
+    # Compute the cosine of the angle between a_hat and b_hat
+    cos_angle = np.dot(a_hat, b_hat)
+
+    # Handling numerical imprecision
+    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+
+    # Compute the angle of rotation
+    angle = np.arccos(cos_angle)
+
+    # If vectors are parallel or anti-parallel, no axis is determined. Handle separately
+    if np.isclose(angle, 0.0):
+        return np.eye(3)  # Identity matrix, no rotation needed
+    elif np.isclose(angle, np.pi):
+        # Find a perpendicular vector
+        axis = np.cross(a_hat, np.array([1, 0, 0]))
+        if np.linalg.norm(axis) < 1e-10:
+            axis = np.cross(a_hat, np.array([0, 1, 0]))
+    axis = axis / np.linalg.norm(axis)  # Normalize axis
+
+    # Compute the rotation matrix using the axis-angle representation
+    axis_matrix = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
+
+    rotation_matrix = (
+        np.eye(3)
+        + np.sin(angle) * axis_matrix
+        + (1 - np.cos(angle)) * np.dot(axis_matrix, axis_matrix)
+    )
+
+    return rotation_matrix
+
+
+def align_vectors(a, b, return_angle=False):
+    """
+    # modified from https://github.com/mikedh/trimesh/blob/main/trimesh/geometry.py#L38
+    Find the rotation matrix that transforms one 3D vector
+    to another.
+    Parameters
+    ------------
+    a : (3,) float
+      Unit vector
+    b : (3,) float
+      Unit vector
+    return_angle : bool
+      Return the angle between vectors or not
+    Returns
+    -------------
+    matrix : (4, 4) float
+      Homogeneous transform to rotate from `a` to `b`
+    angle : float
+      If `return_angle` angle in radians between `a` and `b`
+    """
+    a = np.array(a, dtype=np.float64)
+    b = np.array(b, dtype=np.float64)
+    if a.shape != (3,) or b.shape != (3,):
+        raise ValueError("vectors must be (3,)!")
+
+    # find the SVD of the two vectors
+    au = np.linalg.svd(a.reshape((-1, 1)))[0]
+    bu = np.linalg.svd(b.reshape((-1, 1)))[0]
+
+    if np.linalg.det(au) < 0:
+        au[:, -1] *= -1.0
+    if np.linalg.det(bu) < 0:
+        bu[:, -1] *= -1.0
+
+    # put rotation into homogeneous transformation
+    matrix = np.eye(4)
+    matrix[:3, :3] = bu.dot(au.T)
+
+    if return_angle:
+        # projection of a onto b
+        # first row of SVD result is normalized source vector
+        dot = np.dot(au[0], bu[0])
+        # clip to avoid floating point error
+        angle = np.arccos(np.clip(dot, -1.0, 1.0))
+        if dot < -1e-5:
+            angle += np.pi
+        return matrix, angle
+
+    return matrix
+
+
+def se3_inv(rtmat):
+    """Invert an SE(3) matrix
+
+    Args:
+        rtmat: (..., 4, 4) SE(3) matrix
+    Returns:
+        rtmat_inv: (..., 4, 4) Inverse SE(3) matrix
+    """
+    rmat, tmat = se3_mat2rt(rtmat)
+    rmat = rmat.transpose(-1, -2)
+    tmat = -rmat @ tmat[..., None]
+    rtmat[..., :3, :3] = rmat
+    rtmat[..., :3, 3] = tmat[..., 0]
+    return rtmat
+
+
+def rotation_over_plane(N, dim1, dim2, angle):
+    """
+    Create an N x N rotation matrix for a rotation over the plane defined by
+    the two dimensions dim1 and dim2.
+
+    Parameters:
+    - N (int): The dimensionality.
+    - dim1/2 (int): The axis around which to rotate (0-based index).
+    - angle (float): The rotation angle in degrees.
+
+    Returns:
+    - ndarray: The rotation matrix.
+    """
+
+    # Basic error check
+    if N == 1:
+        return np.eye(1)
+    if dim1 >= N or dim1 < 0 or dim2 >= N or dim2 < 0:
+        raise ValueError("The axis index i is out of bounds for dimensionality N.")
+
+    # Calculate cosine and sine values for the rotation angle
+    c = np.cos(angle)
+    s = np.sin(angle)
+
+    # Create the 2D rotation block
+    R_2D = np.array([[c, -s], [s, c]])
+
+    # Insert the 2D rotation block into the top-left
+    R_ND = np.eye(N)
+    R_ND[:2, :2] = R_2D
+
+    # If dim is not 0, create the permutation matrix and apply the axis swapping
+    P = np.eye(N)
+    P[0], P[dim1] = P[dim1].copy(), P[0].copy()  # Swap rows
+    P[1], P[dim2] = P[dim2].copy(), P[1].copy()  # Swap columns
+    R_ND = P @ R_ND @ P.T  # Apply permutation to the base rotation matrix
+
+    return R_ND
+
+
+def get_pre_rotation(in_channels):
+    """Get the pre-rotation matrix for the input coordinates in positional encoding
+
+    Args:
+        in_channels (int): Number of input channels
+
+    Returns:
+        rot_mat (ndarray): Rotation matrix
+    """
+    rot_mat = [np.eye(in_channels)]
+    angle = np.pi / 4
+    for dim1 in range(in_channels):
+        for dim2 in range(dim1):
+            rot_mat.append(rotation_over_plane(in_channels, dim1, dim2, angle))
+    rot_mat = np.concatenate(rot_mat, axis=0)
+    return rot_mat

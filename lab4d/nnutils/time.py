@@ -5,7 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from lab4d.nnutils.base import BaseMLP
-from lab4d.nnutils.embedding import PosEmbedding, TimeEmbedding, get_fourier_embed_dim
+from lab4d.nnutils.embedding import (
+    PosEmbedding,
+    TimeEmbedding,
+    TimeEmbeddingRest,
+    get_fourier_embed_dim,
+)
 
 
 class TimeMLP(BaseMLP):
@@ -31,7 +36,12 @@ class TimeMLP(BaseMLP):
         skips=[],
         activation=nn.ReLU(True),
         time_scale=1.0,
+        bottleneck_dim=None,
+        has_rest=False,
     ):
+        if bottleneck_dim is None:
+            bottleneck_dim = W
+
         frame_offset = frame_info["frame_offset"]
         # frame_offset_raw = frame_info["frame_offset_raw"]
         if num_freq_t > 0:
@@ -46,15 +56,20 @@ class TimeMLP(BaseMLP):
         super().__init__(
             D=D,
             W=W,
-            in_channels=W,
+            in_channels=bottleneck_dim,
             out_channels=W,
             skips=skips,
             activation=activation,
             final_act=True,
         )
 
-        self.time_embedding = TimeEmbedding(
-            num_freq_t, frame_info, out_channels=W, time_scale=time_scale
+        if has_rest:
+            arch = TimeEmbeddingRest
+        else:
+            arch = TimeEmbedding
+
+        self.time_embedding = arch(
+            num_freq_t, frame_info, out_channels=bottleneck_dim, time_scale=time_scale
         )
 
         def loss_fn(y):

@@ -4,12 +4,13 @@ from typing import Dict
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from lab4d.utils.geom_utils import so3_to_exp_map
 from lab4d.utils.quat_transform import (
     axis_angle_to_quaternion,
     matrix_to_quaternion,
-    quaternion_translation_mul,
+    dual_quaternion_mul,
     quaternion_translation_to_dual_quaternion,
     dual_quaternion_to_quaternion_translation,
 )
@@ -47,20 +48,22 @@ def rest_joints_to_local(rest_joints, edges):
     return local_rest_joints
 
 
-def fk_se3(local_rest_joints, so3, edges, to_dq=True):
-    """Compute forward kinematics given joint angles on a skeleton
+def fk_se3(local_rest_joints, so3, edges, to_dq=True, local_rest_coord=None):
+    """Compute forward kinematics given joint angles on a skeleton.
+    If local_rest_rmat is None, assuming identity rotation in zero configuration.
 
     Args:
         local_rest_joints: (B, 3) Translations from parent to current joints,
-            assuming identity rotation in zero configuration
         so3: (..., B, 3) Axis-angles at each joint
         edges (Dict(int, int)): Maps each joint to its parent joint
         to_dq (bool): If True, output link rigid transforms as dual quaternions,
             otherwise output SE(3)
+        local_rest_rot: (B, 3, 3) Local rotations
     Returns:
         out: Location of each joint. This is written as dual quaternions
             ((..., B, 4), (..., B, 4)) if to_dq=True, otherwise it is written
             as (..., B, 4, 4) SE(3) matrices.
+            link to global transforms X_global = T_1...T_k x X_k
     """
     assert local_rest_joints.shape == so3.shape
     shape = so3.shape
@@ -70,15 +73,22 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True):
     identity_rt = identity_rt.view((1,) * (len(shape) - 2) + (-1, 4, 4))
     identity_rt = identity_rt.expand(*shape[:-1], -1, -1).clone()
     identity_rt_slice = identity_rt[..., 0, :, :].clone()
-    local_to_parent = identity_rt.clone()
     global_rt = identity_rt.clone()
 
+    if local_rest_coord is None:
+        local_rmat = so3_to_exp_map(so3)
+    else:
+        local_rmat = local_rest_coord[:, :3, :3]
+        local_rmat = local_rmat.view((1,) * (len(shape) - 2) + (-1, 3, 3))
+        local_rmat = local_rmat @ so3_to_exp_map(so3)
+
+    local_to_parent = torch.cat([local_rmat, local_rest_joints[..., None]], -1)
+    local_to_parent = torch.cat([local_to_parent, identity_rt[..., -1:, :]], -2)
+
     # get local rt transformation: (..., k, 4, 4)
+    # parent ... child
     # first rotate around joint i
     # then translate wrt the relative position of the parent to i
-    local_to_parent[..., :3, :3] = so3_to_exp_map(so3)
-    local_to_parent[..., :3, 3] = local_rest_joints
-
     for idx, parent_idx in edges.items():
         if parent_idx > 0:
             parent_to_global = global_rt[..., parent_idx - 1, :, :].clone()
@@ -98,7 +108,7 @@ def fk_se3(local_rest_joints, so3, edges, to_dq=True):
         return global_rt
 
 
-def shift_joints_to_bones_dq(dq, edges, shift=None):
+def shift_joints_to_bones_dq(dq, edges):
     """Compute bone centers and orientations from joint locations
 
     Args:
@@ -110,8 +120,6 @@ def shift_joints_to_bones_dq(dq, edges, shift=None):
             written as dual quaternions
     """
     quat, joints = dual_quaternion_to_quaternion_translation(dq)
-    if shift is not None:
-        joints += shift.reshape((1,) * (joints[0].ndim - 1) + (3,))
     joints = shift_joints_to_bones(joints, edges)
     dq = quaternion_translation_to_dual_quaternion(quat, joints)
     return dq
@@ -135,6 +143,31 @@ def shift_joints_to_bones(joints, edges):
             # average over all the children
             joints[..., i, :] = (joint_center[..., parent_idx == i, :]).mean(dim=-2)
     return joints
+
+
+def apply_root_offset(dq, shift, orient):
+    """Compute bone centers and orientations from joint locations
+
+    Args:
+        dq: ((..., B, 4), (..., B, 4)) Location of each joint, written as dual
+            quaternions
+        edges (Dict(int, int)): Maps each joint to its parent joint
+    Returns:
+        dq: ((..., B, 4), (..., B, 4)) Bone-to-object SE(3) transforms,
+            written as dual quaternions
+    """
+    # normliaze the quaternion
+    orient = F.normalize(orient, 2, dim=-1)
+    ndim = dq[0].ndim
+    shape = dq[0].shape
+    shift = shift.reshape((1,) * (ndim - 1) + (3,))
+    shift = shift.expand(*shape[:-1], -1)
+    orient = orient.reshape((1,) * (ndim - 1) + (4,))
+    orient = orient.expand(*shape[:-1], -1)
+    offset_dq = quaternion_translation_to_dual_quaternion(orient, shift)
+    dq = dual_quaternion_mul(offset_dq, dq)
+
+    return dq
 
 
 def get_predefined_skeleton(skel_type):
@@ -230,7 +263,7 @@ def get_predefined_skeleton(skel_type):
         22: 0,  # right hip
         2: 1,  # spine 2
         3: 2,  # spine 3
-        4: 3,  # spine 4
+        4: 3,  # head
         5: 3,  # left shoulder
         9: 3,  # right shoulder
         6: 5,  # left elbow

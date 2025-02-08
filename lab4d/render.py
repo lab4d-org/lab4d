@@ -74,6 +74,9 @@ def construct_batch_from_opts(opts, model, data_info):
             frameid_start = data_info["frame_info"]["frame_offset_raw"][video_id]
             frameid_sub = frameid - frameid_start
             render_length = len(frameid)
+        # remove last frame to be consistent with flow
+        frameid_sub = frameid_sub[:-1]
+        render_length = render_length - 1
     elif opts["freeze_id"] >= 0 and opts["freeze_id"] < vid_length:
         if opts["num_frames"] <= 0:
             num_frames = vid_length
@@ -87,11 +90,12 @@ def construct_batch_from_opts(opts, model, data_info):
 
     # get cameras wrt each field
     with torch.no_grad():
+        frameid = torch.tensor(frameid, device=device)
         field2cam_fr = model.fields.get_cameras(frame_id=frameid)
         intrinsics_fr = model.intrinsics.get_vals(
             frameid_sub + data_info["frame_info"]["frame_offset_raw"][video_id]
         )
-        aabb = model.fields.get_aabb()
+        aabb = model.fields.get_aabb(inst_id=opts["inst_id"])
     # convert to numpy
     for k, v in field2cam_fr.items():
         field2cam_fr[k] = v.cpu().numpy()
@@ -114,7 +118,7 @@ def construct_batch_from_opts(opts, model, data_info):
         elev, max_angle = [int(val) for val in opts["viewpoint"].split("-")[1:]]
 
         # bg_to_cam
-        obj_size = (aabb["fg"][1, :] - aabb["fg"][0, :]).max()
+        obj_size = (aabb["fg"][0, 1, :] - aabb["fg"][0, 0, :]).max()
         cam_traj = get_rotating_cam(
             len(frameid_sub), distance=obj_size * 2.5, max_angle=max_angle
         )
@@ -191,6 +195,10 @@ def render(opts, construct_batch_func):
     opts["logroot"] = sys.argv[1].split("=")[1].rsplit("/", 2)[0]
     model, data_info, ref_dict = Trainer.construct_test_model(opts)
     batch, raw_size = construct_batch_func(opts, model, data_info)
+    # # TODO: make eval_res and render_res consistent
+    if opts["render_res"] == opts["eval_res"] and opts["viewpoint"] == "ref":
+        feature = ref_dict["ref_feature"].reshape(-1, opts["eval_res"] ** 2, 16)
+        batch["feature"] = torch.tensor(feature, device="cuda")
     save_dir = make_save_dir(
         opts, sub_dir="renderings_%04d/%s" % (opts["inst_id"], opts["viewpoint"])
     )

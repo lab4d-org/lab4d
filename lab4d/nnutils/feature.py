@@ -2,13 +2,19 @@
 import numpy as np
 import torch
 import trimesh
+import cv2
 from torch import nn
 
 from lab4d.nnutils.base import BaseMLP
 from lab4d.nnutils.embedding import PosEmbedding
 from lab4d.nnutils.nerf import NeRF
 from lab4d.utils.decorator import train_only_fields
-from lab4d.utils.geom_utils import Kmatinv, pinhole_projection
+from lab4d.utils.geom_utils import (
+    Kmatinv,
+    pinhole_projection,
+    extend_aabb,
+    check_inside_aabb,
+)
 
 
 class FeatureNeRF(NeRF):
@@ -85,6 +91,10 @@ class FeatureNeRF(NeRF):
 
         sigma = torch.tensor([1.0])
         self.logsigma = nn.Parameter(sigma.log())
+        self.set_match_region(sample_around_surface=True)
+
+    def set_match_region(self, sample_around_surface):
+        self.sample_around_surface = sample_around_surface
 
     def query_field(self, samples_dict, flow_thresh=None):
         """Render outputs from a neural radiance field.
@@ -119,6 +129,8 @@ class FeatureNeRF(NeRF):
         # global matching
         if "feature" in samples_dict and "feature" in feat_dict:
             feature = feat_dict["feature"]
+            sdf = feat_dict["sdf"]
+            feature, xyz = self.propose_matches(feature, xyz.detach(), sdf)
             xyz_matches = self.global_match(samples_dict["feature"], feature, xyz)
             xy_reproj, xyz_reproj = self.forward_project(
                 xyz_matches,
@@ -130,10 +142,98 @@ class FeatureNeRF(NeRF):
             )
             aux_dict["xyz_matches"] = xyz_matches
             aux_dict["xyz_reproj"] = xyz_reproj
-            aux_dict["xy_reproj"] = xy_reproj
+            hxy = samples_dict["hxy"][..., :2]
+            aux_dict["xy_reproj"] = (xy_reproj - hxy).norm(2, -1, keepdim=True)
+            # # visualize matches
+            # if not self.training:
+            #     img = self.plot_xy_matches(xy_reproj, samples_dict)
+            #     cv2.imwrite("tmp/arrow.png", img)
+            #     trimesh.Trimesh(vertices=xyz_matches[0].cpu().numpy()).export(
+            #         "tmp/matches.obj"
+            #     )
+            # import pdb
+
+            # pdb.set_trace()
         return feat_dict, deltas, aux_dict
 
-    @train_only_fields
+    def plot_xy_matches(self, xy_reproj, samples_dict):
+        # plot arrow from hxy to xy_reproj
+        res = int(np.sqrt(samples_dict["hxy"].shape[1]))
+        img = np.zeros((res * 16, res * 16, 3), dtype=np.uint8)
+        hxy_vis = samples_dict["hxy"].view(-1, res, res, 3)[..., :2].cpu().numpy()
+        xy_reproj_vis = xy_reproj.view(-1, res, res, 2).cpu().numpy()
+        feature_vis = samples_dict["feature"].view(-1, res, res, 16)
+        for i in range(res):
+            for j in range(res):
+                if feature_vis[0, i, j].norm(2, -1) == 0:
+                    continue
+                # draw a line
+                img = cv2.arrowedLine(
+                    img,
+                    tuple(hxy_vis[0, i, j] * 16),
+                    tuple(xy_reproj_vis[0, i, j] * 16),
+                    (0, 255, 0),
+                    1,
+                )
+        return img
+
+    def propose_matches(self, feature, xyz, sdf, num_candidates=8192):
+        """Sample canonical points for global matching
+        Args:
+            feature: (M,N,D,feature_channels) Pixel features
+            xyz: (M,N,D,3) Points in field coordinates
+            num_candidates: Number of candidates to sample
+        Returns:
+            feature: (num_candidates, feature_channels) Canonical features
+            xyz: (num_candidates, 3) Points in field coordinates
+        """
+        # threshold
+        if self.sample_around_surface:
+            thresh = 0.005
+        else:
+            thresh = 1
+        # sample canonical points
+        feature = feature.view(-1, feature.shape[-1])  # (M*N*D, feature_channels)
+        xyz = xyz.view(-1, 3)  # (M*N*D, 3)
+
+        # remove points outsize aabb
+        aabb = self.get_aabb()
+        aabb = extend_aabb(aabb, 0.1)
+        inside_aabb = check_inside_aabb(xyz, aabb)
+        feature = feature[inside_aabb]
+        xyz = xyz[inside_aabb]
+        sdf = sdf.view(-1)[inside_aabb]
+
+        # remove points far from the surface beyond a sdf threshold
+        is_near_surface = sdf.abs() < thresh
+        feature = feature[is_near_surface]
+        xyz = xyz[is_near_surface]
+
+        num_candidates = min(num_candidates, feature.shape[0])
+        idx = torch.randperm(feature.shape[0])[: num_candidates // 2]
+        feature = feature[idx]  # (num_candidates, feature_channels)
+        xyz = xyz[idx]  # (num_candidates, 3)
+
+        # sample additional points
+        if self.sample_around_surface:
+            # sample from proxy geometry on the surface
+            proxy_geometry = self.get_proxy_geometry()
+            rand_xyz, _ = trimesh.sample.sample_surface(
+                proxy_geometry, num_candidates // 2
+            )
+            rand_xyz = torch.tensor(rand_xyz, dtype=torch.float32, device=xyz.device)
+        else:
+            # sample from aabb
+            rand_xyz, _, _ = self.sample_points_aabb(
+                num_candidates // 2, extend_factor=0.1
+            )
+        rand_feat = self.compute_feat(rand_xyz)["feature"]
+
+        # combine
+        feature = torch.cat([feature, rand_feat], dim=0)
+        xyz = torch.cat([xyz, rand_xyz], dim=0)
+        return feature, xyz
+
     def compute_feat(self, xyz):
         """Render feature field
 
@@ -154,47 +254,35 @@ class FeatureNeRF(NeRF):
         feat_px,
         feat_canonical,
         xyz_canonical,
-        num_candidates=1024,
-        num_grad=128,
+        num_grad=0,
     ):
         """Match pixel features to canonical features, which combats local
         minima in differentiable rendering optimization
 
         Args:
             feat: (M,N,feature_channels) Pixel features
-            feat_canonical: (M,N,D,feature_channels) Canonical features
-            xyz_canonical: (M,N,D,3) Canonical points
+            feat_canonical: (...,feature_channels) Canonical features
+            xyz_canonical: (...,3) Canonical points
         Returns:
             xyz_matched: (M,N,3) Matched xyz
         """
         shape = feat_px.shape
         feat_px = feat_px.view(-1, shape[-1])  # (M*N, feature_channels)
-        feat_canonical = feat_canonical.view(-1, shape[-1])  # (M*N*D, feature_channels)
-        xyz_canonical = xyz_canonical.view(-1, 3)  # (M*N*D, 3)
-
-        # sample canonical points
-        num_candidates = min(num_candidates, feat_canonical.shape[0])
-        idx = torch.randperm(feat_canonical.shape[0])[:num_candidates]
-        feat_canonical = feat_canonical[idx]  # (num_candidates, feature_channels)
-        xyz_canonical = xyz_canonical[idx]  # (num_candidates, 3)
 
         # compute similarity
         score = torch.matmul(feat_px, feat_canonical.t())  # (M*N, num_candidates)
 
-        # # find top K candidates
-        # num_grad = min(num_grad, score.shape[1])
-        # score, idx = torch.topk(score, num_grad, dim=1, largest=True)
-        # score = score * self.logsigma.exp()  # temperature
+        # find top K candidates
+        if num_grad > 0:
+            num_grad = min(num_grad, score.shape[1])
+            score, idx = torch.topk(score, num_grad, dim=1, largest=True)
+            xyz_canonical = xyz_canonical[idx]
 
-        # # soft argmin
-        # prob = torch.softmax(score, dim=1)
-        # xyz_matched = torch.sum(prob.unsqueeze(-1) * xyz_canonical[idx], dim=1)
-
-        # use all candidates
+        # soft argmin
+        # score = score.detach()  # do not backprop to features
         score = score * self.logsigma.exp()  # temperature
         prob = torch.softmax(score, dim=1)
         xyz_matched = torch.sum(prob.unsqueeze(-1) * xyz_canonical, dim=1)
-
         xyz_matched = xyz_matched.view(shape[:-1] + (-1,))
         return xyz_matched
 

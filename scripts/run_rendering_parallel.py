@@ -27,7 +27,7 @@ print(
 # render proxy over rounds
 logdir = flagfile.rsplit("/", 1)[0]
 subprocess.Popen(
-    f"python scripts/render_intermediate.py --testdir {logdir}/", shell=True
+    f"python lab4d/render_intermediate.py --testdir {logdir}/", shell=True
 )
 
 # Loop over each device.
